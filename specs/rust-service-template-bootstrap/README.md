@@ -15,8 +15,9 @@ the orchestrating agent acting as the user's surrogate for decisions.
 | 1. Analysis | `analyst` | [Capability catalog](capability-catalog.md) | Complete |
 | 1. Analysis | `create-brief` | [Product brief](product-brief.md) | Complete |
 | 2. Planning | `create-prd`, `validate-prd`, `edit-prd` | [PRD](prd.md) | Complete |
-| 3. Solutioning | `create-architecture`, `validate-architecture` | Architecture (core and delivery) | In validation |
-| 3. Solutioning | `create-epics-stories`, `validate-epics-stories` | Epics and stories | Pending |
+| 3. Solutioning | `create-architecture`, `validate-architecture` | [Architecture: core](architecture.md) | Complete |
+| 3. Solutioning | `create-architecture`, `validate-architecture` | [Architecture: delivery](architecture-delivery.md) | Complete |
+| 3. Solutioning | `create-epics-stories`, `validate-epics-stories` | Epics and stories | In validation |
 | 3. Solutioning | `implementation-readiness` | Implementation readiness | Pending |
 | — | orchestrator | [Scope decisions](scope-decisions.md) | Living record |
 | — | orchestrator | Run summary | Pending |
@@ -35,6 +36,12 @@ the orchestrating agent acting as the user's surrogate for decisions.
    preserve. The PRD traces to these ids.
 4. [Product brief](product-brief.md) and [PRD](prd.md) — users, journeys,
    functional and non-functional requirements, quality gates.
+5. [Architecture: core](architecture.md) — workspace and crates, the 27
+   architecture decisions, signatures, API contract, data, configuration,
+   quality-gate commands and test architecture.
+6. [Architecture: delivery](architecture-delivery.md) — Make command surface,
+   containers and compose, CI workflows, release, hooks, load testing, Bats,
+   AI guidance and the repository file manifest.
 
 ## Notes
 
