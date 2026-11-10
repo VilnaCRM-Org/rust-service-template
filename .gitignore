@@ -22,3 +22,12 @@ rustc-ice-*.txt
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+
+# BMAD + bmalph: generated planning/implementation assets stay local.
+# Regenerate them with `bmalph init` / `bmalph upgrade`; tracked planning
+# bundles live under specs/.
+.ralph/
+.ralph/logs/
+_bmad/
+_bmad-output/
+bmalph/state/
