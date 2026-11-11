@@ -17,7 +17,7 @@ the orchestrating agent acting as the user's surrogate for decisions.
 | 2. Planning | `create-prd`, `validate-prd`, `edit-prd` | [PRD](prd.md) | Complete |
 | 3. Solutioning | `create-architecture`, `validate-architecture` | [Architecture: core](architecture.md) | Complete |
 | 3. Solutioning | `create-architecture`, `validate-architecture` | [Architecture: delivery](architecture-delivery.md) | Complete |
-| 3. Solutioning | `create-epics-stories`, `validate-epics-stories` | Epics and stories | In validation |
+| 3. Solutioning | `create-epics-stories`, `validate-epics-stories` | [Epics and stories](epics.md) | Complete |
 | 3. Solutioning | `implementation-readiness` | Implementation readiness | Pending |
 | — | orchestrator | [Scope decisions](scope-decisions.md) | Living record |
 | — | orchestrator | Run summary | Pending |
