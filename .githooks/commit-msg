@@ -1,0 +1,2 @@
+#!/bin/sh
+COMMIT_MSG_FILE="$1" exec make --no-print-directory check-commit-message
