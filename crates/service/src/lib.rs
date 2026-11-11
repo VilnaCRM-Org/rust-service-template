@@ -7,6 +7,7 @@ use clap::Parser as _;
 
 use crate::cli::Cli;
 
+pub mod bootstrap;
 pub mod cli;
 pub mod command;
 pub mod config;
