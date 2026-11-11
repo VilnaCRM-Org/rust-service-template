@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Repository invariants (gate G31, FR125): pins, toolchain agreement, gate set, repository name, licence,
 # blanket suppressions and the execution switch. One rule per letter:
-#   (a) workflow hygiene: pinned actions, permissions, concurrency, timeouts
+#   (a) workflow hygiene: pinned actions, permissions (declared, none that writes at the top level), concurrency, timeouts
 #   (b) pinned images, tools, features and downloads
 #   (c) one toolchain version in rust-toolchain.toml, the builder image tag and rust-version
 #   (d) the gate set of `make ci-list` equals the gate set of the workflows; Bats groups; required checks
@@ -140,6 +140,12 @@ check_workflow_hygiene() {
     }
     /^[[:space:]]*#/ { next }
     /^permissions:/ { top_perm = 1 }
+    /^[^[:space:]#]/ { in_top_perm = ($0 ~ /^permissions:/) }
+    in_top_perm {
+      v = $0
+      sub(/[[:space:]]*#.*$/, "", v)
+      if (v ~ /write/) out("line " NR ": the top-level permissions block grants write access; write permissions belong to the job that needs them")
+    }
     /^concurrency:/ { top_conc = 1 }
     /^[[:space:]-]*uses:/ {
       v = $0
@@ -218,11 +224,14 @@ check_dockerfile_images() {
   while IFS= read -r line || [[ -n "${line}" ]]; do
     number=$((number + 1))
     # The BuildKit frontend named by the `# syntax=` parser directive is an image that parses and runs the
-    # build: it needs a version tag and a digest like every other image. Parser directives stand at the top,
-    # before the first line that is not a directive.
+    # build: it needs a version tag and a digest like every other image. Parser directives (`# name=value`,
+    # for example `# escape=` or `# check=`) stand at the top in any order, before the first line that is not
+    # a directive; a comment, an empty line or an instruction ends them.
     if [[ "${in_directives}" == 1 ]]; then
-      if [[ "${line}" =~ ^#[[:space:]]*[Ss][Yy][Nn][Tt][Aa][Xx][[:space:]]*=[[:space:]]*([^[:space:]]+) ]]; then
-        check_image_ref "${file}:${number}" "${BASH_REMATCH[1]}"
+      if [[ "${line}" =~ ^#[[:space:]]*([A-Za-z][A-Za-z0-9_-]*)[[:space:]]*=[[:space:]]*([^[:space:]]*) ]]; then
+        if [[ "$(printf '%s' "${BASH_REMATCH[1]}" | tr '[:upper:]' '[:lower:]')" == syntax ]]; then
+          check_image_ref "${file}:${number}" "${BASH_REMATCH[2]}"
+        fi
         continue
       fi
       in_directives=0

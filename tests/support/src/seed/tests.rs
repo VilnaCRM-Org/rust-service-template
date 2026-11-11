@@ -1,6 +1,9 @@
 use rand::RngExt as _;
 
-use super::{TestRng, parse_seed};
+use std::io::Write;
+use std::sync::{Arc, Mutex, PoisonError};
+
+use super::{PanicReport, TestRng, parse_seed};
 
 fn draw_ten(rng: &mut TestRng) -> Vec<u64> {
     (0..10).map(|_index| rng.rng().random::<u64>()).collect()
@@ -54,14 +57,72 @@ fn an_invalid_seed_names_the_variable() {
     }
 }
 
+/// A writer that keeps what is written, so that a test can read it after the report was dropped.
+#[derive(Debug, Clone, Default)]
+struct Shared(Arc<Mutex<Vec<u8>>>);
+
+impl Shared {
+    fn text(&self) -> String {
+        String::from_utf8(self.0.lock().unwrap().clone()).unwrap()
+    }
+}
+
+impl Write for Shared {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 #[test]
 fn the_report_is_the_seed_line() {
+    let out = Shared::default();
+    let mut report = PanicReport::new(7, out.clone());
+
+    report.report().unwrap();
+
+    assert_eq!(out.text(), "TEST_SEED=7\n");
+}
+
+#[test]
+fn a_panic_in_the_scope_of_the_report_writes_the_seed_line() {
+    let out = Shared::default();
+    let sink = out.clone();
+
+    let result = std::panic::catch_unwind(move || {
+        let _report = PanicReport::new(1234, sink);
+        std::panic::panic_any("a test failure");
+    });
+
+    assert!(result.is_err());
+    assert_eq!(out.text(), "TEST_SEED=1234\n");
+}
+
+#[test]
+fn a_scope_that_ends_without_a_panic_writes_nothing() {
+    let out = Shared::default();
+    let sink = out.clone();
+
+    let result = std::panic::catch_unwind(move || {
+        let _report = PanicReport::new(1234, sink);
+    });
+
+    assert!(result.is_ok());
+    assert_eq!(out.text(), "");
+}
+
+#[test]
+fn the_generator_reports_its_own_seed() {
     let rng = TestRng::from_seed(7);
-    let mut out = Vec::new();
 
-    rng.report(&mut out).unwrap();
-
-    assert_eq!(String::from_utf8(out).unwrap(), "TEST_SEED=7\n");
+    assert_eq!(rng.seed(), 7);
 }
 
 #[test]

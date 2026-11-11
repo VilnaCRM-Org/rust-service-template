@@ -38,7 +38,7 @@ The release is computed from the commit subjects on `main`:
 - A breaking change raises the major number; below `1.0.0` it raises the minor number instead.
 - The other types do not trigger a release.
 
-A breaking change is marked with a `BREAKING CHANGE:` footer in the commit body (for a squash merge, in the squash commit message). The title keeps the form `type(#issue): subject`, and the pull request carries the label `approved-breaking-change`.
+A breaking change is marked with a `BREAKING CHANGE:` footer in the commit body. Pull requests are squash-merged with the setting "Pull request title and description" (see [`docs/repository-settings.md`](docs/repository-settings.md)), so the footer must be the last paragraph of the pull-request description: only then does it reach the body of the squash commit that the release reads (see [`.github/AUTORELEASE.md`](.github/AUTORELEASE.md)). The title keeps the form `type(#issue): subject`, and the pull request carries the label `approved-breaking-change`.
 
 ## Hooks
 

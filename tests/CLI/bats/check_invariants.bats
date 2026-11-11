@@ -386,6 +386,21 @@ EOF
   assert_violation a 'job lint has a permissions block without contents: read'
 }
 
+@test "(a) a top-level permissions block that grants write access is refused" {
+  replace .github/workflows/quality.yml $'permissions:\n  contents: read\nconcurrency:' $'permissions:\n  contents: write\nconcurrency:'
+  check
+  assert_violation a 'quality.yml: line 6: the top-level permissions block grants write access'
+}
+
+@test "(a) a top-level permissions: write-all is refused and a comment that says write is not" {
+  replace .github/workflows/quality.yml $'permissions:\n  contents: read\nconcurrency:' $'permissions: write-all\nconcurrency:'
+  check
+  assert_violation a 'the top-level permissions block grants write access'
+  replace .github/workflows/quality.yml 'permissions: write-all' $'permissions:\n  contents: read # never write here'
+  check
+  assert_success
+}
+
 # --- rule (b) ------------------------------------------------------------------------------------------------
 
 @test "(b) a Dockerfile image with the tag latest is refused" {
@@ -419,6 +434,24 @@ EOF
   replace Dockerfile "# syntax=docker/dockerfile@sha256:${d64}" "# syntax=docker/dockerfile:latest@sha256:${d64}"
   check
   assert_violation b 'Dockerfile:1: image docker/dockerfile:latest@sha256:.* uses the tag latest'
+}
+
+@test "(b) an unpinned syntax line after an escape directive is refused" {
+  replace Dockerfile "# syntax=docker/dockerfile:1.27@sha256:${d64}" $'# escape=`\n# check=skip=JSONArgsRecommended\n# syntax=docker/dockerfile:1'
+  check
+  assert_violation b 'Dockerfile:3: image docker/dockerfile:1 has no digest'
+}
+
+@test "(b) a pinned syntax line after an escape directive is accepted" {
+  replace Dockerfile "# syntax=docker/dockerfile:1.27@sha256:${d64}" $'# escape=`\n# syntax=docker/dockerfile:1.27@sha256:'"${d64}"
+  check
+  assert_success
+}
+
+@test "(b) a syntax line after a comment is not read as a parser directive even behind an escape directive" {
+  replace Dockerfile "# syntax=docker/dockerfile:1.27@sha256:${d64}" $'# escape=`\n# a comment\n# syntax=docker/dockerfile:1'
+  check
+  assert_success
 }
 
 @test "(b) a comment that mentions syntax after the first line is not read as the parser directive" {

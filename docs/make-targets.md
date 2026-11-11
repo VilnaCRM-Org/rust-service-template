@@ -58,7 +58,7 @@ The ordered list of gate targets is not repeated here. It lives in one place, th
 | `e2e-tests` | TOOL | database and localstack, test database | yes (G13) | Run the Gherkin end-to-end tests |
 | `ensure-database` | HOST | none | via prerequisites | Start PostgreSQL unless this shell is the development container |
 | `ensure-deps` | HOST | none | via prerequisites | Start PostgreSQL and LocalStack unless this shell is the development container |
-| `execute-load-tests-script` | HOST | the isolated environment (the target starts and removes it) | no | Run one load scenario: scenario=\<name> runSmoke= runAverage= runStress= runSpike= |
+| `execute-load-tests-script` | HOST | the isolated environment (the target starts and removes it) | no | Run one load scenario, all four profiles unless switched off: scenario=\<name> runSmoke=false runAverage=false runStress=false runSpike=false |
 | `format` | TOOL | none | no | Format the Rust code |
 | `format-check` | TOOL | none | yes (G1) | Check the Rust formatting (changes nothing) |
 | `format-repo` | TOOL + HOST | none | no | Format TOML, YAML, JSON and the load-test JavaScript |

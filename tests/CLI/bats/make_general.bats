@@ -347,6 +347,22 @@ SHARED_FORMS=(PLAIN DOUBLE SINGLE COMMENTED HASH ESCAPES REFERENCES EMPTY)
   assert_output ''
 }
 
+@test "restore_planted keeps the mode of a restored file and gives it a new modification time" {
+  printf '# planted\n' >"${tmp}/fixture.txt"
+  assert_file_executable scripts/doctor.sh
+  plant_replace scripts/doctor.sh "${tmp}/fixture.txt"
+  chmod 644 scripts/doctor.sh
+  touch -t 200001010000 scripts/doctor.sh "$(_restore_dir)/files/0"
+  touch "${tmp}/marker"
+  sleep 1
+  restore_planted
+  assert_file_executable scripts/doctor.sh
+  run git status --porcelain -- scripts/doctor.sh
+  assert_output ''
+  run find scripts/doctor.sh -newer "${tmp}/marker"
+  assert_output 'scripts/doctor.sh'
+}
+
 @test "restore_planted removes a planted tree and unstages a planted index entry" {
   printf '\n# planted\n' >"${tmp}/fixture.txt"
   plant_tree crates/bats-tree-probe

@@ -28,7 +28,7 @@ export CARGO_BUILD_WARNINGS ?= deny
 endif
 ci: export CARGO_BUILD_WARNINGS ?= deny
 
-EXEC_ENV := TEST_SEED PROPTEST_RNG_SEED CONFIG_CHANGE_APPROVED CARGO_BUILD_WARNINGS
+EXEC_ENV := TEST_SEED PROPTEST_RNG_SEED CONFIG_CHANGE_APPROVED CARGO_BUILD_WARNINGS DATABASE_STATEMENT_TIMEOUT
 EXEC :=
 ifneq ($(filter 1 true,$(RUN_IN_CONTAINER)),)
 ifeq ($(strip $(CI))$(strip $(IN_DEV_CONTAINER)),)
@@ -369,8 +369,8 @@ load-tests: ## Run every load scenario with all four profiles
 	$(REQUIRE_DOCKER)
 	scripts/with-load-test-stack.sh -- tests/Load/run-load-tests.sh
 
-execute-load-tests-script: ## Run one load scenario: scenario=<name> runSmoke= runAverage= runStress= runSpike=
-	@test -n "$(scenario)" || { echo 'Usage: make execute-load-tests-script scenario=<name> [runSmoke=true] [runAverage=true] [runStress=true] [runSpike=true]' >&2; exit 2; }
+execute-load-tests-script: ## Run one load scenario, all four profiles unless switched off: scenario=<name> runSmoke=false runAverage=false runStress=false runSpike=false
+	@test -n "$(scenario)" || { echo 'Usage: make execute-load-tests-script scenario=<name> [runSmoke=false] [runAverage=false] [runStress=false] [runSpike=false] (each profile runs unless its variable is false)' >&2; exit 2; }
 	$(REQUIRE_DOCKER)
 	scripts/with-load-test-stack.sh -- tests/Load/execute-load-test.sh "$(scenario)" $(runSmoke) $(runAverage) $(runStress) $(runSpike)
 

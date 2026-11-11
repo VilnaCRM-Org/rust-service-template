@@ -120,6 +120,20 @@ STUB
   assert_output --partial 'could not create a temporary directory'
 }
 
+@test "G9: a listed file that cannot be copied exits 2 with the message and does not start the scan of the copy" {
+  secrets_scan_fixture
+  # A stand-in for cp that fails (a file the caller cannot read would not fail for root).
+  printf '#!/bin/sh\necho "cp stand-in failed" >&2\nexit 1\n' >"${BATS_TEST_TMPDIR}/bin/cp"
+  chmod +x "${BATS_TEST_TMPDIR}/bin/cp"
+  LISTING="${BATS_TEST_TMPDIR}/listing" GITLEAKS_IMAGE=stub DOCKER="${BATS_TEST_TMPDIR}/bin/docker" PATH="${BATS_TEST_TMPDIR}/bin:${PATH}" \
+    run "${BATS_TEST_TMPDIR}/repo/scripts/secrets-scan.sh"
+  assert_failure 2
+  assert_output --partial 'cp stand-in failed'
+  assert_output --partial 'secrets-scan: could not copy the working files'
+  refute_output --partial 'no leaks found'
+  assert_file_not_exists "${BATS_TEST_TMPDIR}/listing"
+}
+
 # --- G10: image scan -----------------------------------------------------------------------------------------
 
 # bats test_tags=slow

@@ -10,8 +10,8 @@ const SEED_VARIABLE: &str = "TEST_SEED";
 /// `TEST_SEED=<seed>`.
 #[derive(Debug)]
 pub struct TestRng {
-    seed: u64,
     rng: StdRng,
+    report: PanicReport<std::io::Stderr>,
 }
 
 impl TestRng {
@@ -38,32 +38,46 @@ impl TestRng {
     #[must_use]
     pub fn from_seed(seed: u64) -> Self {
         Self {
-            seed,
             rng: StdRng::seed_from_u64(seed),
+            report: PanicReport::new(seed, std::io::stderr()),
         }
     }
 
     /// The seed.
     #[must_use]
     pub const fn seed(&self) -> u64 {
-        self.seed
+        self.report.seed
     }
 
     /// The wrapped generator, for `fake_with_rng` and the `rand` traits.
     pub const fn rng(&mut self) -> &mut StdRng {
         &mut self.rng
     }
+}
+
+/// Writes the line that names the seed when it is dropped while a panic unwinds. The writer is a type
+/// parameter so that a test can read what is written; the generator uses the standard error stream.
+#[derive(Debug)]
+struct PanicReport<W: std::io::Write> {
+    seed: u64,
+    out: W,
+}
+
+impl<W: std::io::Write> PanicReport<W> {
+    const fn new(seed: u64, out: W) -> Self {
+        Self { seed, out }
+    }
 
     /// Writes the line that names the seed.
-    fn report(&self, out: &mut impl std::io::Write) -> std::io::Result<()> {
-        writeln!(out, "{SEED_VARIABLE}={}", self.seed)
+    fn report(&mut self) -> std::io::Result<()> {
+        writeln!(self.out, "{SEED_VARIABLE}={}", self.seed)
     }
 }
 
-impl Drop for TestRng {
+impl<W: std::io::Write> Drop for PanicReport<W> {
     fn drop(&mut self) {
         if std::thread::panicking() {
-            let _result: std::io::Result<()> = self.report(&mut std::io::stderr());
+            let _result: std::io::Result<()> = self.report();
         }
     }
 }

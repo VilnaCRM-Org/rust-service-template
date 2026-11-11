@@ -110,10 +110,10 @@ probe_makefile() {
   refute_output --partial 'docker compose exec'
 }
 
-@test "RUN_IN_CONTAINER=1 make -n format-check starts with docker compose exec -T and carries the four -e options" {
+@test "RUN_IN_CONTAINER=1 make -n format-check starts with docker compose exec -T and carries the five -e options" {
   RUN_IN_CONTAINER=1 run make --no-print-directory -n format-check
   assert_success
-  assert_line --index 0 --regexp '^docker compose exec -T --user [0-9]+:[0-9]+ -e TEST_SEED -e PROPTEST_RNG_SEED -e CONFIG_CHANGE_APPROVED -e CARGO_BUILD_WARNINGS app cargo fmt --all --check$'
+  assert_line --index 0 --regexp '^docker compose exec -T --user [0-9]+:[0-9]+ -e TEST_SEED -e PROPTEST_RNG_SEED -e CONFIG_CHANGE_APPROVED -e CARGO_BUILD_WARNINGS -e DATABASE_STATEMENT_TIMEOUT app cargo fmt --all --check$'
 }
 
 @test "RUN_IN_CONTAINER=true is the same opt-in" {
@@ -189,6 +189,20 @@ probe_makefile() {
   RUN_IN_CONTAINER=1 run env -u TEST_SEED make --no-print-directory -f Makefile -f "${tmp}/probe.mk" probe
   assert_success
   assert_output 'seed=[unset]'
+}
+
+@test "DATABASE_STATEMENT_TIMEOUT=30m reaches a command behind EXEC" {
+  probe_makefile "bash -c 'echo \"timeout=[\$\${DATABASE_STATEMENT_TIMEOUT-unset}]\"'"
+  RUN_IN_CONTAINER=1 DATABASE_STATEMENT_TIMEOUT=30m run make --no-print-directory -f Makefile -f "${tmp}/probe.mk" probe
+  assert_success
+  assert_output 'timeout=[30m]'
+}
+
+@test "without DATABASE_STATEMENT_TIMEOUT the variable is unset behind EXEC" {
+  probe_makefile "bash -c 'echo \"timeout=[\$\${DATABASE_STATEMENT_TIMEOUT-unset}]\"'"
+  RUN_IN_CONTAINER=1 run env -u DATABASE_STATEMENT_TIMEOUT make --no-print-directory -f Makefile -f "${tmp}/probe.mk" probe
+  assert_success
+  assert_output 'timeout=[unset]'
 }
 
 @test "RUN_IN_CONTAINER=1 scripts/doctor.sh without cargo on PATH exits 0 and prints the SKIP line" {

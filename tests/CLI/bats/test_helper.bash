@@ -83,7 +83,7 @@ _backup() {
     n="$(wc -l <"$(_manifest)")"
   fi
   backup="files/${n// /}"
-  cp --preserve=mode "${REPO_ROOT}/${rel}" "$(_restore_dir)/${backup}"
+  cp -p "${REPO_ROOT}/${rel}" "$(_restore_dir)/${backup}"
   printf '%s\t%s\t%s\n' "${kind}" "${rel}" "${backup}" >>"$(_manifest)"
 }
 
@@ -161,14 +161,16 @@ restore_planted() {
   [[ -f "${manifest}" ]] || return 0
   while IFS=$'\t' read -r kind rel backup; do
     case "${kind}" in
-      file | keep) cp --preserve=mode "$(_restore_dir)/${backup}" "${REPO_ROOT}/${rel}" ;;
+      # `cp -p` keeps the mode but also the old modification time, so `touch` gives the restored file a new one:
+      # cargo compares it with the build output of the planted content and must rebuild.
+      file | keep) cp -p "$(_restore_dir)/${backup}" "${REPO_ROOT}/${rel}" && touch -- "${REPO_ROOT}/${rel}" ;;
       new) rm -f -- "${REPO_ROOT}/${rel}" ;;
       dir) rmdir -- "${REPO_ROOT}/${rel}" 2>/dev/null || true ;;
       tree) rm -rf -- "${REPO_ROOT:?}/${rel}" ;;
       index) git -C "${REPO_ROOT}" restore --staged -- "${rel}" >/dev/null 2>&1 || true ;;
       *) ;;
     esac
-  done < <(tac "${manifest}")
+  done < <(awk '{ line[NR] = $0 } END { for (i = NR; i >= 1; i--) print line[i] }' "${manifest}")
   rm -rf -- "$(_restore_dir)"
   return 0
 }

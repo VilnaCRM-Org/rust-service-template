@@ -187,6 +187,9 @@ STUB
   run make --no-print-directory execute-load-tests-script
   assert_failure
   assert_output --partial 'Usage: make execute-load-tests-script scenario=<name>'
+  assert_output --partial '[runSmoke=false]'
+  assert_output --partial 'each profile runs unless its variable is false'
+  refute_output --partial 'runSmoke=true'
   assert_output --partial 'execute-load-tests-script] Error 2'
   run isolated_project_resources
   assert_success
