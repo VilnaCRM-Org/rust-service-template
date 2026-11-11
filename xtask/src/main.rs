@@ -3,6 +3,7 @@
 mod arch;
 mod cli;
 mod config_guard;
+mod scaffold;
 
 use std::io;
 use std::process::ExitCode;

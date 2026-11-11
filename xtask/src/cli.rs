@@ -11,7 +11,7 @@ use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
 
-use crate::{arch, config_guard};
+use crate::{arch, config_guard, scaffold};
 
 /// Exit status of a command that could not run, as opposed to one that found violations.
 const COULD_NOT_RUN: u8 = 2;
@@ -30,6 +30,8 @@ enum Command {
     Arch(ArchArgs),
     /// Check the protected configuration against a base ref, or list the protected items
     ConfigGuard(GuardArgs),
+    /// Create the three layer crates of a bounded context and register them in the workspace
+    NewContext(NewContextArgs),
 }
 
 #[derive(Debug, Args)]
@@ -56,6 +58,14 @@ struct GuardArgs {
     /// Waive modifications and overrides (CI sets it when the pull request has the approval label)
     #[arg(long = "config-change-approved", env = "CONFIG_CHANGE_APPROVED")]
     approved: bool,
+}
+
+#[derive(Debug, Args)]
+struct NewContextArgs {
+    /// The group directory below `crates/`, in kebab-case
+    group: String,
+    /// The bounded context, in kebab-case; its name is unique in the workspace
+    context: String,
 }
 
 /// Runs the command named by `args` (the program name first) and returns its exit status.
@@ -87,6 +97,7 @@ fn execute(command: Command, stdout: &mut dyn Write, stderr: &mut dyn Write) -> 
     match command {
         Command::Arch(args) => architecture(args, stdout, stderr),
         Command::ConfigGuard(args) => guard(&args, stdout, stderr),
+        Command::NewContext(args) => new_context(&args, stdout, stderr),
     }
 }
 
@@ -138,6 +149,22 @@ fn guard(args: &GuardArgs, stdout: &mut dyn Write, stderr: &mut dyn Write) -> Ex
         }
         Err(failure) => finish(
             writeln!(stderr, "configuration guard could not run: {failure}"),
+            ExitCode::from(COULD_NOT_RUN),
+        ),
+    }
+}
+
+/// Scaffolds in the workspace in the current directory. A refusal exits with status 1 and changes no
+/// file; a workspace that cannot be read or written exits with status 2.
+fn new_context(args: &NewContextArgs, stdout: &mut dyn Write, stderr: &mut dyn Write) -> ExitCode {
+    match scaffold::run(Path::new("."), &args.group, &args.context) {
+        Ok(report) => finish(writeln!(stdout, "{report}"), ExitCode::SUCCESS),
+        Err(scaffold::Failure::Refused(refusal)) => finish(
+            writeln!(stderr, "new-context refused: {refusal}"),
+            ExitCode::FAILURE,
+        ),
+        Err(scaffold::Failure::CouldNotRun(error)) => finish(
+            writeln!(stderr, "new-context could not run: {error}"),
             ExitCode::from(COULD_NOT_RUN),
         ),
     }

@@ -281,3 +281,85 @@ fn a_guard_failure_that_cannot_be_written_exits_with_status_two() {
 
     assert_eq!(main(args, &mut Vec::new(), &mut Broken), ExitCode::from(2));
 }
+
+#[test]
+fn a_refused_name_exits_with_status_one_and_says_why_on_stderr() {
+    let run = run(&["xtask", "new-context", "Billing", "ledger"]);
+
+    assert_eq!(run.code, ExitCode::FAILURE);
+    assert_eq!(run.stdout, "");
+    assert!(
+        run.stderr
+            .starts_with("new-context refused: the group name `Billing` is invalid: "),
+        "{}",
+        run.stderr
+    );
+    assert!(run.stderr.ends_with('\n') && !run.stderr.ends_with("\n\n"));
+}
+
+#[test]
+fn a_reserved_context_exits_with_status_one() {
+    let run = run(&["xtask", "new-context", "billing", "shared"]);
+
+    assert_eq!(run.code, ExitCode::FAILURE);
+    assert_eq!(
+        run.stderr,
+        "new-context refused: `shared` is reserved and cannot name a bounded context\n"
+    );
+}
+
+#[test]
+fn a_workspace_that_is_not_one_exits_with_status_two_and_changes_nothing() {
+    // The tests run in the package directory, whose manifest is not a workspace root.
+    let run = run(&["xtask", "new-context", "billing", "ledger"]);
+
+    assert_eq!(run.code, ExitCode::from(2));
+    assert_eq!(run.stdout, "");
+    assert_eq!(
+        run.stderr,
+        "new-context could not run: Cargo.toml has no [workspace].members array\n"
+    );
+    assert!(!std::path::Path::new("crates").exists());
+}
+
+#[test]
+fn both_names_are_required() {
+    for args in [
+        &["xtask", "new-context"][..],
+        &["xtask", "new-context", "billing"],
+    ] {
+        let run = run(args);
+
+        assert_eq!(run.code, ExitCode::from(2), "{args:?}");
+        assert_eq!(run.stdout, "", "{args:?}");
+        assert!(
+            run.stderr.contains("Usage: xtask new-context"),
+            "{}",
+            run.stderr
+        );
+    }
+}
+
+#[test]
+fn a_refusal_that_cannot_be_written_exits_with_status_two() {
+    let args = ["xtask", "new-context", "Billing", "ledger"];
+
+    assert_eq!(main(args, &mut Vec::new(), &mut Broken), ExitCode::from(2));
+}
+
+#[test]
+fn a_failure_to_run_that_cannot_be_written_exits_with_status_two() {
+    let args = ["xtask", "new-context", "billing", "ledger"];
+
+    assert_eq!(main(args, &mut Vec::new(), &mut Broken), ExitCode::from(2));
+}
+
+#[test]
+fn the_help_names_the_command_and_its_two_names() {
+    let help = run(&["xtask", "new-context", "--help"]);
+
+    assert_eq!(help.code, ExitCode::SUCCESS);
+    assert!(help.stdout.contains("<GROUP>"), "{}", help.stdout);
+    assert!(help.stdout.contains("<CONTEXT>"), "{}", help.stdout);
+    assert!(run(&["xtask", "--help"]).stdout.contains("new-context"));
+}

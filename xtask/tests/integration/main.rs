@@ -5,4 +5,6 @@ mod arch;
 #[cfg(test)]
 mod config_guard;
 #[cfg(test)]
+mod scaffold;
+#[cfg(test)]
 mod support;

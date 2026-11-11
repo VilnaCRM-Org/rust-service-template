@@ -21,11 +21,18 @@ fn the_real_workspace_satisfies_its_architecture_model() {
     let run = run(&fixture_arguments(&model, &manifest), &[]);
 
     assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
-    assert_eq!(
-        run.stdout,
-        "architecture: ok. All 13 crate(s) are assigned to exactly one layer (7 layer(s)); \
-         0 violation(s)\n"
-    );
+    // The count is not pinned: a service that runs `make new-context` adds crates, and this file
+    // is protected, so it cannot be edited to follow. The template itself has 13.
+    let count = run
+        .stdout
+        .strip_prefix("architecture: ok. All ")
+        .and_then(|rest| {
+            rest.strip_suffix(
+                " crate(s) are assigned to exactly one layer (7 layer(s)); 0 violation(s)\n",
+            )
+        })
+        .unwrap_or_else(|| panic!("{}", run.stdout));
+    assert!(count.parse::<usize>().unwrap() >= 13, "{}", run.stdout);
     assert_eq!(run.stderr, "");
 }
 
@@ -272,7 +279,8 @@ fn the_vendor_stand_ins_and_the_fixture_workspace_are_not_members_of_the_real_wo
         .iter()
         .map(|package| package["name"].as_str().unwrap())
         .collect();
-    assert_eq!(members.len(), 13, "{members:?}");
+    // At least the 13 crates of the template: `make new-context` adds more downstream.
+    assert!(members.len() >= 13, "{members:?}");
     for name in [
         "ledger-domain",
         "reports-application",
