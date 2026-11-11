@@ -200,6 +200,14 @@ check() {
   run scripts/check-docs.sh --root "${tree}" --service-help "${help}"
 }
 
+# Rewrites a file through a filter command (no sed -i: BSD sed needs a suffix argument).
+edit_file() {
+  local file="$1"
+  shift
+  "$@" <"${file}" >"${file}.new"
+  mv "${file}.new" "${file}"
+}
+
 # Appends text to a file of the generated tree: the second argument, or else standard input.
 append() {
   if [[ $# -ge 2 ]]; then
@@ -319,6 +327,16 @@ EOF
   assert_success
 }
 
+@test "rule 2: a slash command is reported although no other tracked file contains a path" {
+  edit_file "${tree}/docker-compose.yml" sed 's|http://localhost:8081/ping|true|'
+  append README.md <<'EOF'
+Use `/no-such-cmd` here.
+EOF
+  check
+  assert_failure 1
+  assert_line --regexp '^\(2\) README\.md:[0-9]+: slash command /no-such-cmd has no file '
+}
+
 # --- rule (3): paths -------------------------------------------------------------------------------------------
 
 @test "rule 3: a backticked path under a tracked directory that does not exist is reported" {
@@ -381,7 +399,7 @@ EOF
 # --- rule (4): the verification list ---------------------------------------------------------------------------
 
 @test "rule 4: a verification block that differs from make ci-list is reported" {
-  sed -i '/^make gamma$/d' "${tree}/AGENTS.md"
+  edit_file "${tree}/AGENTS.md" sed '/^make gamma$/d'
   check
   assert_failure 1
   assert_line --regexp '^\(4\) AGENTS\.md: the verification block differs from the output of make ci-list'
@@ -389,7 +407,7 @@ EOF
 }
 
 @test "rule 4: missing markers are reported" {
-  sed -i '/verification:start/d' "${tree}/AGENTS.md"
+  edit_file "${tree}/AGENTS.md" sed '/verification:start/d'
   check
   assert_failure 1
   assert_line --regexp '^\(4\) AGENTS\.md: the markers '
@@ -525,14 +543,14 @@ EOF
 # --- rule (7): skills ----------------------------------------------------------------------------------------
 
 @test "rule 7: a skill whose name differs from its directory is reported" {
-  sed -i 's/^name: demo-skill$/name: other-skill/' "${tree}/.claude/skills/demo-skill/SKILL.md"
+  edit_file "${tree}/.claude/skills/demo-skill/SKILL.md" sed 's/^name: demo-skill$/name: other-skill/'
   check
   assert_failure 1
   assert_line --regexp "^\\(7\\) \\.claude/skills/demo-skill/SKILL\\.md: the name is 'other-skill' but the directory is demo-skill"
 }
 
 @test "rule 7: a skill without a description is reported" {
-  sed -i '/^description:/d' "${tree}/.claude/skills/demo-skill/SKILL.md"
+  edit_file "${tree}/.claude/skills/demo-skill/SKILL.md" sed '/^description:/d'
   check
   assert_failure 1
   assert_line --regexp '^\(7\) \.claude/skills/demo-skill/SKILL\.md: the description is missing'

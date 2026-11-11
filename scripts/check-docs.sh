@@ -371,12 +371,15 @@ fi
 # Rule (2), slash commands: a name without a command file must at least be a path used by another tracked file.
 if [[ -s "${work}/slash-candidates" ]]; then
   grep -vE '\.md$' "${work}/files" >"${work}/non-markdown" || true
-  : >"${work}/used-paths"
-  if [[ -s "${work}/non-markdown" ]]; then
-    (cd "${root}" && xargs -d '\n' grep -ohI -E '/[a-z][a-z0-9-]*' <"${work}/non-markdown") 2>/dev/null |
-      sed 's|^/||' | sort -u >"${work}/used-paths" || true
-  fi
-  awk -F'\t' 'NR == FNR {used[$1] = 1; next} !($1 in used) {print "(2) " $2 ": slash command /" $1 " has no file .claude/commands/" $1 ".md and is no path of any other tracked file"}' \
+  : >"${work}/used-raw"
+  while IFS= read -r path; do
+    [[ -f "${root}/${path}" ]] || continue
+    status=0
+    grep -ohI -E '/[a-z][a-z0-9-]*' "${root}/${path}" >>"${work}/used-raw" 2>/dev/null || status=$?
+    [[ "${status}" -le 1 ]] || could_not_run "grep failed on ${path}"
+  done <"${work}/non-markdown"
+  sed 's|^/||' "${work}/used-raw" | sort -u >"${work}/used-paths"
+  awk -F'\t' 'FILENAME == ARGV[1] {used[$1] = 1; next} !($1 in used) {print "(2) " $2 ": slash command /" $1 " has no file .claude/commands/" $1 ".md and is no path of any other tracked file"}' \
     "${work}/used-paths" "${work}/slash-candidates" | sort -u >>"${findings}"
 fi
 
@@ -532,7 +535,8 @@ fi
 # --- result ---------------------------------------------------------------------------------------------------
 
 if [[ -s "${findings}" ]]; then
-  sort -s -k1,1 "${findings}"
+  # By rule and file, then by line number as a number; lines without a number keep their order.
+  LC_ALL=C sort -s -t: -k1,1 -k2,2n "${findings}"
   exit 1
 fi
 exit 0

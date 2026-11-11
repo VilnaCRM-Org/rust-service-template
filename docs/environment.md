@@ -59,7 +59,7 @@ The two seeds are test settings, not service settings. Cargo passes them to ever
 
 ## Make variables
 
-Every variable a caller may set is declared with `?=` in the `Makefile` or in one of its two fragments, so the caller's value always wins. Pass them on the command line (`make start BUILD_IMAGE=0`) or through the environment. `TEST_SEED` and `PROPTEST_RNG_SEED` are not Make variables; see the seeds above.
+Every variable a caller may set, except `PROJECT_NAME` (see below the table), is declared with `?=` in the `Makefile` or in one of its two fragments, so the caller's value always wins. Pass them on the command line (`make start BUILD_IMAGE=0`) or through the environment. `TEST_SEED` and `PROPTEST_RNG_SEED` are not Make variables; see the seeds above.
 
 | Name | Default | Consumer | PHP name |
 | --- | --- | --- | --- |
@@ -112,7 +112,7 @@ Every variable a caller may set is declared with `?=` in the `Makefile` or in on
 | `BMALPH_PLATFORM` | `claude-code` | parameter of the bmalph targets (`claude-code` or `codex`) | none |
 | `BMALPH_DRY_RUN` | `false` | `true`: the bmalph targets preview without changing files | none |
 
-Four names that the `Makefile` computes are not rows of the table, because the drift check keeps the table equal to the `?=` declarations. `PROJECT_NAME` is the Compose project name and the prefix of the image names: the caller's `COMPOSE_PROJECT_NAME` when set, else the checkout directory name, lower-cased with characters outside `a-z0-9_-` replaced by `-`; a value given on the command line wins. `EXEC` is the prefix of every class TOOL command: empty, or `docker compose exec -T --user <uid>:<gid> -e … app`; it is computed and not meant to be set. `EXEC_ENV` lists the variables that `EXEC` forwards into the container (`TEST_SEED PROPTEST_RNG_SEED CONFIG_CHANGE_APPROVED CARGO_BUILD_WARNINGS`). `TEST_ENV` is the prefix of commands that need the test configuration (`scripts/with-env.sh .env .env.test --`).
+Four names that the `Makefile` computes are not rows of the table, because the drift check keeps the table equal to the `?=` declarations. `PROJECT_NAME` is the Compose project name and the prefix of the image names: the caller's `COMPOSE_PROJECT_NAME` when set, else the checkout directory name, lower-cased with characters outside `a-z0-9_-` replaced by `-`; a value from the command line or the environment wins. `EXEC` is the prefix of every class TOOL command: empty, or `docker compose exec -T --user <uid>:<gid> -e … app`; it is computed and not meant to be set. `EXEC_ENV` lists the variables that `EXEC` forwards into the container (`TEST_SEED PROPTEST_RNG_SEED CONFIG_CHANGE_APPROVED CARGO_BUILD_WARNINGS`). `TEST_ENV` is the prefix of commands that need the test configuration (`scripts/with-env.sh .env .env.test --`).
 
 ## PHP-to-Rust name mapping
 
