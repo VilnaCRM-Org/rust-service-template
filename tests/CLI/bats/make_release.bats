@@ -4,6 +4,8 @@
 # works in a throw-away clone, on branch main, of a small workspace that holds copies of those files; `origin` is a
 # local bare repository and `gh` is a stub first on PATH, so nothing leaves the machine. cocogitto must be the
 # pinned version (make/tool-versions.mk COCOGITTO_VERSION): the tests fail instead of skipping when it is missing.
+# The tests run cargo on the host, so they skip only where the host has no Rust toolchain (container mode, NFR37);
+# where cargo is present, a missing or different cocogitto fails the file.
 
 bats_require_minimum_version 1.8.0
 load test_helper
@@ -12,6 +14,7 @@ load test_helper
 
 setup_file() {
   local root template expected found
+  command -v cargo >/dev/null 2>&1 || return 0
   root="$(cd "${BATS_TEST_DIRNAME}/../../.." && pwd)"
   expected="$(sed -n -E 's/^export[[:space:]]+COCOGITTO_VERSION[[:space:]]*:=[[:space:]]*([^[:space:]]+).*/\1/p' \
     "${root}/make/tool-versions.mk")"
@@ -64,6 +67,7 @@ isolate_git() {
 
 setup() {
   _common_setup
+  require_command cargo
   isolate_git
   origin="${BATS_TEST_TMPDIR}/origin.git"
   work="${BATS_TEST_TMPDIR}/work"
@@ -77,6 +81,10 @@ setup() {
   printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >>"%s"\n' "${gh_log}" >"${stubs}/gh"
   chmod +x "${stubs}/gh"
   cd "${work}" || return 1
+}
+
+teardown() {
+  restore_planted
 }
 
 # Commits an empty change with the given message.

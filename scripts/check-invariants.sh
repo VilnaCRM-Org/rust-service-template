@@ -477,11 +477,20 @@ check_downloads() {
     # A request whose only address is the loopback interface (a probe of the service under test, as the Bats
     # files of the lifecycle targets send) fetches no file from elsewhere and is not a download. A loopback URL
     # is the host localhost, 127.0.0.1 or [::1], an optional port, an optional path without `@`, then a quote,
-    # white space or the end of the line (so `http://localhost@host/` names a remote host). A line is left out
-    # only when no other URL and no `$` expansion (an address in a variable) remains beside its loopback URLs.
+    # white space or the end of the line (so `http://localhost@host/` names a remote host). A line is a probe and
+    # left out only when, once its loopback URLs are removed, it holds exactly one curl or wget, no other URL, no
+    # `$` expansion and no backtick (an address computed elsewhere), no dotted word (a host or a file name) and
+    # no continuation backslash. The decision reads that copy; every other line goes unchanged to the download
+    # pattern, so a loopback proxy still counts as the URL of the command. Known limit: an expansion in the
+    # port position of a loopback URL (`http://127.0.0.1:${APP_PORT}/`) is trusted.
     if grep -vE '^[[:space:]]*#' "${file}" \
-      | sed -E "s#[A-Za-z]+://(localhost|127\\.0\\.0\\.1|\\[::1\\])(:[^/?@[:space:]\"']*)?([/?][^@[:space:]\"']*)?([\"']|[[:space:]]|\$)#LOOPBACK\\4#g" \
-      | awk '!(/LOOPBACK/ && !/:\/\// && !/\$/)' \
+      | awk '{
+          rest = $0
+          n = gsub(/[A-Za-z]+:\/\/(localhost|127\.0\.0\.1|\[::1\])(:[^\/?@[:space:]"\047]*)?([\/?][^@[:space:]"\047]*)?(["\047]|[[:space:]]|$)/, " ", rest)
+          probe = n > 0 && rest !~ /:\/\// && rest !~ /\$/ && rest !~ /`/ && rest !~ /\\[[:space:]]*$/ && rest !~ /[A-Za-z0-9]\.[A-Za-z]/
+          if (probe && gsub(/(^|[^A-Za-z0-9_-])(curl|wget)([^A-Za-z0-9_-]|$)/, "&", rest) != 1) probe = 0
+          if (!probe) print
+        }' \
       | grep -qE '\b(curl|wget)\b[^#]*(https?://|--output|--remote-name|[[:space:]]-[A-Za-z]*[oOL][A-Za-z]*[[:space:]]|--location|--fail)'; then
       if ! grep -qiE 'sha256|sha512|shasum|checksum' "${file}"; then
         report b "${file}: a file is downloaded by URL without a checksum"

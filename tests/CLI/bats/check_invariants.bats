@@ -606,6 +606,7 @@ probe() {
   curl --noproxy '*' --silent --output /dev/null --max-time 10 "http://127.0.0.1:${APP_PORT}/ping"
   curl --silent --fail http://localhost:8081/health
   wget -q -O /dev/null http://[::1]:8081/ping
+  curl -fsS http://localhost:8080/health || exit 1
 }
 EOF
   check
@@ -648,6 +649,50 @@ EOF
   check
   assert_violation b 'scripts/fetch.sh: a file is downloaded by URL without a checksum'
   assert_line '(b) scripts/fetch-comment.sh: a file is downloaded by URL without a checksum'
+}
+
+@test "(b) a download through a loopback proxy on a continued line or without a download option is refused" {
+  put scripts/fetch-continued.sh <<'EOF'
+#!/usr/bin/env bash
+curl --proxy http://127.0.0.1:3128 \
+  -fsSL -o tool.tgz https://example.org/tool.tgz
+EOF
+  put scripts/fetch-piped.sh <<'EOF'
+#!/usr/bin/env bash
+curl --proxy http://127.0.0.1:3128 "${TOOL_URL}" | tar -xz
+EOF
+  check
+  assert_violation b 'scripts/fetch-continued.sh: a file is downloaded by URL without a checksum'
+  assert_line '(b) scripts/fetch-piped.sh: a file is downloaded by URL without a checksum'
+}
+
+@test "(b) a probe and a download on one line are refused" {
+  put scripts/fetch-and.sh <<'EOF'
+#!/usr/bin/env bash
+curl -fsS http://localhost:8080/health && curl -fsSLO example.org/tool.tgz
+EOF
+  put scripts/fetch-wget.sh <<'EOF'
+#!/usr/bin/env bash
+curl -fsS http://localhost:8080/health; wget -O tool.tgz example.org/tool.tgz
+EOF
+  put scripts/fetch-two.sh <<'EOF'
+#!/usr/bin/env bash
+curl -fsSLo tool.tgz http://localhost:1/ example.org/tool.tgz
+EOF
+  put scripts/fetch-backtick.sh <<'EOF'
+#!/usr/bin/env bash
+curl -fsS http://localhost:8080/health; curl -fsSLO `cat url.txt`
+EOF
+  put scripts/fetch-connect.sh <<'EOF'
+#!/usr/bin/env bash
+curl --connect-to localhost:80:example.org:80 -fsSLO http://localhost/tool.tgz
+EOF
+  check
+  assert_violation b 'scripts/fetch-and.sh: a file is downloaded by URL without a checksum'
+  assert_line '(b) scripts/fetch-wget.sh: a file is downloaded by URL without a checksum'
+  assert_line '(b) scripts/fetch-two.sh: a file is downloaded by URL without a checksum'
+  assert_line '(b) scripts/fetch-backtick.sh: a file is downloaded by URL without a checksum'
+  assert_line '(b) scripts/fetch-connect.sh: a file is downloaded by URL without a checksum'
 }
 
 @test "(b) a downloaded file with a checksum passes" {

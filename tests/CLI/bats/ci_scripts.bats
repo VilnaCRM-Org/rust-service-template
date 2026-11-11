@@ -21,6 +21,10 @@ setup() {
   mkdir -p "${scratch}"
 }
 
+teardown() {
+  restore_planted
+}
+
 # --- detect-changes.sh -----------------------------------------------------------------------------------------
 
 # A repository whose base commit holds a document and a source file; the commit is tagged `base`.
