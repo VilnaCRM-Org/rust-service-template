@@ -3,11 +3,10 @@
 use std::sync::Arc;
 
 use axum::Json;
-use axum::extract::Path;
 use axum::http::StatusCode;
 use axum::http::header::{CONTENT_SECURITY_POLICY, CONTENT_TYPE};
 use axum::response::{Html, IntoResponse as _, Response};
-use shared_application::http::Problem;
+use shared_application::http::{ApiPath, Problem};
 use utoipa::openapi::OpenApi;
 
 use crate::openapi;
@@ -35,7 +34,9 @@ pub async fn openapi_json() -> Json<OpenApi> {
 }
 
 /// `GET /api/docs/{*file}`: an embedded Swagger UI file, or the 404 problem.
-pub async fn docs_asset(Path(file): Path<String>) -> Response {
+///
+/// A sub-path that cannot be decoded is the 400 problem of the extractor.
+pub async fn docs_asset(ApiPath(file): ApiPath<String>) -> Response {
     let config = Arc::new(utoipa_swagger_ui::Config::from(DOCUMENT_URL));
     match utoipa_swagger_ui::serve(&file, config) {
         Ok(Some(asset)) => (

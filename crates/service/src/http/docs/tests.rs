@@ -147,3 +147,15 @@ async fn an_unknown_asset_is_the_404_problem() {
     assert_eq!(problem["title"], "Not Found");
     assert_eq!(problem["status"], 404);
 }
+
+#[tokio::test]
+async fn a_sub_path_that_is_not_utf_8_is_the_400_problem() {
+    let response = get_path("/api/docs/%FF").await;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(content_type(&response), "application/problem+json");
+    let problem: Value = serde_json::from_slice(&body_of(response).await).unwrap();
+    assert_eq!(problem["type"], "about:blank");
+    assert_eq!(problem["title"], "Bad Request");
+    assert_eq!(problem["status"], 400);
+}

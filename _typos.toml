@@ -1,6 +1,10 @@
 # _typos.toml
 [files]
+# Read the hidden directories too (.github/, .claude/, .githooks/, .devcontainer/): typos skips them by
+# default. The walker then no longer skips .git (a directory, or a file in a worktree), so it is excluded.
+ignore-hidden = false
 extend-exclude = [
+    ".git",
     ".github/openapi-spec/",
     ".github/graphql-spec/",
     ".sqlx/",

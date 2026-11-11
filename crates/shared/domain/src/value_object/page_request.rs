@@ -44,18 +44,6 @@ impl PageRequest {
         })
     }
 
-    /// Page number, from 1.
-    #[must_use]
-    pub const fn page(self) -> u32 {
-        self.page
-    }
-
-    /// Page size.
-    #[must_use]
-    pub const fn items_per_page(self) -> u32 {
-        self.items_per_page
-    }
-
     /// SQL limit: the page size.
     #[must_use]
     pub fn limit(self) -> i64 {

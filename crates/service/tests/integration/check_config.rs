@@ -96,6 +96,27 @@ fn every_invalid_or_missing_variable_is_named_in_one_run_without_its_value() {
     assert!(!errors.contains("staging"));
 }
 
+#[test]
+fn an_sqs_endpoint_with_a_malformed_host_is_named_without_its_value() {
+    let scratch = Scratch::new();
+    let variables = [
+        VALID_ENVIRONMENT[0],
+        VALID_ENVIRONMENT[1],
+        ("AWS_ENDPOINT_URL_SQS", "http://exa mple:4566"),
+    ];
+
+    let output = scratch.run(&["check-config"], &variables);
+
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(stdout(&output), "");
+    let errors = stderr(&output);
+    assert_eq!(
+        errors,
+        "AWS_ENDPOINT_URL_SQS: must be an http:// or https:// URL\n"
+    );
+    assert!(!errors.contains("exa mple"));
+}
+
 #[rstest]
 #[case("0")]
 #[case("500us")]

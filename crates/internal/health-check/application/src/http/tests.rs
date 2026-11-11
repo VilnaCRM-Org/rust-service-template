@@ -8,6 +8,7 @@ use axum::http::{Method, Request, StatusCode};
 use axum::response::Response;
 use health_check_domain::{Dependency, HealthProbe};
 use http_body_util::BodyExt as _;
+use rstest::rstest;
 use serde_json::{Value, json};
 use test_support::probe::StubProbe;
 use tower::ServiceExt as _;
@@ -102,6 +103,64 @@ async fn failing_probes_answer_the_500_problem_that_names_each_failure() {
             ],
         })
     );
+}
+
+#[rstest]
+#[case::database(&[Dependency::Database])]
+#[case::cache(&[Dependency::Cache])]
+#[case::message_broker(&[Dependency::MessageBroker])]
+#[case::database_and_cache(&[Dependency::Database, Dependency::Cache])]
+#[case::database_and_message_broker(&[Dependency::Database, Dependency::MessageBroker])]
+#[case::cache_and_message_broker(&[Dependency::Cache, Dependency::MessageBroker])]
+#[case::all(&[Dependency::Database, Dependency::Cache, Dependency::MessageBroker])]
+#[tokio::test]
+async fn the_500_body_holds_exactly_the_messages_of_the_failing_dependencies(
+    #[case] failing: &[Dependency],
+) {
+    let response = get_health(app(probes(failing))).await;
+
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(
+        response.headers().get(CONTENT_TYPE).unwrap(),
+        "application/problem+json"
+    );
+    let text = String::from_utf8(body_bytes(response).await).unwrap();
+    let detail = failing
+        .iter()
+        .map(|dependency| dependency.failure_message())
+        .collect::<Vec<_>>()
+        .join("; ");
+    let failures: Vec<Value> = failing
+        .iter()
+        .map(|dependency| {
+            json!({
+                "dependency": dependency.identifier(),
+                "message": dependency.failure_message(),
+            })
+        })
+        .collect();
+    assert_eq!(
+        serde_json::from_str::<Value>(&text).unwrap(),
+        json!({
+            "type": "/problems/dependency-unavailable",
+            "title": "Internal Server Error",
+            "status": 500,
+            "detail": detail,
+            "failures": failures,
+        })
+    );
+    for healthy in [
+        Dependency::Database,
+        Dependency::Cache,
+        Dependency::MessageBroker,
+    ]
+    .into_iter()
+    .filter(|dependency| !failing.contains(dependency))
+    {
+        assert!(!text.contains(healthy.failure_message()), "{text}");
+        assert!(!text.contains(healthy.identifier()), "{text}");
+    }
+    assert!(!text.contains("stub probe failure"), "{text}");
 }
 
 #[tokio::test(start_paused = true)]

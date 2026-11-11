@@ -1,7 +1,7 @@
 use proptest::prelude::*;
 use rstest::rstest;
 use serde_json::{Value, json};
-use shared_domain::Uuid;
+use shared_domain::{PageRequest, Uuid};
 use some_module_domain::{ExampleApiResourceDescription, ExampleApiResourceName};
 use utoipa::ToSchema as _;
 use validator::Validate as _;
@@ -250,4 +250,12 @@ fn the_query_carries_both_values(#[case] page: i32, #[case] items: i32) {
 
     assert_eq!(i64::from(query.page), i64::from(page));
     assert_eq!(i64::from(query.items_per_page), i64::from(items));
+}
+
+#[test]
+fn the_default_parameters_are_the_page_request_defaults() {
+    let query = ListExampleApiResourcesParams::default().into_query();
+
+    assert_eq!(query.page, PageRequest::DEFAULT_PAGE);
+    assert_eq!(query.items_per_page, PageRequest::DEFAULT_ITEMS_PER_PAGE);
 }

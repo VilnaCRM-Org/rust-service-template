@@ -2,12 +2,15 @@
 
 The template ships what its requirements ask for and nothing more. Four features that a service often needs are left out on purpose, and each has one named place where it plugs in. This document says where that place is, what to add and what to leave alone. The examples name the crates and files of the template; adapt them to the names of your service.
 
+Most seams change files that the template sync keeps in step with the template. Read [Seams and the template sync](#seams-and-the-template-sync) before you change one: each seam lists the synchronised files it changes, and each of them goes into your `.templatesyncignore` in the same pull request.
+
 ## Contents
 
 - [Redis adapter through the `Cache` port](#redis-adapter-through-the-cache-port)
 - [Tracing and metrics at the request span](#tracing-and-metrics-at-the-request-span)
 - [Authentication layer](#authentication-layer)
 - [Outbox for domain events](#outbox-for-domain-events)
+- [Seams and the template sync](#seams-and-the-template-sync)
 
 ## Redis adapter through the `Cache` port
 
@@ -29,6 +32,8 @@ The shipped adapter is the in-process `shared_infrastructure::cache::MokaCache`,
 4. Construct the adapter in `Adapters::connect` and hand it to `CacheProbe` instead of `MokaCache`. The handler of `/api/health` and `HealthService` do not change.
 5. Add a Redis container to `docker-compose.yml` and its variables, then add an integration test of the adapter against it, next to `integration/cache.rs`.
 
+Synchronised files this seam changes: `crates/shared/infrastructure/src/cache.rs` (or `crates/shared/infrastructure/src/lib.rs` when the adapter gets a module of its own), `docker-compose.yml` and `crates/shared/infrastructure/tests/integration/main.rs`. The other files of the steps are already on the template's ignore list (`Cargo.toml` at any level, `architecture.toml`, the configuration, command-line and bootstrap modules of `service`, `.env`, `.env.test`, `docs/environment.md`, `crates/internal/health-check/infrastructure/src/probe.rs`).
+
 The probe stores the key `health_check` with the value `ok` for 60 seconds, reads it back and compares. With a remote adapter this probe becomes meaningful: a failure reports `Cache is not working` (see the runbook in `docs/operations.md`). Using the cache from a use case is a second step: take `Arc<dyn Cache>` in the handler and add a field to `Adapters`, which the template does not have because nothing but the probe used one. A use case that reads the cache must still produce a correct response when the cache is empty.
 
 ## Tracing and metrics at the request span
@@ -38,6 +43,8 @@ Every request runs inside the span `http.request`, created by `service::http::tr
 - Traces. Add `tracing-opentelemetry` and an OTLP exporter, and add the OpenTelemetry layer to the subscriber that `service::telemetry::init` builds, next to the JSON formatting layer. The span already carries the attribute names of the OpenTelemetry HTTP conventions, so no request code changes. The request id is a field of the span; keep it, so a trace and a log line of the same request can be joined.
 - Metrics. Add a metrics layer to the middleware stack next to `TraceLayer`, or record a histogram of `duration_ms` and a counter per `http.response.status_code` in `service::http::trace::on_response`, labelled with `http.route` and `http.request.method` (never with `url.path` or the request id, whose values are unbounded). Expose them through a Prometheus endpoint outside `/api` and outside the OpenAPI router, as `/ping` is, or push them through the exporter.
 - Settings. Endpoint, protocol and sampling are configuration: add them as environment variables as in step 3 above, with defaults that disable the exporter, so that development and the test suites need no collector.
+
+Synchronised files this seam changes: `crates/service/src/telemetry.rs`, `crates/service/src/http/trace.rs`, `crates/service/src/http/router.rs` when a metrics layer joins the stack, and `crates/service/src/command/serve.rs` for the flush at shutdown. The settings go into the configuration modules, which the template already ignores.
 
 Keep these rules when you add an exporter. `serve` must keep writing only JSON lines on stdout (the exporter must not print to stdout or stderr), the shutdown sequence must flush the exporter inside the grace period, and no request or response body or header other than the request id may become a span attribute.
 
@@ -52,6 +59,8 @@ The template has no authentication: every route is public. The seam is the route
 5. Describe the scheme in the OpenAPI document (`securitySchemes` and a `security` requirement on the protected operations), regenerate the snapshots with `make generate-openapi-spec`, and review the diff: adding a requirement is a breaking change for existing clients and needs the label `approved-breaking-change`. The GraphQL route is a route of the same router and is protected by the same layer; pass the identity from the request extensions to the schema as context data when a resolver needs it.
 6. Add scenarios for the missing and the invalid credential to the Gherkin features in `features/` and update the Schemathesis run, which must then send credentials.
 
+Synchronised files this seam changes: `crates/service/src/http/router.rs` and `features/health_check.feature` when you add its scenarios there. The middleware itself is a new file of your own, which the sync never touches; its module declaration goes into `crates/service/src/http.rs`, the OpenAPI changes into the OpenAPI module and the snapshots, all of which the template already ignores. The `Makefile` and the workflows are synchronised too: give Schemathesis its credentials through `SCHEMATHESIS_FLAGS` instead of changing the recipe.
+
 Rate limiting, CORS and similar edge concerns belong to the same stack and follow the same pattern: one layer, placed deliberately in the order, with a test.
 
 ## Outbox for domain events
@@ -65,3 +74,13 @@ The seam is the persistence design: each repository method is one statement and 
 3. Add a relay: a task that reads unpublished rows in order, publishes them to the event bus or to a queue (the SQS client of `shared_infrastructure::messaging::sqs_client` is the seam for an asynchronous consumer), and marks them as published. Delivery then becomes at least once, so every subscriber must be idempotent, which the guidance already demands.
 4. Start the relay from `serve` and stop it inside the shutdown grace period. Add its failures to the log messages in `docs/operations.md`.
 5. Regenerate `.sqlx/` with `make sqlx-prepare`, add integration tests that kill the relay between the insert and the mark, and remove the statement about at-most-once delivery from the documents that carry it.
+
+Synchronised files this seam changes: `crates/service/src/command/serve.rs` (the relay task) and `docs/operations.md` (its log messages). The migration, the context crates and `.sqlx/` are already service-owned.
+
+## Seams and the template sync
+
+The template sync (see the sync guide, `.github/TEMPLATE_SYNC_APP.md` or `.github/TEMPLATE_SYNC_PAT.md`) resolves every difference in favour of the template, so a sync pull request removes what a service added to a synchronised file. The template does not put the files of these seams on its own ignore list on purpose: a fix of the router, the request span or the shutdown sequence must keep reaching every service that has not changed them. A service that uses a seam therefore:
+
+1. Adds every synchronised path that the seam changes, as listed under the seam, to its own `.templatesyncignore` in the same pull request as the change. Check a path with `git ls-files -ci --exclude-from=.templatesyncignore -- <path>`: it prints the path once it is ignored.
+2. Applies later template changes to these files by hand, as the section "Apply an ignored change by hand" of the sync guide describes.
+3. Removes a path from its `.templatesyncignore` again when it drops its change to that file, so that the template's version arrives.

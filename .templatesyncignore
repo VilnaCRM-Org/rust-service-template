@@ -45,6 +45,7 @@ crates/service/src/http/router/tests.rs
 crates/service/tests/integration/bootstrap.rs
 crates/service/tests/integration/migrate.rs
 crates/service/tests/integration/serve.rs
+crates/service/tests/integration/panic.rs
 crates/service/src/openapi.rs
 crates/service/src/openapi/
 crates/service/src/graphql/schema.rs

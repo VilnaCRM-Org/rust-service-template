@@ -1,7 +1,8 @@
 #!/usr/bin/env bats
 # Negative tests of the repository gates: one test per linter of G23 (lint-repo), and the Make-level tests of the
 # documentation-drift gate G26, the architecture-model gate G27 and the invariants gate G31. There is no passing-run
-# test: the passing run of lint-repo is the gate itself (DD-02, DD-07)
+# test of a gate: the passing run of lint-repo is the gate itself (DD-02, DD-07). The template-sync check of the
+# synchronised Rust files has no Make target, so its passing run is a test here, next to its negative
 # (architecture-delivery.md "CLI Tests (Bats)", file make_repository.bats).
 #
 # A violation is planted under a name that the linter picks up (the fixtures keep the extension .txt and are excluded
@@ -106,6 +107,25 @@ teardown() {
   assert_output --partial "planted_${misspelt}_name.md"
 }
 
+@test "lint-spelling: a misspelt workflow name fails with the finding of typos" {
+  require_command typos
+  printf 'name: Planted %s\non: push\n' "${misspelt}" >"${tmp}/workflow.yml"
+  plant_new .github/workflows/planted_spelling.yml "${tmp}/workflow.yml"
+  run make --no-print-directory lint-spelling
+  assert_failure
+  assert_output --partial "${misspelt}"
+  assert_output --partial '.github/workflows/planted_spelling.yml'
+}
+
+@test "lint-spelling: a misspelt file name in a hidden directory fails with the finding of typos" {
+  require_command typos
+  plant_new ".github/planted_${misspelt}_name.md" "${fixtures}/skipped_heading.md.txt"
+  run make --no-print-directory lint-spelling
+  assert_failure
+  assert_output --partial "${misspelt}"
+  assert_output --partial ".github/planted_${misspelt}_name.md"
+}
+
 @test "lint-prettier: an unformatted JSON file fails with the finding of Prettier" {
   require_docker
   plant_new planted_unformatted.json "${fixtures}/unformatted.json.txt"
@@ -113,6 +133,34 @@ teardown() {
   assert_failure
   assert_output --partial 'planted_unformatted.json'
   assert_output --partial 'Code style issues found'
+}
+
+# --- Template sync: synchronised tests stay free of the example context -------------------------------------
+
+# The Rust files a commit would contain (tracked, or untracked and not ignored by git) that name the example
+# context or build the `Adapters` literal and that the template sync does not ignore. A sync restores the
+# template's copy of such a file, so it must not depend on what a service changes (FR100).
+synchronised_rust_files_naming_the_example() {
+  local -a naming=()
+  mapfile -t naming < <(git ls-files -z --cached --others --exclude-standard -- '*.rs' |
+    xargs -0 grep -l -s -E 'example_api_resources|ExampleApiResource|some_module|Adapters \{' -- | sort -u)
+  ((${#naming[@]} > 0)) || return 0
+  comm -23 <(printf '%s\n' "${naming[@]}") \
+    <(git ls-files --cached --others --ignored --exclude-from=.templatesyncignore -- "${naming[@]}" | sort -u)
+}
+
+@test "no synchronised Rust file names the example context or builds the Adapters literal" {
+  run synchronised_rust_files_naming_the_example
+  assert_success
+  assert_output ''
+}
+
+@test "a planted synchronised test that names the example table is reported" {
+  printf 'const TABLE: &str = "example_api_resources";\n' >"${tmp}/planted.rs"
+  plant_new crates/shared/infrastructure/tests/integration/planted_example_table.rs "${tmp}/planted.rs"
+  run synchronised_rust_files_naming_the_example
+  assert_success
+  assert_output 'crates/shared/infrastructure/tests/integration/planted_example_table.rs'
 }
 
 # --- G26, G27, G31 ------------------------------------------------------------------------------------------

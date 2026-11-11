@@ -69,7 +69,8 @@ A service adds to these files, and the template sync ignores them so that the ad
 | `crates/internal/health-check/domain/src/value_object/dependency.rs` and `crates/internal/health-check/infrastructure/src/probe.rs` | a dependency and the module declaration of its probe |
 | `crates/service/Cargo.toml` and the bootstrap, command-line, configuration, routes, OpenAPI and GraphQL schema modules of that crate | wiring, commands, configuration, routes and schema roots of its contexts |
 | `tests/support/`, `tests/e2e/` | test doubles, world and step definitions |
-| `crates/service/src/http/router/tests.rs` and `crates/service/tests/integration/{bootstrap,migrate,serve}.rs` | the tests that construct `Adapters` and call the routes, the table and the migration of the example context; keep them in step with your wiring |
+| `crates/service/src/http/router/tests.rs` and `crates/service/tests/integration/{bootstrap,migrate,serve,panic}.rs` | the tests that construct `Adapters` and call the routes, the table and the migration of the example context; keep them in step with your wiring |
+| files changed through an extension seam (see `docs/extension-seams.md`) | the change the seam describes; the template does not ignore these files, so add each synchronised path you change to your `.templatesyncignore` in the same pull request and apply later template changes to it by hand |
 
 `Makefile` and `docs/make-targets.md` are synchronised, not ignored; a service adds targets through the fragment of section 6 instead.
 

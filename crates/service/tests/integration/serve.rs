@@ -4,7 +4,7 @@ use std::io::{Read as _, Write as _};
 use std::time::Duration;
 
 use serde_json::Value;
-use sqlx::PgPool;
+use sqlx::{AssertSqlSafe, PgPool};
 use tokio::time::Instant;
 
 use crate::support::{
@@ -313,4 +313,123 @@ fn the_database_url_and_credentials_are_never_logged() {
 
     let text = serde_json::to_string(&finished.lines).unwrap();
     assert!(!text.contains("s3cret-pass"), "{text}");
+}
+
+#[sqlx::test(migrations = false)]
+async fn serve_applies_no_migration_to_a_database_that_was_never_migrated(pool: PgPool) {
+    let scratch = Scratch::new();
+    let url = database_url(&pool).await;
+    let owned = stack_with(&url);
+    let server = serve(&scratch, &as_pairs(&owned));
+
+    let ping = server.get("/ping");
+    let list = server.get("/api/example_api_resources");
+    let finished = server.terminate();
+
+    assert_eq!(ping.status, 200);
+    assert_eq!(list.status, 500, "{}", list.body);
+    assert!(
+        list.head.contains("content-type: application/problem+json"),
+        "{}",
+        list.head
+    );
+    assert_eq!(finished.code, Some(0));
+    for table in ["example_api_resources", "_sqlx_migrations"] {
+        let found: Option<String> = sqlx::query_scalar("SELECT to_regclass($1)::text")
+            .bind(table)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(found, None, "{table}");
+    }
+}
+
+#[sqlx::test(migrations = false)]
+async fn entries_inside_nested_spans_carry_the_request_id(pool: PgPool) {
+    let scratch = Scratch::new();
+    let url = database_url(&pool).await;
+    let mut owned = stack_with(&url);
+    owned.push(("LOG_LEVEL", "debug".to_owned()));
+    let server = serve(&scratch, &as_pairs(&owned));
+
+    let health = server.request("GET", "/api/health", &[("x-request-id", REQUEST_ID)], "");
+    let finished = server.terminate();
+
+    assert_eq!(health.status, 204, "{}", health.body);
+    assert_eq!(finished.code, Some(0));
+    // The one request is the only work between the start-up marker and the signal; entries of
+    // start-up (the AWS configuration is read in spans of its own) come before the marker.
+    let listening = finished
+        .lines
+        .iter()
+        .position(|line| line["message"] == "listening");
+    let signal = finished
+        .lines
+        .iter()
+        .position(|line| line["message"] == "shutdown signal received");
+    let inside = &finished.lines[listening.unwrap().saturating_add(1)..signal.unwrap()];
+    assert!(
+        inside
+            .iter()
+            .any(|line| line["span"]["name"] != "http.request"),
+        "no entry was written inside a nested span: {inside:?}"
+    );
+    for line in inside {
+        assert_eq!(line["spans"][0]["name"], "http.request", "{line}");
+        assert_eq!(line["spans"][0]["request_id"], REQUEST_ID, "{line}");
+    }
+}
+
+/// Asks `/api/health` until it answers 204 or `limit` has passed, and returns the last answer.
+fn health_within(server: &Server, limit: Duration) -> crate::support::Answer {
+    let started = Instant::now();
+    loop {
+        let answer = server.get("/api/health");
+        if answer.status == 204 || started.elapsed() >= limit {
+            return answer;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+#[sqlx::test(migrations = false)]
+async fn health_recovers_without_a_restart_when_the_database_comes_back(pool: PgPool) {
+    let scratch = Scratch::new();
+    let current = database_url(&pool).await;
+    let (server_url, name) = current.rsplit_once('/').unwrap();
+    // A name of the same length as the unique one the test server gave this test (PostgreSQL
+    // truncates names to 63 bytes), derived from it and never from input.
+    let missing = name.replacen("_sqlx_test_", "_recovered_", 1);
+    assert_ne!(missing, name);
+    let mut owned = stack_with(&format!("{server_url}/{missing}"));
+    let acquire_timeout = Duration::from_secs(30);
+    owned.retain(|(variable, _)| *variable != "DATABASE_ACQUIRE_TIMEOUT");
+    owned.push((
+        "DATABASE_ACQUIRE_TIMEOUT",
+        format!("{}s", acquire_timeout.as_secs()),
+    ));
+    let server = serve(&scratch, &as_pairs(&owned));
+
+    let outage = server.get("/api/health");
+    sqlx::query(AssertSqlSafe(format!(r#"CREATE DATABASE "{missing}""#)))
+        .execute(&pool)
+        .await
+        .unwrap();
+    let recovered = health_within(
+        &server,
+        acquire_timeout.saturating_add(Duration::from_secs(1)),
+    );
+    let finished = server.terminate();
+    sqlx::query(AssertSqlSafe(format!(
+        r#"DROP DATABASE "{missing}" WITH (FORCE)"#
+    )))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(outage.status, 500, "{}", outage.body);
+    let problem: Value = serde_json::from_str(&outage.body).unwrap();
+    assert_eq!(problem["detail"], "Database is not available", "{problem}");
+    assert_eq!(recovered.status, 204, "{}", recovered.body);
+    assert_eq!(finished.code, Some(0));
 }

@@ -10,6 +10,7 @@ use std::ops::RangeInclusive;
 use std::str::FromStr;
 use std::time::Duration;
 
+use axum::http::Uri;
 use shared_infrastructure::messaging::SqsSettings;
 use shared_infrastructure::persistence::{
     MAX_STATEMENT_TIMEOUT, MIN_STATEMENT_TIMEOUT, PostgresSettings,
@@ -408,11 +409,11 @@ fn endpoint(raw: Option<&str>) -> Parsed<Option<String>> {
     let Some(url) = raw else {
         return Ok(None);
     };
-    let has_host = ["http://", "https://"].iter().any(|scheme| {
-        url.strip_prefix(scheme)
-            .is_some_and(|rest| !rest.is_empty())
+    let is_http_url = Uri::from_str(url).is_ok_and(|uri| {
+        matches!(uri.scheme_str(), Some("http" | "https"))
+            && uri.host().is_some_and(|host| !host.is_empty())
     });
-    if has_host {
+    if is_http_url {
         Ok(Some(url.to_owned()))
     } else {
         Err("must be an http:// or https:// URL".to_owned())

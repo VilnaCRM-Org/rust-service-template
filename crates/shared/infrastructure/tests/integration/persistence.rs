@@ -34,10 +34,6 @@ async fn catalog(pool: &PgPool) -> Catalog {
     (rows(pool, COLUMNS).await, rows(pool, CONSTRAINTS).await)
 }
 
-fn strings(values: &[&str]) -> Vec<String> {
-    values.iter().map(|value| (*value).to_owned()).collect()
-}
-
 #[sqlx::test(migrations = false)]
 async fn migrations_apply_revert_and_apply_again_to_the_same_catalog(pool: PgPool) {
     MIGRATOR.run(&pool).await.unwrap();
@@ -52,73 +48,6 @@ async fn migrations_apply_revert_and_apply_again_to_the_same_catalog(pool: PgPoo
     assert_eq!(unchanged, first);
     assert_eq!(reverted, Catalog::default());
     assert_eq!(second, first);
-}
-
-#[sqlx::test(migrations = false)]
-async fn the_migration_creates_the_table_with_named_constraints(pool: PgPool) {
-    MIGRATOR.run(&pool).await.unwrap();
-
-    let (columns, constraints) = catalog(&pool).await;
-
-    assert_eq!(
-        columns,
-        vec![
-            strings(&["example_api_resources", "id", "uuid", "NO", "1"]),
-            strings(&["example_api_resources", "name", "text", "NO", "2"]),
-            strings(&["example_api_resources", "description", "text", "NO", "3"]),
-        ]
-    );
-    let names: Vec<&str> = constraints.iter().map(|row| row[1].as_str()).collect();
-    assert_eq!(
-        names,
-        vec![
-            "example_api_resources_description_check",
-            "example_api_resources_name_check",
-            "example_api_resources_pkey",
-        ]
-    );
-    assert_eq!(constraints[2][2], "p");
-}
-
-#[sqlx::test(migrations = false)]
-async fn the_embedded_migrator_holds_one_reversible_migration(pool: PgPool) {
-    MIGRATOR.run(&pool).await.unwrap();
-
-    let applied: i64 = sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-
-    assert_eq!(applied, 1);
-    assert_eq!(
-        MIGRATOR
-            .iter()
-            .filter(|migration| migration.migration_type.is_down_migration())
-            .count(),
-        1
-    );
-}
-
-#[sqlx::test(migrations = false)]
-async fn the_constraints_reject_an_empty_name_and_an_oversized_description(pool: PgPool) {
-    MIGRATOR.run(&pool).await.unwrap();
-    let insert = "INSERT INTO example_api_resources (id, name, description) VALUES (gen_random_uuid(), $1, $2)";
-
-    let empty_name = sqlx::query(insert).bind("").bind("d").execute(&pool).await;
-    let long_description = sqlx::query(insert)
-        .bind("n")
-        .bind("d".repeat(1025))
-        .execute(&pool)
-        .await;
-    let valid = sqlx::query(insert)
-        .bind("n")
-        .bind("d".repeat(1024))
-        .execute(&pool)
-        .await;
-
-    assert!(empty_name.is_err());
-    assert!(long_description.is_err());
-    assert!(valid.is_ok());
 }
 
 #[tokio::test]

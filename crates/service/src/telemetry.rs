@@ -12,6 +12,10 @@ fn log_panic(info: &std::panic::PanicHookInfo<'_>) {
 
 /// Installs the JSON subscriber on `writer` and the panic hook that writes the `panic` entry.
 ///
+/// An entry written inside a span carries the innermost span as `span` and every open span,
+/// outermost first, as `spans`: an entry of a nested span inside a request still carries the
+/// request span and its request id.
+///
 /// The level filter takes `tracing_subscriber::EnvFilter` directives.
 ///
 /// # Errors
@@ -26,7 +30,7 @@ where
         .json()
         .flatten_event(true)
         .with_current_span(true)
-        .with_span_list(false)
+        .with_span_list(true)
         .with_env_filter(filter)
         .with_writer(writer)
         .try_init()?;

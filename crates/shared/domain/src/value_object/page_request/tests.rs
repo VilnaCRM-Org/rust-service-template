@@ -3,18 +3,19 @@ use rstest::rstest;
 use super::{InvalidPageRequest, PageRequest};
 
 #[rstest]
-#[case::first_page(1, 1)]
-#[case::defaults(PageRequest::DEFAULT_PAGE, PageRequest::DEFAULT_ITEMS_PER_PAGE)]
-#[case::largest_page_size(7, PageRequest::MAX_ITEMS_PER_PAGE)]
-#[case::largest_page(u32::MAX, 100)]
+#[case::first_page(1, 1, 0)]
+#[case::defaults(PageRequest::DEFAULT_PAGE, PageRequest::DEFAULT_ITEMS_PER_PAGE, 0)]
+#[case::largest_page_size(7, PageRequest::MAX_ITEMS_PER_PAGE, 600)]
+#[case::largest_page(u32::MAX, 100, 429_496_729_400)]
 fn accepts_a_page_from_1_and_items_per_page_from_1_to_100(
     #[case] page: u32,
     #[case] items_per_page: u32,
+    #[case] offset: i64,
 ) {
     let request = PageRequest::new(page, items_per_page).unwrap();
 
-    assert_eq!(request.page(), page);
-    assert_eq!(request.items_per_page(), items_per_page);
+    assert_eq!(request.limit(), i64::from(items_per_page));
+    assert_eq!(request.offset(), offset);
 }
 
 #[rstest]

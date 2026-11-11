@@ -179,6 +179,13 @@ async fn every_route_carries_the_request_id_and_the_security_headers() {
         ),
         (
             Method::GET,
+            "/api/docs/%FF".into(),
+            None,
+            StatusCode::BAD_REQUEST,
+            DEFAULT_CONTENT_SECURITY_POLICY,
+        ),
+        (
+            Method::GET,
             "/api/unknown".into(),
             None,
             StatusCode::NOT_FOUND,
@@ -365,4 +372,174 @@ async fn a_valid_inbound_request_id_is_kept_and_an_invalid_one_is_replaced() {
     let replaced = send("test", invalid).await;
     assert_ne!(replaced.headers["x-request-id"], "a b");
     assert_eq!(replaced.headers["x-request-id"].len(), 36);
+}
+
+#[tokio::test]
+async fn no_response_is_compressed_and_no_other_protocol_is_advertised() {
+    let app = router(adapters(), &config("test")).unwrap();
+    for path in [
+        "/ping",
+        "/api/example_api_resources",
+        "/api/docs/swagger-ui-bundle.js",
+        "/api/unknown",
+    ] {
+        let mut bodies = Vec::new();
+        for accept_encoding in [None, Some("gzip, deflate, br, zstd")] {
+            let mut builder = Request::get(path);
+            if let Some(value) = accept_encoding {
+                builder = builder.header(header::ACCEPT_ENCODING, value);
+            }
+            let response = app
+                .clone()
+                .oneshot(builder.body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            for name in [
+                header::CONTENT_ENCODING,
+                header::ALT_SVC,
+                header::STRICT_TRANSPORT_SECURITY,
+            ] {
+                assert!(
+                    !response.headers().contains_key(&name),
+                    "{path} {accept_encoding:?}: {name}"
+                );
+            }
+            bodies.push(response.into_body().collect().await.unwrap().to_bytes());
+        }
+        assert!(!bodies[0].is_empty(), "{path}");
+        assert_eq!(bodies[0], bodies[1], "{path}");
+    }
+}
+
+/// The types a handler parameter of this crate may have: their rejections are problems.
+const ALLOWED_EXTRACTORS: [&str; 5] = [
+    "State<ApiSchema>",
+    "ApiPath<",
+    "ApiJson<",
+    "ValidatedQuery<",
+    "ValidatedJson<",
+];
+
+/// The handler sources of the crate: every file under `src/http` and `src/graphql` with a
+/// `pub async fn`, except the request id middleware, whose parameters are not extractors.
+const HANDLER_SOURCES: [(&str, &str); 3] = [
+    ("http/docs.rs", include_str!("../docs.rs")),
+    ("http/ping.rs", include_str!("../ping.rs")),
+    (
+        "graphql/handler.rs",
+        include_str!("../../graphql/handler.rs"),
+    ),
+];
+
+/// Returns `name: parameter` for every parameter of a `pub async fn` of `source` whose type is not
+/// an allowed extractor.
+fn disallowed_parameters(source: &str) -> Vec<String> {
+    let mut disallowed = Vec::new();
+    for chunk in source.split("pub async fn ").skip(1) {
+        let (name, after) = chunk.split_once('(').unwrap();
+        let mut depth = 1_usize;
+        let mut parameters = vec![String::new()];
+        for character in after.chars() {
+            match character {
+                '(' | '<' => depth = depth.saturating_add(1),
+                ')' | '>' => depth = depth.saturating_sub(1),
+                _ => {}
+            }
+            if depth == 0 {
+                break;
+            }
+            if character == ',' && depth == 1 {
+                parameters.push(String::new());
+            } else if let Some(current) = parameters.last_mut() {
+                current.push(character);
+            }
+        }
+        for parameter in parameters.iter().map(|parameter| parameter.trim()) {
+            if parameter.is_empty() {
+                continue;
+            }
+            let kind = parameter
+                .split_once(": ")
+                .map_or(parameter, |(_, kind)| kind)
+                .trim();
+            if !ALLOWED_EXTRACTORS
+                .iter()
+                .any(|allowed| kind.starts_with(allowed))
+            {
+                disallowed.push(format!("{}: {parameter}", name.trim()));
+            }
+        }
+    }
+    disallowed
+}
+
+/// The production files under `directory` of `src` that hold a `pub async fn`, as paths relative
+/// to `src`.
+fn files_with_handlers(directory: &str) -> Vec<String> {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut pending = vec![root.join(directory)];
+    let mut found = Vec::new();
+    while let Some(path) = pending.pop() {
+        if path.is_dir() {
+            pending.extend(
+                std::fs::read_dir(&path)
+                    .unwrap()
+                    .map(|entry| entry.unwrap().path()),
+            );
+        } else if !path.ends_with("tests.rs")
+            && std::fs::read_to_string(&path)
+                .unwrap()
+                .contains("pub async fn ")
+        {
+            let relative = path.strip_prefix(&root).unwrap();
+            found.push(relative.to_string_lossy().replace('\\', "/"));
+        }
+    }
+    found.sort_unstable();
+    found
+}
+
+#[test]
+fn handlers_use_only_the_problem_aware_extractors() {
+    for (file, source) in HANDLER_SOURCES {
+        assert_eq!(
+            disallowed_parameters(source),
+            Vec::<String>::new(),
+            "{file}"
+        );
+    }
+    assert!(
+        HANDLER_SOURCES[0]
+            .1
+            .contains("ApiPath(file): ApiPath<String>")
+    );
+    assert!(HANDLER_SOURCES[2].1.contains("ApiJson(body): ApiJson<"));
+    let mut expected: Vec<String> = HANDLER_SOURCES
+        .iter()
+        .map(|(file, _)| (*file).to_owned())
+        .chain(std::iter::once("http/request_id.rs".to_owned()))
+        .collect();
+    expected.sort_unstable();
+    let mut found = files_with_handlers("http");
+    found.extend(files_with_handlers("graphql"));
+    found.sort_unstable();
+    assert_eq!(found, expected);
+}
+
+#[rstest::rstest]
+#[case::raw_path("pub async fn h(Path(file): Path<String>) -> Response {}")]
+#[case::raw_json("pub async fn h(State(s): State<ApiSchema>, Json(b): Json<Value>) -> Response {}")]
+#[case::raw_query("pub async fn h(Query(q): Query<Params>) -> Response {}")]
+#[case::raw_body("pub async fn h(body: String) -> Response {}")]
+fn the_extractor_check_reports_a_planted_violation(#[case] source: &str) {
+    assert_eq!(disallowed_parameters(source).len(), 1, "{source}");
+}
+
+#[test]
+fn the_extractor_check_accepts_the_allowed_extractors() {
+    let source = "pub async fn h(State(s): State<ApiSchema>, ApiPath(f): ApiPath<String>, \
+        ApiJson(b): ApiJson<Map<String, Value>>, ValidatedQuery(q): ValidatedQuery<Q>, \
+        ValidatedJson(j): ValidatedJson<J>) -> Response {}";
+
+    assert_eq!(disallowed_parameters(source), Vec::<String>::new());
 }

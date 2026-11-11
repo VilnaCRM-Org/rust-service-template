@@ -133,7 +133,8 @@ When more than one probe fails, `detail` lists all messages in registration orde
 | `message` | always | fixed text from the list below |
 | `target` | always | Rust module path, or `audit` for audit entries |
 | event fields | per message | flattened into the top level |
-| `span` | inside a request | `{"name":"http.request","http.request.method":…,"http.route":…,"url.path":…,"request_id":…}` |
+| `span` | inside a request | the innermost open span: `{"name":"http.request","http.request.method":…,"http.route":…,"url.path":…,"request_id":…}`, or a span opened inside the request (an SQS call opens its own) |
+| `spans` | inside a request | every open span, outermost first; the first element is always the `http.request` span with the `request_id` |
 
 Fixed messages:
 
@@ -152,16 +153,16 @@ Fixed messages:
 | `stopped` | INFO | none | `serve` then exits with status 0 |
 | `serve failed` | ERROR | `error` | bind or runtime failure; `serve` then exits with status 1 |
 
-Lines written outside a request (start-up, shutdown) carry no `span`.
+Lines written outside a request (start-up, shutdown) carry no request span; the AWS SDK writes a few start-up entries at `debug` level inside spans of its own.
 
 The level filter is `LOG_LEVEL`. It takes `tracing_subscriber::EnvFilter` directives: a level such as `debug`, or per-target levels such as `info,sqlx=warn,audit=info`. An invalid directive is a configuration error. Request and response bodies, request headers other than the request id, and `DATABASE_URL` are never logged.
 
 ### Request ids
 
-The header is `x-request-id`. An inbound value is accepted when it matches `^[A-Za-z0-9._-]{1,128}$`; any other value is dropped and a UUID is generated. The id is echoed on every response, including 404, 405, panic and timeout responses, and it is the field `request_id` in the `span` of every log line of the request. To follow one request:
+The header is `x-request-id`. An inbound value is accepted when it matches `^[A-Za-z0-9._-]{1,128}$`; any other value is dropped and a UUID is generated. The id is echoed on every response, including 404, 405, panic and timeout responses, and it is the field `request_id` of the first element of `spans` of every log line of the request, also of the lines written inside a span the request opened (at `debug` level the SQS client writes such lines). To follow one request:
 
 ```sh
-docker compose logs app | jq -c 'select(.span.request_id == "<id>")'
+docker compose logs --no-log-prefix app | jq -c 'select(any(.spans[]?; .request_id == "<id>"))'
 ```
 
 A client that reports a problem should quote the `x-request-id` of the response; the bug-report template asks for it.
@@ -209,9 +210,9 @@ CI installs the cargo tools with `taiki-e/install-action`, pinned by commit, wit
 
 ## First measurements
 
-These tables record what the first runs cost, so that later changes can be judged against them. The local values were entered by Story 10.5; the hosted-runner values follow the first pipeline runs, and an empty cell means that nothing has been measured yet.
+These tables record what the first runs cost, so that later changes can be judged against them. The local values were entered by Story 10.5; the hosted-runner values are those of the first complete pipeline run, on commit `db7fe08` of the bootstrap pull request on 2026-11-11. The duration of a documentation-only pull request (budget 5 minutes) has not been measured yet: no such pull request has run.
 
-Conditions of the local runs, 2026-11-11: a virtual machine with 4 vCPUs, 15 GB of memory and Linux 6.18, a fresh clone in a temporary directory (project name `service-clone`), no build directory and no compiler cache. Cargo ran with `CARGO_INCREMENTAL=0` and `CARGO_PROFILE_DEV_DEBUG=0`, the two settings the hosted runners also use, and everything else at its default. The pinned tools were already installed on the machine, so `make bootstrap` did not compile them. Both container images were built beforehand from the same commit and the runs used `BUILD_IMAGE=0`, so the image builds are not part of any duration below. The development image had been built earlier the same day, and its inputs (`make/tool-versions.mk`, `scripts/install-tools.sh`, `scripts/install-bats.sh` and the base image) had not changed since. The machine was shared with other work (load average 3.84 at the start of `make bootstrap`). The commit is `d152806`.
+Conditions of the local runs, 2026-11-11: a virtual machine with 4 vCPUs, 15 GB of memory and Linux 6.18, a fresh clone in a temporary directory (project name `service-clone`), no build directory and no compiler cache. Cargo ran with `CARGO_INCREMENTAL=0` and `CARGO_PROFILE_DEV_DEBUG=0` and everything else at its default. The hosted jobs use the same two settings: the pull-request jobs receive both from the toolchain action (`actions-rust-lang/setup-rust-toolchain` sets them), and the scheduled clean-clone job `clean-bootstrap-ci`, which does not use that action, sets both in the `env` of its workflow. The pinned tools were already installed on the machine, so `make bootstrap` did not compile them. Both container images were built beforehand from the same commit and the runs used `BUILD_IMAGE=0`, so the image builds are not part of any duration below. The development image had been built earlier the same day, and its inputs (`make/tool-versions.mk`, `scripts/install-tools.sh`, `scripts/install-bats.sh` and the base image) had not changed since. The machine was shared with other work (load average 3.84 at the start of `make bootstrap`). The commit is `d152806`.
 
 Local runs, on that machine:
 
@@ -223,7 +224,14 @@ Local runs, on that machine:
 | `make ci base_ref=HEAD` (Story 10.4, for comparison) | 2026-11-11 | 1575 s (26 min 15 s) | within 45 minutes on 4 vCPUs | yes | warm compiler cache and build directory in the working tree, commit `ecbca71`, 295 Bats tests; this run is not comparable with the cold run above: it used other cargo settings and ran beside other work |
 | `make mutation-tests` (Story 9.3, all 8 shards, one after the other) | 2026-11-11 | 339 s to 1146 s per shard, see below | none | not applicable | 665 mutants: 409 caught, 256 unviable, none missed or timed out |
 
-The budgets are the ones of the PRD. All three are met; no budget, threshold or timeout was changed.
+The budgets are the ones of the PRD. All three are met by the local runs; no budget, threshold or timeout was changed. The local runs are not a measurement of a cold hosted runner: they excluded the installation of the tools and both image builds (see the conditions). The hosted runs of commit `db7fe08` measured the two image builds, each in a job that starts without any cache (the image caches are saved on `main` only, and `main` had not run these workflows):
+
+| Part excluded locally | Hosted job and step | Duration |
+| --- | --- | --- |
+| cold build of the development image | `Bats: surface`, build step 16:29:11Z to 16:32:05Z | 2 min 54 s |
+| cold build of the production image | `Smoke load tests`, build step 16:28:40Z to 16:32:40Z | 4 min 0 s |
+
+Estimate for a cold hosted runner, from these figures and the local runs (a sum of figures from two machines with 4 vCPUs each, not a measurement): `make bootstrap` about 116 s plus 2 min 54 s, that is about 4 min 50 s, plus the installation of the pinned tools, which no run has measured (budget 15 minutes); `make ci` about 24 min 42 s plus 4 min 0 s, that is about 28 min 42 s (budget 45 minutes). The three budgets of NFR35 are confirmed or revised from the first run of the scheduled job `clean-bootstrap-ci`, which runs both commands on a clean clone on a hosted runner; until then they stand as initial budgets.
 
 Stages of the `make ci` run, from the timestamps of the log (the stage that was running was sampled every 2 s, so each boundary is accurate to about 2 s):
 
@@ -269,20 +277,22 @@ On the bootstrap pull request the hosted workflow counts 697 mutants for commit 
 
 Smoke load test: the `health` profile ran inside `make ci` (stage 6) with a p99 of 14.79 ms against the budget of 500 ms (see `docs/load-testing.md`).
 
-Pull-request jobs on a hosted runner:
+Pull-request jobs on a hosted runner, commit `db7fe08` of the bootstrap pull request, 2026-11-11, from the start and end times of the latest check run of each name. No Rust or image cache was restored, because the caches are saved on `main` only, so these are cold figures:
 
 | Job | Date | Duration | Notes |
 | --- | --- | --- | --- |
-| `format-check` | | | |
-| `static-analysis` | | | |
-| `tests` | | | |
-| `e2e-tests` | | | |
-| `mutation-shard` (longest shard) | 2026-11-11 | 15 min 32 s | shard 1/5 of commit `d152806`; the other four took 5 min 28 s, 7 min 32 s, 7 min 49 s and 9 min 0 s |
-| `bats-group` (longest group) | | | |
-| `schemathesis` | | | |
-| `smoke-load-tests` | | | |
-| `image-scan` | | | |
-| `docs-check` | | | |
+| `format-check` | 2026-11-11 | 17 s | check `Formatting check` |
+| `static-analysis` | 2026-11-11 | 2 min 11 s | check `Static analysis` |
+| `tests` | 2026-11-11 | 4 min 6 s | check `Tests and coverage` |
+| `e2e-tests` | 2026-11-11 | 2 min 38 s | check `End-to-end tests` |
+| `mutation-shard` (longest shard) | 2026-11-11 | 11 min 46 s | shard 1/5 of commit `db7fe08`; the other four took 6 min 0 s, 7 min 18 s, 8 min 37 s and 9 min 8 s. Earlier, on commit `d152806`, shard 1/5 took 15 min 32 s and the other four 5 min 28 s, 7 min 32 s, 7 min 49 s and 9 min 0 s |
+| `bats-group` (longest group) | 2026-11-11 | 10 min 19 s | group `surface`, which includes the cold build of the development image (2 min 54 s); the other groups took 9 min 0 s (`contracts`), 8 min 38 s (`load`), 7 min 2 s (`tests`), 4 min 41 s (`quality`) and 3 min 56 s (`repository`) |
+| `schemathesis` | 2026-11-11 | 4 min 34 s | check `Schemathesis` |
+| `smoke-load-tests` | 2026-11-11 | 5 min 21 s | check `Smoke load tests`, which includes the cold build of the production image (4 min 0 s) |
+| `image-scan` | 2026-11-11 | 5 min 30 s | check `Production-image scan` |
+| `docs-check` | 2026-11-11 | 1 min 41 s | check `Documentation drift` |
+
+The whole pull request on that commit: the first check started at 16:28:08Z, the last check other than the mutation check (`Makefile tests (Bats)`) ended at 16:39:01Z, 10 min 53 s later, and the mutation check (`Mutation tests`) ended at 16:43:53Z, 15 min 45 s after the first start. This is within the cold budget of 40 minutes, the mutation check apart, and within the 45 minutes per shard of the mutation check; the Bats requirement of 20 minutes, read per group because the six groups are separate jobs, is met by the longest group with 10 min 19 s. The warm budget of 20 minutes is measured on the first pull request after a push to `main` has saved the caches.
 
 ## Accepted findings: `.trivyignore` and `.gitleaksignore`
 

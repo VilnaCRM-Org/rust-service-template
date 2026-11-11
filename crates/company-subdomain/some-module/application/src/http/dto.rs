@@ -3,14 +3,16 @@
 //! Schema constraints and validator attributes sit on the same field so that both stay equal.
 
 use serde::{Deserialize, Serialize};
+use shared_domain::PageRequest;
 use utoipa::{IntoParams, ToSchema};
 use validator::Validate;
 
 use crate::query::ExampleApiResourceView;
 use crate::query::list_example_api_resources::ListExampleApiResources;
 
-const DEFAULT_PAGE: i32 = 1;
-const DEFAULT_ITEMS_PER_PAGE: i32 = 30;
+/// The defaults of the shared kernel, signed like the parameters; both fit in an `i32`.
+const DEFAULT_PAGE: i32 = PageRequest::DEFAULT_PAGE.cast_signed();
+const DEFAULT_ITEMS_PER_PAGE: i32 = PageRequest::DEFAULT_ITEMS_PER_PAGE.cast_signed();
 
 /// Template example resource.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
