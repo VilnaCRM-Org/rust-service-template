@@ -116,6 +116,13 @@ fn the_start_up_entry_names_the_mode() {
     }
 }
 
+/// Returns when the service has accepted the connection opened by `begin`, however slow the
+/// machine is. A service accepts connections in the order they were made, so an answered request
+/// on a later connection proves that the earlier one was accepted.
+fn wait_until_accepted(server: &Server) {
+    assert_eq!(server.get("/ping").status, 200);
+}
+
 #[test]
 fn an_idle_service_stops_on_sigterm_within_two_seconds() {
     let scratch = Scratch::new();
@@ -160,11 +167,11 @@ fn a_request_in_flight_completes_and_new_connections_are_refused() {
     let scratch = Scratch::new();
     let mut server = dead_server(&scratch, &[]);
     let mut stream = server.begin("/ping");
-    std::thread::sleep(Duration::from_millis(200));
+    wait_until_accepted(&server);
 
     server.signal("TERM");
     server.read_until("shutdown signal received");
-    server.wait_until_refusing(Duration::from_secs(2));
+    server.wait_until_refusing(Duration::from_secs(10));
     stream.write_all(b"\r\n").unwrap();
     let mut response = String::new();
     stream.read_to_string(&mut response).unwrap();
@@ -181,7 +188,7 @@ fn a_connection_open_at_the_end_of_the_grace_period_forces_exit_status_1() {
     let scratch = Scratch::new();
     let mut server = dead_server(&scratch, &[("SHUTDOWN_GRACE_PERIOD", "1s")]);
     let mut stream = server.begin("/ping");
-    std::thread::sleep(Duration::from_millis(200));
+    wait_until_accepted(&server);
     let started = Instant::now();
 
     server.signal("TERM");

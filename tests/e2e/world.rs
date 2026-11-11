@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 use std::str::FromStr as _;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 use axum::body::Body;
 use axum::http::{HeaderMap, Request, header};
@@ -57,7 +58,16 @@ fn base_config() -> Config {
     let Command::Serve(args) = Cli::parse_from(["service", "serve"]).command else {
         panic!("`serve` arguments expected");
     };
-    Config::from_args(args).expect("valid configuration")
+    let mut config = Config::from_args(args).expect("valid configuration");
+    // The production defaults are a few seconds. A scenario must succeed however long the machine
+    // needs to open the first connection, so the budgets are long and keep the order the
+    // configuration requires (request > probe >= acquire and operation).
+    config.database.acquire_timeout = Duration::from_secs(30);
+    config.sqs.connect_timeout = Duration::from_secs(10);
+    config.sqs.operation_timeout = Duration::from_secs(30);
+    config.health_probe_timeout = Duration::from_secs(40);
+    config.request_timeout = Duration::from_secs(60);
+    config
 }
 
 /// Connection options of the server of `DATABASE_URL`.

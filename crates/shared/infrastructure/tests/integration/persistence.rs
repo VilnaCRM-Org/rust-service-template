@@ -1,7 +1,8 @@
 use std::time::Duration;
 
 use shared_infrastructure::persistence::{MIGRATOR, PostgresSettings, connect_lazy};
-use sqlx::{PgPool, Row as _};
+use sqlx::pool::PoolConnection;
+use sqlx::{PgPool, Postgres, Row as _};
 use tokio::time::Instant;
 
 use crate::support;
@@ -131,7 +132,7 @@ async fn a_lazy_pool_is_created_and_fails_a_query_within_the_acquire_timeout() {
     let started = Instant::now();
 
     let pool = connect_lazy(&settings).unwrap();
-    let created_in = started.elapsed();
+    let connections_after_creation = pool.size();
     let result = tokio::time::timeout(
         Duration::from_secs(10),
         sqlx::query("SELECT 1").execute(&pool),
@@ -139,7 +140,7 @@ async fn a_lazy_pool_is_created_and_fails_a_query_within_the_acquire_timeout() {
     .await
     .expect("the query must give up on its own");
 
-    assert!(created_in < Duration::from_millis(250));
+    assert_eq!(connections_after_creation, 0);
     assert!(result.is_err());
     assert!(started.elapsed() < Duration::from_millis(1500));
 }
@@ -202,20 +203,44 @@ async fn a_statement_longer_than_the_statement_timeout_is_cancelled() {
     assert!(result.is_err());
 }
 
+/// How long a connection may take to become available when the database is up.
+const PATIENCE: Duration = Duration::from_secs(30);
+
+/// Acquires a connection and tries again after every pool timeout until `PATIENCE` has passed.
+///
+/// The acquire timeout also covers opening a connection (TCP, authentication), so a short one can
+/// expire on a loaded machine although the database is fine. The last error is returned when the
+/// database does not give a connection within `PATIENCE`.
+async fn acquire_patiently(pool: &PgPool) -> Result<PoolConnection<Postgres>, sqlx::Error> {
+    let started = Instant::now();
+    loop {
+        match pool.acquire().await {
+            Err(sqlx::Error::PoolTimedOut) if started.elapsed() < PATIENCE => {}
+            outcome => return outcome,
+        }
+    }
+}
+
 #[tokio::test]
 async fn the_pool_never_holds_more_connections_than_max_connections() {
+    let acquire_timeout = Duration::from_millis(300);
     let settings = PostgresSettings {
         max_connections: 1,
-        acquire_timeout: Duration::from_millis(300),
+        acquire_timeout,
         ..support::postgres_settings()
     };
     let pool = connect_lazy(&settings).unwrap();
 
-    let held = pool.acquire().await.unwrap();
+    let held = acquire_patiently(&pool)
+        .await
+        .expect("the database must give the first connection within 30 s");
+    let started = Instant::now();
     let second = pool.acquire().await;
+    let waited = started.elapsed();
     drop(held);
-    let third = pool.acquire().await;
+    let third = acquire_patiently(&pool).await;
 
     assert!(matches!(second, Err(sqlx::Error::PoolTimedOut)));
+    assert!(waited >= acquire_timeout, "{waited:?}");
     assert!(third.is_ok());
 }

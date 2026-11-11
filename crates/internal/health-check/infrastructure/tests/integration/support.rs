@@ -20,23 +20,25 @@ fn env(name: &str) -> String {
         .unwrap_or_else(|_| panic!("{name} is not set; run the tests through `make`"))
 }
 
-/// Settings of the test database `app_test` with generous timeouts.
+/// Settings of the test database `app_test`. The acquire timeout also covers opening the first
+/// connection, so it is long: a test that must succeed does not depend on the speed of the machine.
 pub(crate) fn postgres_settings() -> PostgresSettings {
     PostgresSettings {
         url: env("DATABASE_URL"),
         max_connections: 2,
-        acquire_timeout: Duration::from_secs(5),
+        acquire_timeout: Duration::from_secs(30),
         statement_timeout: Duration::from_secs(5),
     }
 }
 
-/// Settings of the SQS emulator of the test stack.
+/// Settings of the SQS emulator of the test stack, with generous timeouts: a call that must succeed
+/// does not depend on how fast the machine opens a connection.
 pub(crate) fn sqs_settings() -> SqsSettings {
     SqsSettings {
         region: env("AWS_REGION"),
         endpoint_url: Some(env("AWS_ENDPOINT_URL_SQS")),
-        connect_timeout: Duration::from_millis(500),
-        operation_timeout: Duration::from_secs(2),
+        connect_timeout: Duration::from_secs(10),
+        operation_timeout: Duration::from_secs(30),
         max_attempts: 1,
     }
 }
