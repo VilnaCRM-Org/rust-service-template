@@ -11,6 +11,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use axum::http::Uri;
+use axum::http::uri::Authority;
 use shared_infrastructure::messaging::SqsSettings;
 use shared_infrastructure::persistence::{
     MAX_STATEMENT_TIMEOUT, MIN_STATEMENT_TIMEOUT, PostgresSettings,
@@ -411,13 +412,21 @@ fn endpoint(raw: Option<&str>) -> Parsed<Option<String>> {
     };
     let is_http_url = Uri::from_str(url).is_ok_and(|uri| {
         matches!(uri.scheme_str(), Some("http" | "https"))
-            && uri.host().is_some_and(|host| !host.is_empty())
+            && uri.authority().is_some_and(has_host_and_valid_port)
     });
     if is_http_url {
         Ok(Some(url.to_owned()))
     } else {
         Err("must be an http:// or https:// URL".to_owned())
     }
+}
+
+/// `http::Uri` checks the port only when it is read, so the authority (after the optional user
+/// information) must be the host alone, or the host followed by `:` and a port from 0 to 65535.
+fn has_host_and_valid_port(authority: &Authority) -> bool {
+    let host = authority.host();
+    let host_alone = authority.as_str().rsplit('@').next() == Some(host);
+    !host.is_empty() && (host_alone || authority.port_u16().is_some())
 }
 
 fn required(raw: Option<&str>) -> Parsed<String> {

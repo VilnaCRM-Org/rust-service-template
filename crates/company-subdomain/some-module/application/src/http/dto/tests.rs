@@ -259,3 +259,15 @@ fn the_default_parameters_are_the_page_request_defaults() {
     assert_eq!(query.page, PageRequest::DEFAULT_PAGE);
     assert_eq!(query.items_per_page, PageRequest::DEFAULT_ITEMS_PER_PAGE);
 }
+
+#[test]
+fn the_items_per_page_bound_is_the_page_request_maximum() {
+    let largest = i32::try_from(PageRequest::MAX_ITEMS_PER_PAGE).unwrap();
+
+    assert!(params(1, largest).validate().is_ok());
+    assert!(params(1, largest + 1).validate().is_err());
+    assert_eq!(
+        params(1, largest).into_query().items_per_page,
+        PageRequest::MAX_ITEMS_PER_PAGE
+    );
+}

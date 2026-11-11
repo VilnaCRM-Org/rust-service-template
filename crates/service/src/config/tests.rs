@@ -356,6 +356,10 @@ fn an_unparsable_duration_names_its_variable() {
 #[case("https://sqs.eu-west-1.amazonaws.com")]
 #[case("http://localstack:4566/")]
 #[case("http://[::1]:4566")]
+#[case("http://[::1]")]
+#[case("http://user:secret@localstack:4566")]
+#[case("http://localhost:0")]
+#[case("http://localhost:65535")]
 fn the_sqs_endpoint_accepts_http_and_https_urls(#[case] raw: &str) {
     let args = ServeArgs {
         aws_endpoint_url_sqs: some(raw),
@@ -377,6 +381,12 @@ fn the_sqs_endpoint_accepts_http_and_https_urls(#[case] raw: &str) {
 #[case("http:// ")]
 #[case("http://exa mple:4566")]
 #[case("http://:4566")]
+#[case("http://localhost:abc")]
+#[case("http://localhost:99999")]
+#[case("http://127.0.0.1:4566x")]
+#[case("http://abc:abc")]
+#[case("http://localhost:")]
+#[case("http://user@localhost:4566x")]
 fn the_sqs_endpoint_rejects_everything_else(#[case] raw: &str) {
     let args = ServeArgs {
         aws_endpoint_url_sqs: some(raw),
