@@ -740,10 +740,27 @@ EOF
 #!/usr/bin/env bash
 https_proxy=http://127.0.0.1:3128 curl -fsSLO http://localhost/tool
 EOF
+  put scripts/fetch-url-option.sh <<'EOF'
+#!/usr/bin/env bash
+curl -fsSLO --url=intranet/tool http://localhost/
+EOF
+  put scripts/fetch-url-word.sh <<'EOF'
+#!/usr/bin/env bash
+curl -fsSLO --url intranet http://localhost/
+EOF
+  put scripts/fetch-ipv6-bare.sh <<'EOF'
+#!/usr/bin/env bash
+curl -fsSLO http://localhost/x '[2001:db8::1]/tool'
+EOF
+  put scripts/fetch-input-file.sh <<'EOF'
+#!/usr/bin/env bash
+wget -q --input-file=lists/tools http://localhost/
+EOF
   check
   assert_failure
   local name
-  for name in resolve ipv4 ipv4-bare word socks resolve6 connect-word preproxy socks-option proxy-cluster proxy-variable; do
+  for name in resolve ipv4 ipv4-bare word socks resolve6 connect-word preproxy socks-option proxy-cluster proxy-variable \
+    url-option url-word ipv6-bare input-file; do
     assert_line "(b) scripts/fetch-${name}.sh: a file is downloaded by URL without a checksum"
   done
 }

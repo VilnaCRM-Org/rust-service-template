@@ -233,14 +233,91 @@ assert_released() {
   assert_released v0.1.0
 }
 
-# A footer starts a line (cocogitto's grammar and the conventional-commit definition: a token, then `: ` or ` #`)
-# and the token is upper case: words in a sentence, a lower-case token and a missing blank are no footer.
+@test "without a tag a breaking change in the oldest commit releases the manifest version" {
+  git commit --quiet --amend -m $'docs(#1): initial workspace\n\nBREAKING CHANGE: the first layout'
+  git push --quiet --force origin main
+  release
+  assert_success
+  assert_released v0.1.0
+}
+
+@test "after v0.1.0 a ! before the colon of a docs subject releases v0.2.0" {
+  released v0.1.0
+  commit 'docs(#2)!: drop the old setting'
+  release
+  assert_success
+  assert_released v0.2.0
+}
+
+# The footer section is the run of paragraphs at the end of the message, after the subject, that each start with a
+# footer (a token, then `: ` or ` #`); a breaking change is a line of it that starts with the upper-case token, a
+# colon, a blank and a value. A paragraph of other footers after it does not hide it.
+@test "after v0.1.0 a BREAKING CHANGE footer followed by a paragraph of other footers releases v0.2.0" {
+  released v0.1.0
+  commit $'fix(#2): rename the field\n\nThe field is renamed.\n\nBREAKING CHANGE: the field name changed\n\nCo-authored-by: Other Author <other@example.org>'
+  release
+  assert_success
+  assert_released v0.2.0
+}
+
+# Inside the footer section: words in a sentence, a lower-case token, a missing blank after the colon and an indented
+# line (the continuation of a value) are no breaking change. cocogitto marks the commit breaking for the line in the
+# middle paragraph, so the script reads every line of the footer section.
 @test "a BREAKING CHANGE that is not a footer token at the start of a line does not count" {
   released v0.1.0
-  commit $'fix(#2): repair the example\n\nThis is not a BREAKING CHANGE: the field stays.\nbreaking change: lower case is no token\nBREAKING CHANGE:no blank after the colon\n\nRefs: #2'
+  commit $'fix(#2): repair the example\n\nThe parser reads a line such as\nBREAKING CHANGE: y\nonly in the footer section.\n\nRefs: #2\nThis is not a BREAKING CHANGE: the field stays.\nbreaking change: lower case is no token\nBREAKING CHANGE:no blank after the colon\n  BREAKING CHANGE: an indented line continues the value'
   release
   assert_success
   assert_released v0.1.1
+}
+
+@test "after v0.1.0 a fix with a BREAKING CHANGE line inside a paragraph of its body releases v0.1.1" {
+  released v0.1.0
+  commit $'fix(#2): repair the example\n\nThe parser reads a line such as\nBREAKING CHANGE: y\nonly in the footer section.\n\nRefs: #2'
+  release
+  assert_success
+  assert_released v0.1.1
+}
+
+@test "after v0.1.0 a docs commit that quotes the footer as an indented example releases nothing" {
+  local before
+  released v0.1.0
+  commit $'docs(#2): explain the footer\n\nWrite it like this:\n\n    BREAKING CHANGE: the field name changed\n\nas the last paragraph.'
+  git push --quiet origin main
+  before="$(git rev-parse HEAD)"
+  release
+  assert_success
+  assert_output --partial 'No conventional commits for your repository that required a bump'
+  assert_equal "$(git -C "${origin}" rev-parse main)" "${before}"
+  assert_equal "$(git tag --list)" 'v0.1.0'
+  assert_file_not_exists "${gh_log}"
+}
+
+# From 1.0.0 on cocogitto alone would make a major release for these lines; the script takes the fix or feat bump.
+@test "from v1.0.0 a fix with a BREAKING CHANGE line in the last paragraph of its body releases v1.0.1" {
+  released v1.0.0
+  commit $'fix(#2): repair the example\n\nThe parser used to read\nBREAKING CHANGE: y\nanywhere in the body.'
+  release
+  assert_success
+  assert_released v1.0.1
+}
+
+@test "from v1.0.0 a docs commit with a BREAKING CHANGE line in its body releases nothing, a feat then v1.1.0" {
+  local before
+  released v1.0.0
+  commit $'docs(#2): explain the footer\n\nA line such as\nBREAKING CHANGE: y\nbelongs in the footer section.'
+  git push --quiet origin main
+  before="$(git rev-parse HEAD)"
+  release
+  assert_success
+  assert_output --partial 'nothing to release'
+  assert_equal "$(git -C "${origin}" rev-parse main)" "${before}"
+  assert_equal "$(git tag --list)" 'v1.0.0'
+  assert_file_not_exists "${gh_log}"
+  commit 'feat(#3): add another example'
+  release
+  assert_success
+  assert_released v1.1.0
 }
 
 @test "--version 1.0.0 releases v1.0.0" {
