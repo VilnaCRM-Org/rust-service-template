@@ -572,6 +572,56 @@ EOF
   assert_violation b 'scripts/fetch.sh.*downloaded by URL without a checksum'
 }
 
+@test "(b) a download without a checksum in a script outside scripts/ is refused" {
+  put tests/Load/fetch.sh <<'EOF'
+#!/usr/bin/env bash
+curl --fail --location --output /tmp/tool.tar.gz https://example.org/tool.tar.gz
+EOF
+  put .githooks/pre-push <<'EOF'
+#!/usr/bin/env bash
+wget https://example.org/hook.tar.gz
+EOF
+  put tests/CLI/bats/helper.bash <<'EOF'
+curl --fail --location --output /tmp/x https://example.org/x
+EOF
+  check
+  assert_violation b 'tests/Load/fetch.sh: a file is downloaded by URL without a checksum'
+  assert_line '(b) .githooks/pre-push: a file is downloaded by URL without a checksum'
+  assert_line '(b) tests/CLI/bats/helper.bash: a file is downloaded by URL without a checksum'
+}
+
+@test "(b) a download in a fixture of the Bats tests is not read" {
+  put tests/CLI/bats/fixtures/fetch.sh <<'EOF'
+#!/usr/bin/env bash
+curl --fail --location --output /tmp/tool.tar.gz https://example.org/tool.tar.gz
+EOF
+  check
+  assert_success
+  assert_output ''
+}
+
+@test "(b) a request to the loopback interface is a probe, not a download" {
+  put tests/CLI/bats/probe.bash <<'EOF'
+probe() {
+  curl --noproxy '*' --silent --output /dev/null --max-time 10 "http://127.0.0.1:${APP_PORT}/ping"
+  curl --silent --fail http://localhost:8081/health
+  wget -q -O /dev/null http://[::1]:8081/ping
+}
+EOF
+  check
+  assert_success
+  assert_output ''
+}
+
+@test "(b) a download from a host that only starts with localhost is refused" {
+  put tests/Load/fetch.sh <<'EOF'
+#!/usr/bin/env bash
+curl --fail --output /tmp/x http://localhost.example.org/x
+EOF
+  check
+  assert_violation b 'tests/Load/fetch.sh: a file is downloaded by URL without a checksum'
+}
+
 @test "(b) a downloaded file with a checksum passes" {
   put scripts/fetch.sh <<'EOF'
 #!/usr/bin/env bash
@@ -613,7 +663,77 @@ EOF
 @test "(d) a workflow set that omits a gate target of make ci-list is refused" {
   replace .github/workflows/quality.yml '      - run: make fmt' '      - run: echo skipped'
   check
-  assert_violation d 'gate target fmt of make ci-list is run by no workflow'
+  assert_violation d 'gate target fmt of make ci-list is run by no pull-request workflow'
+}
+
+@test "(d) a gate target that only a workflow without a pull_request trigger runs is refused" {
+  replace .github/workflows/quality.yml '      - run: make fmt' '      - run: echo skipped'
+  put .github/workflows/scheduled.yml <<'EOF'
+name: Scheduled
+on:
+  schedule:
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: scheduled
+  cancel-in-progress: false
+jobs:
+  weekly:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - run: make fmt
+EOF
+  check
+  assert_violation d 'gate target fmt of make ci-list is run by no pull-request workflow'
+}
+
+@test "(d) a scheduled workflow that repeats a gate of a pull-request workflow or runs a CI-only target is accepted" {
+  put .github/workflows/scheduled.yml <<'EOF'
+name: Scheduled
+on:
+  schedule:
+    - cron: '0 3 * * 1'
+permissions:
+  contents: read
+concurrency:
+  group: scheduled
+  cancel-in-progress: false
+jobs:
+  weekly:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - run: make fmt lint
+      - run: make bootstrap && make ci
+EOF
+  check
+  assert_success
+  assert_output ''
+}
+
+@test "(d) a target outside make ci-list in a workflow without a pull_request trigger is refused" {
+  put .github/workflows/scheduled.yml <<'EOF'
+name: Scheduled
+on:
+  schedule:
+    - cron: '0 3 * * 1'
+permissions:
+  contents: read
+concurrency:
+  group: scheduled
+  cancel-in-progress: false
+jobs:
+  weekly:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - run: make extra-gate
+EOF
+  check
+  assert_violation d 'make extra-gate, which is not a gate target'
 }
 
 @test "(d) a workflow that runs a target outside make ci-list is refused" {
@@ -888,6 +1008,52 @@ EOF
 // A line comment with #[allow(unused)] is not an attribute.
 #[expect(clippy::unwrap_used, reason = "clippy::pedantic and unused are only words here")]
 fn extra() {}
+EOF
+  check
+  assert_success
+  assert_output ''
+}
+
+@test "(g) #![cfg_attr(test, expect( in a crate root is refused" {
+  replace crates/a/src/lib.rs '#![forbid(unsafe_code)]' '#![cfg_attr(test, expect(clippy::unwrap_used, reason = "fixture"))]'
+  check
+  assert_violation g 'crates/a/src/lib.rs:2: #!\[expect\( in a crate root'
+}
+
+@test "(g) a cfg_attr suppression that names a lint group is refused" {
+  put crates/a/src/extra.rs <<'EOF'
+#[cfg_attr(
+    test,
+    expect(clippy::pedantic, reason = "fixture")
+)]
+fn extra() {}
+EOF
+  check
+  assert_violation g 'crates/a/src/extra.rs:1: an expect names a lint group'
+}
+
+@test "(g) #[cfg_attr(.., allow( is refused" {
+  put crates/a/src/extra.rs <<'EOF'
+#[cfg_attr(not(test), allow(dead_code))]
+fn extra() {}
+EOF
+  check
+  assert_violation g 'crates/a/src/extra.rs:1: #\[allow or #!\[allow'
+}
+
+@test "(g) an item-level cfg_attr expect of one lint with a reason passes" {
+  put crates/a/src/extra.rs <<'EOF'
+#[cfg_attr(
+    not(test),
+    expect(
+        clippy::needless_pass_by_value,
+        reason = "the signature is fixed by the layer; unused and clippy::pedantic are words here"
+    )
+)]
+fn extra(_value: String) {}
+
+#[cfg_attr(test, derive(Debug))]
+struct Plain;
 EOF
   check
   assert_success

@@ -2,12 +2,14 @@
 # Repository invariants (gate G31, FR125): pins, toolchain agreement, gate set, repository name, licence,
 # blanket suppressions and the execution switch. One rule per letter:
 #   (a) workflow hygiene: pinned actions, permissions (declared, none that writes at the top level), concurrency, timeouts
-#   (b) pinned images, tools, features and downloads
+#   (b) pinned images, tools, features and downloads (Dockerfile, make files, workflows and every shell script)
 #   (c) one toolchain version in rust-toolchain.toml, the builder image tag and rust-version
-#   (d) the gate set of `make ci-list` equals the gate set of the workflows; Bats groups; required checks
+#   (d) the gate set of `make ci-list` equals the gate set of the pull-request workflows (and every workflow runs
+#       only gate and CI-only targets); Bats groups; required checks
 #   (e) the repository name occurs only where DD-23 allows it
 #   (f) the licence identifier is CC0-1.0 everywhere it is stated
-#   (g) no `allow` attribute, no `expect` in a crate root, no lint group in an `allow` or `expect`
+#   (g) no `allow` attribute, no `expect` in a crate root, no lint group in an `allow` or `expect` (also inside a
+#       `cfg_attr`)
 #   (h) toolchain commands run behind $(EXEC)
 #
 # Usage: check-invariants.sh [--root <dir>]
@@ -458,11 +460,25 @@ check_cargo_install_versions() {
   return 0
 }
 
+# Every shell script of the tree: the files below scripts/, tests/Load/ and .githooks/ and every other `*.sh`,
+# `*.bash` and `*.bats` file, without the Bats fixtures (planted violations) and the ignored tool and state
+# directories.
+shell_scripts() {
+  find . \( -name target -o -name node_modules -o -name .git -o -name .tools -o -name '_bmad*' -o -name .ralph \
+    -o -path ./tests/CLI/bats/fixtures \) -prune -o -type f \( -name '*.sh' -o -name '*.bash' -o -name '*.bats' \
+    -o -path './scripts/*' -o -path './tests/Load/*' -o -path './.githooks/*' \) -print | sed 's|^\./||' | LC_ALL=C sort
+  return 0
+}
+
 check_downloads() {
   local file
-  for file in Dockerfile "${make_files[@]+"${make_files[@]}"}" "${workflows[@]+"${workflows[@]}"}" $(list_files scripts); do
+  for file in Dockerfile "${make_files[@]+"${make_files[@]}"}" "${workflows[@]+"${workflows[@]}"}" $(shell_scripts); do
     [[ -f "${file}" ]] || continue
+    # A request whose only address is the loopback interface (a probe of the service under test, as the Bats
+    # files of the lifecycle targets send) fetches no file from elsewhere and is not a download.
     if grep -vE '^[[:space:]]*#' "${file}" \
+      | sed -E 's#[A-Za-z]+://(localhost|127\.0\.0\.1|\[::1\])([^A-Za-z0-9.-][^[:space:]]*|$)#LOOPBACK#g' \
+      | awk '!(/LOOPBACK/ && !/:\/\//)' \
       | grep -qE '\b(curl|wget)\b[^#]*(https?://|--output|--remote-name|[[:space:]]-[A-Za-z]*[oOL][A-Za-z]*[[:space:]]|--location|--fail)'; then
       if ! grep -qiE 'sha256|sha512|shasum|checksum' "${file}"; then
         report b "${file}: a file is downloaded by URL without a checksum"
@@ -554,8 +570,15 @@ workflow_make_targets() {
   return 0
 }
 
+# True when the workflow has a pull_request trigger (`on: pull_request`, `on: [push, pull_request]`, a
+# `pull_request:` key or a `- pull_request` list entry).
+has_pull_request_trigger() {
+  grep -qE '^[[:space:]]*(-[[:space:]]*)?pull_request[[:space:]]*(:|$)|^on:[[:space:]]*\[?.*\bpull_request\b' "$1"
+}
+
 rule_d_gates() {
-  local gates target ran
+  local gates target ran pr_ran file
+  local -a pr_workflows=()
   if ! gates=$(make --no-print-directory -s -C "${root}" ci-list 2>/dev/null); then
     report d 'make ci-list failed: the gate targets cannot be read'
     return 0
@@ -564,13 +587,23 @@ rule_d_gates() {
     report d 'no workflow files in .github/workflows: no workflow runs any gate target of make ci-list'
     return 0
   fi
-  ran=$(workflow_make_targets "${workflows[@]}")
+  for file in "${workflows[@]}"; do
+    has_pull_request_trigger "${file}" && pr_workflows+=("${file}")
+  done
+  # FR125(d) compares make ci with the pull-request workflows: a gate that only a scheduled or release workflow
+  # runs does not protect a pull request.
+  pr_ran=''
+  if ((${#pr_workflows[@]} > 0)); then
+    pr_ran=$(workflow_make_targets "${pr_workflows[@]}")
+  fi
   for target in ${gates}; do
     [[ "${indirect_targets}" == *" ${target} "* ]] && continue
-    if ! grep -qxF -- "${target}" <<<"${ran}"; then
-      report d "gate target ${target} of make ci-list is run by no workflow"
+    if ! grep -qxF -- "${target}" <<<"${pr_ran}"; then
+      report d "gate target ${target} of make ci-list is run by no pull-request workflow"
     fi
   done
+  # Every workflow, whatever its trigger, runs only gate targets and the CI-only targets.
+  ran=$(workflow_make_targets "${workflows[@]}")
   while IFS= read -r target; do
     [[ -n "${target}" ]] || continue
     [[ "${ci_only_targets}" == *" ${target} "* ]] && continue
@@ -631,7 +664,7 @@ rule_d_bats() {
 rule_d_required_checks() {
   local file job
   for file in "${workflows[@]+"${workflows[@]}"}"; do
-    grep -qE '^[[:space:]]*(-[[:space:]]*)?pull_request[[:space:]]*:|^on:[[:space:]]*\[?.*\bpull_request\b' "${file}" || continue
+    has_pull_request_trigger "${file}" || continue
     if [[ ! -f docs/repository-settings.md ]]; then
       report d "docs/repository-settings.md is missing: the jobs of ${file} are not listed"
       continue
@@ -776,23 +809,39 @@ rule_g() {
       groups = "(warnings|unused|clippy::all|clippy::pedantic|clippy::nursery|clippy::cargo|clippy::restriction|clippy::complexity|clippy::style|clippy::perf|clippy::correctness|clippy::suspicious|rust_2018_idioms|future_incompatible|nonstandard_style)"
       group_re = "(^|[^A-Za-z0-9_:])" groups "([^A-Za-z0-9_]|$)"
     }
+    # The checks of one suppression of the given kind.
+    function judge() {
+      if (kind == "allow") out("#[allow or #![allow is not permitted")
+      if (kind == "expect" && inner && root) out("#![expect( in a crate root is not permitted")
+    }
     FNR == 1 { collecting = 0; root = is_root(FILENAME) }
     /^[[:space:]]*\/\// { next }
     {
       line = $0
-      if (!collecting && line ~ /#!?\[[[:space:]]*(allow|expect)([^A-Za-z0-9_]|$)/) {
+      if (!collecting && line ~ /#!?\[[[:space:]]*(allow|expect|cfg_attr)([^A-Za-z0-9_]|$)/) {
         start = FNR
-        kind = (line ~ /#!?\[[[:space:]]*allow/) ? "allow" : "expect"
         inner = (line ~ /#!\[/)
-        if (kind == "allow") out("#[allow or #![allow is not permitted")
-        if (kind == "expect" && inner && root) out("#![expect( in a crate root is not permitted")
+        # A cfg_attr applies its attributes under a condition: the allow or expect inside it is read once
+        # the attribute is complete.
+        conditional = (line ~ /#!?\[[[:space:]]*cfg_attr/)
+        kind = ""
+        if (!conditional) {
+          kind = (line ~ /#!?\[[[:space:]]*allow/) ? "allow" : "expect"
+          judge()
+        }
         collecting = 1
         text = ""
       }
       if (collecting) {
         text = text " " line
         if (line ~ /\)[[:space:]]*\]/ || line ~ /^[[:space:]]*#!?\[[^(]*\]/) {
-          if (strip_strings(text) ~ group_re) out("an " kind " names a lint group")
+          bare = strip_strings(text)
+          if (conditional) {
+            if (bare ~ /(^|[^A-Za-z0-9_])allow[[:space:]]*\(/) kind = "allow"
+            else if (bare ~ /(^|[^A-Za-z0-9_])expect[[:space:]]*\(/) kind = "expect"
+            if (kind != "") judge()
+          }
+          if (kind != "" && bare ~ group_re) out("an " kind " names a lint group")
           collecting = 0
         }
       }

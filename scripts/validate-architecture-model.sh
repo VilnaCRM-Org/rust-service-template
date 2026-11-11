@@ -11,9 +11,14 @@
 # a container and a component view; read the names of the elements shown in the component view
 # from the export (a JSON query run in the Node image) and compare them with the crate list,
 # minus xtask, test-support and e2e-tests. Every missing and every extra component is printed.
+# Then the relationships: every workspace-internal entry of a `[dependencies]` table (also
+# `[target.<cfg>.dependencies]` and `[dependencies.<name>]`) of a crate manifest below the current
+# directory (target, .git, node_modules, .tools and fixtures directories are skipped) whose crate and
+# dependency are both modelled components needs a relationship between the two components in the
+# model; every missing relationship is printed with both component names.
 # Environment: STRUCTURIZR_IMAGE, NODE_IMAGE (both exported by the Makefile), DOCKER (default docker).
-# Exit status: 0 consistent; 1 parse error, a view missing, or a component difference;
-# 2 usage error or a tool that could not run.
+# Exit status: 0 consistent; 1 parse error, a view missing, a component difference or a missing
+# relationship; 2 usage error or a tool that could not run.
 set -euo pipefail
 
 usage() {
@@ -85,8 +90,9 @@ if [[ ! -f "${out_dir}/workspace.json" ]]; then
   exit 2
 fi
 
-# Prints "view <kind> <count>" for each view kind and "component <name>" for each component
-# element shown in a component view.
+# Prints "view <kind> <count>" for each view kind, "component <name>" for each component
+# element shown in a component view and "relationship <source> <destination>" for each
+# relationship of the model from one component to another.
 # shellcheck disable=SC2016 # the JavaScript is passed to node as a literal
 query='
 const w = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
@@ -106,6 +112,17 @@ for (const view of views.componentViews || []) {
   for (const element of view.elements || []) {
     if (components.has(element.id)) {
       console.log("component " + components.get(element.id));
+    }
+  }
+}
+for (const system of (w.model || {}).softwareSystems || []) {
+  for (const container of system.containers || []) {
+    for (const component of container.components || []) {
+      for (const relationship of component.relationships || []) {
+        if (components.has(relationship.destinationId)) {
+          console.log("relationship " + component.name + " " + components.get(relationship.destinationId));
+        }
+      }
     }
   }
 }
@@ -142,7 +159,59 @@ while IFS= read -r name; do
   status=1
 done < <(comm -13 <(printf '%s\n' "${expected}") <(printf '%s\n' "${actual}"))
 
+# Prints "<crate> <dependency>" for each entry of the [dependencies] tables of the crate manifests
+# below the current directory (development and build dependencies are not relationships of the
+# running service).
+manifest_dependencies() {
+  local manifest
+  find . \( -name target -o -name .git -o -name node_modules -o -name .tools -o -name fixtures \) -prune \
+    -o -type f -name Cargo.toml -print | LC_ALL=C sort | while IFS= read -r manifest; do
+    awk '
+      function quoted(s) { sub(/^[^"]*"/, "", s); sub(/".*$/, "", s); return s }
+      /^[[:space:]]*\[/ {
+        h = $0
+        sub(/[[:space:]]*#.*$/, "", h)
+        gsub(/[[:space:]]/, "", h)
+        section = ""
+        if (h == "[package]") section = "package"
+        else if (h ~ /^\[(target\..*\.)?dependencies\]$/) section = "dependencies"
+        else if (h ~ /^\[(target\..*\.)?dependencies\.[^].]+\]$/) {
+          d = h
+          sub(/^.*dependencies\./, "", d)
+          sub(/\]$/, "", d)
+          gsub(/"/, "", d)
+          deps[++n] = d
+          section = "table"
+        }
+        next
+      }
+      section == "package" && /^[[:space:]]*name[[:space:]]*=/ { name = quoted($0) }
+      section == "dependencies" && /^[[:space:]]*[A-Za-z0-9_-]+[[:space:]]*[.=]/ {
+        d = $0
+        sub(/^[[:space:]]*/, "", d)
+        sub(/[[:space:]]*[.=].*$/, "", d)
+        if ($0 ~ /package[[:space:]]*=[[:space:]]*"/) { d = $0; sub(/^.*package[[:space:]]*=[[:space:]]*/, "", d); d = quoted(d) }
+        deps[++n] = d
+      }
+      section == "table" && /^[[:space:]]*package[[:space:]]*=/ { deps[n] = quoted($0) }
+      END { if (name != "") for (i = 1; i <= n; i++) print name " " deps[i] }
+    ' "${manifest}"
+  done
+  return 0
+}
+
+relationships="$(awk '$1 == "relationship" { print $2 " " $3 }' <<< "${report}" | LC_ALL=C sort -u)"
+while read -r from to; do
+  [[ -n "${from}" && -n "${to}" ]] || continue
+  grep -qxF -- "${from}" <<< "${actual}" || continue
+  grep -qxF -- "${to}" <<< "${actual}" || continue
+  if ! grep -qxF -- "${from} ${to}" <<< "${relationships}"; then
+    echo "missing relationship: ${from} -> ${to} (${from} depends on ${to} in its manifest, the model has no relationship between the two components)"
+    status=1
+  fi
+done < <(manifest_dependencies | LC_ALL=C sort -u)
+
 if [[ "${status}" -eq 0 ]]; then
-  echo "architecture model OK: $(grep -c . <<< "${actual}") components match the workspace crates"
+  echo "architecture model OK: $(grep -c . <<< "${actual}") components match the workspace crates; every dependency between them has a relationship"
 fi
 exit "${status}"

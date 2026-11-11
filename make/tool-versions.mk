@@ -23,6 +23,9 @@ export GRAPHQL_INSPECTOR_VERSION     := 7.0.2
 export YAMLLINT_VERSION              := 1.38.0
 export BMALPH_VERSION                := 2.11.0
 export DEVCONTAINER_CLI_VERSION      := 0.90.0
+# cocogitto: the release flow (scripts/release.sh) and its Bats test; the bats-group job installs it through the
+# cargo-binstall fallback of the install action, release.yml through its pinned action.
+export COCOGITTO_VERSION             := 7.0.0
 
 # Bats (scripts/install-bats.sh): tag and commit SHA.
 export BATS_CORE    := v1.14.0 eb7f42f8d608ac693d7a4b67474f6714ea68cfc5

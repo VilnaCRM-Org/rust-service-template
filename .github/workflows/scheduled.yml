@@ -14,7 +14,11 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # The two cargo settings the toolchain action gives every pull-request job: the clean-clone job installs the
+  # toolchain with rustup alone, and a cold build with debug information and incremental data does not fit the
+  # runner's disk (NFR34, NFR35).
   CARGO_INCREMENTAL: '0'
+  CARGO_PROFILE_DEV_DEBUG: '0'
   TEST_SEED: ${{ github.run_id }}
   PROPTEST_RNG_SEED: ${{ github.run_id }}
 
@@ -60,6 +64,19 @@ jobs:
           mkdir -p target
           make ci 2>&1 | tee target/ci.log
 
+      # FR68: after make bootstrap and make ci on a clean checkout git status reports no change.
+      - name: Require a clean working tree
+        id: clean
+        run: |
+          status="$(git status --porcelain)"
+          printf '%s\n' "$status" > target/git-status.log
+          if [ -n "$status" ]; then
+            printf '%s\n' "$status"
+            echo 'make bootstrap and make ci changed the working tree' >&2
+            echo 'make bootstrap and make ci changed the working tree' >> target/git-status.log
+            exit 1
+          fi
+
       - name: Show the container logs
         if: ${{ failure() }}
         run: docker compose logs --no-color
@@ -80,6 +97,7 @@ jobs:
         env:
           BOOTSTRAP_OUTCOME: ${{ steps.bootstrap.outcome }}
           CI_OUTCOME: ${{ steps.ci.outcome }}
+          CLEAN_OUTCOME: ${{ steps.clean.outcome }}
         run: |
           target='the steps before make bootstrap'
           log=''
@@ -89,6 +107,9 @@ jobs:
           elif [ "$CI_OUTCOME" = failure ]; then
             target='make ci'
             log=target/ci.log
+          elif [ "$CLEAN_OUTCOME" = failure ]; then
+            target='Require a clean working tree (git status --porcelain)'
+            log=target/git-status.log
           fi
           {
             echo "### Failed: \`${target}\`"

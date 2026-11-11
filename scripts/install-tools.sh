@@ -52,6 +52,7 @@ tools=(
   "taplo-cli|TAPLO_VERSION|taplo --version|"
   "typos-cli|TYPOS_VERSION|typos --version|"
   "zizmor|ZIZMOR_VERSION|zizmor --version|"
+  "cocogitto|COCOGITTO_VERSION|cog --version|"
 )
 watchexec_tool="watchexec-cli|WATCHEXEC_VERSION|watchexec --version|"
 
