@@ -633,7 +633,7 @@ So that non-Rust files meet one standard and each linter can fail.
 Track: C.
 Depends on: 1.2, 1.3.
 Owns: `.yamllint.yml`, `.markdownlint-cli2.yaml`, `.hadolint.yaml`, `.prettierrc.yml`, `.prettierignore`, `taplo.toml`, `_typos.toml`, `.github/zizmor.yml`, `tests/Load/package.json`, `tests/Load/pnpm-lock.yaml`, `tests/Load/eslint.config.js`, `tests/Load/.gitignore`.
-Touches: the TOML files created by Story 1.1 (whitespace only, to match `taplo fmt`; no key or value changes); `README.md` (final newline) and `CLAUDE.md` (the three table separator rows of the section "BMAD-METHOD Integration" get three dashes per column, the form markdownlint accepts; no other byte changes).
+Touches: the TOML files created by Story 1.1 (whitespace only, to match `taplo fmt`; no key or value changes); `README.md` (final newline) and `CLAUDE.md` (the three table separator rows of the section "BMAD-METHOD Integration" get three dashes per column, the form markdownlint accepts; no other byte changes); `Makefile` (the `PNPM_INSTALL` variable gains `--store-dir`, so the pnpm store stays outside the repository; recorded as a deviation).
 Implements: FR43, FR69, FR83, NFR25, NFR38, G23.
 Reference: architecture-delivery.md "Repository Lint and Hygiene" (tool table and every configuration listing), "Load Testing" ("JavaScript lint"), DD-22, "Command Surface" (targets `install`, `doctor`, `lint-repo`, `lint-actions`, `lint-yaml`, `lint-markdown`, `lint-shell`, `lint-docker`, `lint-toml`, `lint-spelling`, `lint-prettier`, `lint-load-tests`, `format-repo`), "Delivery Validation" ("Measurement items and readings of requirement wording": item 10).
 Pitfalls: PF-16, PF-59, PF-66.

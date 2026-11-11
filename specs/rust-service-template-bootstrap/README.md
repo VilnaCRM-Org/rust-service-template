@@ -19,6 +19,7 @@ the orchestrating agent acting as the user's surrogate for decisions.
 | 3. Solutioning | `create-architecture`, `validate-architecture` | [Architecture: delivery](architecture-delivery.md) | Complete |
 | 3. Solutioning | `create-epics-stories`, `validate-epics-stories` | [Epics and stories](epics.md) | Complete |
 | 3. Solutioning | `implementation-readiness` | [Implementation readiness](implementation-readiness.md) | Complete: READY WITH CONDITIONS |
+| 3. Solutioning | `bmalph implement` preparation | [Parity matrix](parity-matrix.md) | Complete |
 | — | orchestrator | [Scope decisions](scope-decisions.md) | Living record |
 | — | orchestrator | [Run summary](run-summary.md) | Complete |
 
@@ -47,13 +48,37 @@ the orchestrating agent acting as the user's surrogate for decisions.
    `bmalph implement` parses.
 8. [Implementation readiness](implementation-readiness.md) — the independent
    cross-artifact assessment, its conditions and how each was handled.
-9. [Run summary](run-summary.md) — how the run was orchestrated, the subagent
+9. [Parity matrix](parity-matrix.md) — one row for each of the 196 PHP
+   capability ids and the 42 added ids with disposition, requirements and
+   implementing stories, plus the disposition of the audit problems P1 to P28.
+10. [Run summary](run-summary.md) — how the run was orchestrated, the subagent
    execution log, validation rounds, open questions and the next step.
+
+## Files
+
+The bundle holds the eleven files of the planning bundle layout, one line each,
+and the scope decisions that they all depend on:
+
+- `README.md` — this index.
+- `research.md` — research digest: PHP findings, tool choices and pitfalls.
+- `capability-catalog.md` — every PHP capability with its disposition.
+- `product-brief.md` — users, problem and goals.
+- `prd.md` — functional and non-functional requirements, gates, traceability.
+- `architecture.md` — core architecture: workspace, decisions, quality gates.
+- `architecture-delivery.md` — delivery architecture: Make, containers, CI.
+- `epics.md` — epics and stories with owned paths and verification commands.
+- `implementation-readiness.md` — cross-artifact readiness assessment.
+- `parity-matrix.md` — capability ids traced to requirements and stories.
+- `run-summary.md` — how the planning run was orchestrated.
+- `scope-decisions.md` — binding scope decisions (an addition to the eleven).
+
+Later planning bundles go to `specs/<bundle-id>/` with the same file names.
 
 ## Notes
 
 - The nine raw research reports (five PHP inventories, four Rust technical
-  reports) and the spike sources are working material and are not tracked;
+  reports) and the spike sources are working material and stay local under
+  `_bmad-output/`; they are not tracked;
   the research digest stands in for them. References such as
   `research/php-*.md` and `research/rust-*.md` point to those local files.
 - In `epics.md`, `${PHP_TEMPLATE_DIR}` and `${CORE_SERVICE_DIR}` stand for
