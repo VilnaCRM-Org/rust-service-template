@@ -2,6 +2,7 @@
 
 mod arch;
 mod cli;
+mod config_guard;
 
 use std::io;
 use std::process::ExitCode;

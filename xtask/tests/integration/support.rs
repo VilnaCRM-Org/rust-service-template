@@ -2,8 +2,10 @@
 //! directory outside the repository and the few variables that `cargo` and the coverage tool need.
 
 use std::ffi::OsString;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Variables copied from the test process when it has them: the coverage profile of the child,
 /// and what `cargo metadata` needs to be found and to run. Nothing else is forwarded; a test sets
@@ -27,11 +29,17 @@ pub(crate) struct Run {
 
 /// The command that runs the binary with `arguments` and the variables the test sets.
 pub(crate) fn xtask(arguments: &[&str], variables: &[(&str, &str)]) -> Command {
+    xtask_in(&empty_directory(), arguments, variables)
+}
+
+/// The same command, run in `directory`.
+pub(crate) fn xtask_in(
+    directory: &Path,
+    arguments: &[&str],
+    variables: &[(&str, &str)],
+) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_xtask"));
-    command
-        .args(arguments)
-        .env_clear()
-        .current_dir(empty_directory());
+    command.args(arguments).env_clear().current_dir(directory);
     for name in FORWARDED {
         if let Some(value) = from_environment(name) {
             command.env(name, value);
@@ -43,7 +51,11 @@ pub(crate) fn xtask(arguments: &[&str], variables: &[(&str, &str)]) -> Command {
 
 /// Runs the binary and waits for its exit status.
 pub(crate) fn run(arguments: &[&str], variables: &[(&str, &str)]) -> Run {
-    let output = xtask(arguments, variables).output().unwrap();
+    collect(&mut xtask(arguments, variables))
+}
+
+fn collect(command: &mut Command) -> Run {
+    let output = command.output().unwrap();
     Run {
         code: output.status.code(),
         stdout: String::from_utf8(output.stdout).unwrap(),
@@ -65,6 +77,90 @@ pub(crate) fn workspace_root() -> PathBuf {
         .to_owned()
 }
 
+/// A temporary git repository, removed when it is dropped. It lives in the system temporary
+/// directory, never inside the repository under test.
+#[derive(Debug)]
+pub(crate) struct Repo {
+    directory: PathBuf,
+}
+
+/// Distinguishes the repositories of the tests of one process.
+static REPOSITORIES: AtomicUsize = AtomicUsize::new(0);
+
+impl Repo {
+    /// An empty repository with a fixed identity and no commit.
+    pub(crate) fn new() -> Self {
+        let number = REPOSITORIES.fetch_add(1, Ordering::Relaxed);
+        let directory = empty_directory().join(format!("repo-{number}"));
+        fs::create_dir_all(&directory).unwrap();
+        let repo = Self { directory };
+        repo.git(&["init", "--quiet", "--initial-branch=main"]);
+        repo
+    }
+
+    /// Writes a file, creating the directories above it.
+    pub(crate) fn write(&self, path: &str, text: &str) {
+        let target = self.directory.join(path);
+        fs::create_dir_all(target.parent().unwrap()).unwrap();
+        fs::write(target, text).unwrap();
+    }
+
+    /// Deletes a file or a directory with everything in it.
+    pub(crate) fn remove(&self, path: &str) {
+        let target = self.directory.join(path);
+        if target.is_dir() {
+            fs::remove_dir_all(target).unwrap();
+        } else {
+            fs::remove_file(target).unwrap();
+        }
+    }
+
+    /// Commits every change of the working tree.
+    pub(crate) fn commit(&self, message: &str) {
+        self.git(&["add", "--all"]);
+        self.git(&["commit", "--quiet", "--allow-empty", "--message", message]);
+    }
+
+    /// Stages a path without committing it.
+    pub(crate) fn stage(&self, path: &str) {
+        self.git(&["add", "--", path]);
+    }
+
+    /// Runs the binary in the repository.
+    pub(crate) fn run(&self, arguments: &[&str], variables: &[(&str, &str)]) -> Run {
+        collect(&mut xtask_in(&self.directory, arguments, variables))
+    }
+
+    fn git(&self, arguments: &[&str]) {
+        let mut command = Command::new("git");
+        command
+            .args(["-c", "user.name=Test", "-c", "user.email=test@example.com"])
+            .args(["-c", "commit.gpgsign=false"])
+            .args(arguments)
+            .env_clear()
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .current_dir(&self.directory);
+        for name in ["PATH", "HOME"] {
+            if let Some(value) = from_environment(name) {
+                command.env(name, value);
+            }
+        }
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "git {arguments:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+impl Drop for Repo {
+    fn drop(&mut self) {
+        fs::remove_dir_all(&self.directory).unwrap_or_default();
+    }
+}
+
 #[expect(
     clippy::disallowed_methods,
     reason = "the test stack is described by the environment"
@@ -77,6 +173,6 @@ fn from_environment(name: &str) -> Option<OsString> {
 /// repository, where a configuration file of the repository could be found from the child.
 fn empty_directory() -> PathBuf {
     let directory = std::env::temp_dir().join(format!("xtask-it-{}", std::process::id()));
-    std::fs::create_dir_all(&directory).unwrap();
+    fs::create_dir_all(&directory).unwrap();
     directory
 }

@@ -3,4 +3,6 @@
 #[cfg(test)]
 mod arch;
 #[cfg(test)]
+mod config_guard;
+#[cfg(test)]
 mod support;

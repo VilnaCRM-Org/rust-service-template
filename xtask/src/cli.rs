@@ -6,12 +6,12 @@
 
 use std::ffi::OsString;
 use std::io::{self, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
 
-use crate::arch;
+use crate::{arch, config_guard};
 
 /// Exit status of a command that could not run, as opposed to one that found violations.
 const COULD_NOT_RUN: u8 = 2;
@@ -28,6 +28,8 @@ struct Cli {
 enum Command {
     /// Check the workspace against the layer model of architecture.toml
     Arch(ArchArgs),
+    /// Check the protected configuration against a base ref, or list the protected items
+    ConfigGuard(GuardArgs),
 }
 
 #[derive(Debug, Args)]
@@ -41,6 +43,19 @@ struct ArchArgs {
     /// Also print one GitHub annotation per violation (set by GitHub Actions)
     #[arg(long = "github-actions", env = "GITHUB_ACTIONS")]
     github: bool,
+}
+
+#[derive(Debug, Args)]
+struct GuardArgs {
+    /// The git ref that the working tree is compared with
+    #[arg(long, value_name = "REF", default_value = "origin/main")]
+    base: String,
+    /// Print the protected items, one per line, instead of checking
+    #[arg(long)]
+    list: bool,
+    /// Waive modifications and overrides (CI sets it when the pull request has the approval label)
+    #[arg(long = "config-change-approved", env = "CONFIG_CHANGE_APPROVED")]
+    approved: bool,
 }
 
 /// Runs the command named by `args` (the program name first) and returns its exit status.
@@ -71,6 +86,7 @@ fn usage(error: &clap::Error, stdout: &mut dyn Write, stderr: &mut dyn Write) ->
 fn execute(command: Command, stdout: &mut dyn Write, stderr: &mut dyn Write) -> ExitCode {
     match command {
         Command::Arch(args) => architecture(args, stdout, stderr),
+        Command::ConfigGuard(args) => guard(&args, stdout, stderr),
     }
 }
 
@@ -100,6 +116,30 @@ fn architecture(args: ArchArgs, stdout: &mut dyn Write, stderr: &mut dyn Write) 
                 ExitCode::from(COULD_NOT_RUN),
             )
         }
+    }
+}
+
+/// The guard works on the repository in the current directory, as `cargo xtask` is run from its root.
+fn guard(args: &GuardArgs, stdout: &mut dyn Write, stderr: &mut dyn Write) -> ExitCode {
+    let root = Path::new(".");
+    let result = if args.list {
+        config_guard::list(root)
+    } else {
+        config_guard::run(root, &args.base, args.approved)
+    };
+    match result {
+        Ok(outcome) => {
+            let code = if outcome.clean {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            };
+            finish(writeln!(stdout, "{}", outcome.report), code)
+        }
+        Err(failure) => finish(
+            writeln!(stderr, "configuration guard could not run: {failure}"),
+            ExitCode::from(COULD_NOT_RUN),
+        ),
     }
 }
 

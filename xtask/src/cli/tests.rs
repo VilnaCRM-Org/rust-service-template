@@ -226,3 +226,58 @@ fn help_that_cannot_be_written_exits_with_status_two() {
         ExitCode::from(2)
     );
 }
+
+#[test]
+fn the_guard_help_names_its_options_and_the_approval_variable() {
+    let help = run(&["xtask", "config-guard", "--help"]);
+
+    assert_eq!(help.code, ExitCode::SUCCESS);
+    assert_eq!(help.stderr, "");
+    for expected in [
+        "--base <REF>",
+        "origin/main",
+        "--list",
+        "--config-change-approved",
+        "CONFIG_CHANGE_APPROVED",
+    ] {
+        assert!(
+            help.stdout.contains(expected),
+            "{expected}: {}",
+            help.stdout
+        );
+    }
+    assert!(run(&["xtask", "--help"]).stdout.contains("config-guard"));
+}
+
+#[test]
+fn a_base_ref_that_does_not_resolve_exits_with_status_two_and_names_the_ref() {
+    let run = run(&["xtask", "config-guard", "--base", "no-such-ref"]);
+
+    assert_eq!(run.code, ExitCode::from(2));
+    assert_eq!(run.stdout, "");
+    assert_eq!(
+        run.stderr,
+        "configuration guard could not run: base ref no-such-ref is not available\n"
+    );
+}
+
+#[test]
+fn listing_takes_the_list_of_the_current_directory_and_ignores_the_base_ref() {
+    let run = run(&["xtask", "config-guard", "--list", "--base", "no-such-ref"]);
+
+    assert_eq!(run.code, ExitCode::from(2));
+    assert_eq!(run.stdout, "");
+    assert!(
+        run.stderr
+            .starts_with("configuration guard could not run: cannot read protected-config.toml: "),
+        "{}",
+        run.stderr
+    );
+}
+
+#[test]
+fn a_guard_failure_that_cannot_be_written_exits_with_status_two() {
+    let args = ["xtask", "config-guard", "--base", "no-such-ref"];
+
+    assert_eq!(main(args, &mut Vec::new(), &mut Broken), ExitCode::from(2));
+}
