@@ -16,6 +16,12 @@ impl SqsProbe {
     pub const fn new(client: Client) -> Self {
         Self { client }
     }
+
+    /// Probe logic, kept out of the `#[async_trait]` body so coverage and complexity see it.
+    async fn probe(&self) -> Result<(), BoxError> {
+        self.client.list_queues().max_results(1).send().await?;
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait]
@@ -25,8 +31,7 @@ impl HealthProbe for SqsProbe {
     }
 
     async fn check(&self) -> Result<(), BoxError> {
-        self.client.list_queues().max_results(1).send().await?;
-        Ok(())
+        self.probe().await
     }
 }
 

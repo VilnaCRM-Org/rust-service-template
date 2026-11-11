@@ -16,6 +16,12 @@ impl PostgresProbe {
     pub const fn new(pool: PgPool) -> Self {
         Self { pool }
     }
+
+    /// Probe logic, kept out of the `#[async_trait]` body so coverage and complexity see it.
+    async fn probe(&self) -> Result<(), BoxError> {
+        sqlx::query("SELECT 1").execute(&self.pool).await?;
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait]
@@ -25,7 +31,6 @@ impl HealthProbe for PostgresProbe {
     }
 
     async fn check(&self) -> Result<(), BoxError> {
-        sqlx::query("SELECT 1").execute(&self.pool).await?;
-        Ok(())
+        self.probe().await
     }
 }

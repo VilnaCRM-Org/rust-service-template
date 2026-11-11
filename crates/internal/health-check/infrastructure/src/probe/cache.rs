@@ -22,6 +22,16 @@ impl CacheProbe {
     pub const fn new(cache: Arc<dyn Cache>) -> Self {
         Self { cache }
     }
+
+    /// Probe logic, kept out of the `#[async_trait]` body so coverage and complexity see it.
+    async fn probe(&self) -> Result<(), BoxError> {
+        self.cache.set(KEY, VALUE.to_vec(), TTL).await?;
+        match self.cache.get(KEY).await? {
+            Some(stored) if stored == VALUE => Ok(()),
+            Some(_) => Err("the cache returned a different value than the one stored".into()),
+            None => Err("the cache did not return the value that was stored".into()),
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -31,12 +41,7 @@ impl HealthProbe for CacheProbe {
     }
 
     async fn check(&self) -> Result<(), BoxError> {
-        self.cache.set(KEY, VALUE.to_vec(), TTL).await?;
-        match self.cache.get(KEY).await? {
-            Some(stored) if stored == VALUE => Ok(()),
-            Some(_) => Err("the cache returned a different value than the one stored".into()),
-            None => Err("the cache did not return the value that was stored".into()),
-        }
+        self.probe().await
     }
 }
 
