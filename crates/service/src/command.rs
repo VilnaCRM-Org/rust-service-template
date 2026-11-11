@@ -3,12 +3,16 @@
 //! This module and its children are the only code of the crate that writes to standard output or
 //! standard error.
 
+use std::convert::Infallible;
 use std::io::Write;
 use std::process::ExitCode;
 
 use crate::cli::Command;
+use crate::graphql::schema;
+use crate::openapi;
 
 pub mod check_config;
+pub mod export;
 pub mod migrate;
 
 /// Exit status of a command that failed while running.
@@ -23,8 +27,10 @@ pub fn run(command: Command, stdout: &mut dyn Write, stderr: &mut dyn Write) -> 
         Command::CheckConfig(args) => check_config::run(args, stdout, stderr),
         Command::Serve(_) => unavailable("serve", stderr),
         Command::Migrate(args) => migrate::run(&args, stdout, stderr),
-        Command::OpenapiExport(_) => unavailable("openapi-export", stderr),
-        Command::GraphqlExport(_) => unavailable("graphql-export", stderr),
+        Command::OpenapiExport(args) => export::run(openapi::yaml, &args, stdout, stderr),
+        Command::GraphqlExport(args) => {
+            export::run(|| Ok::<_, Infallible>(schema::sdl()), &args, stdout, stderr)
+        }
         Command::Healthcheck(_) => unavailable("healthcheck", stderr),
     }
 }

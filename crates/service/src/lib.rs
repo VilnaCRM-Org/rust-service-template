@@ -10,7 +10,9 @@ use crate::cli::Cli;
 pub mod cli;
 pub mod command;
 pub mod config;
+pub mod graphql;
 pub mod http;
+pub mod openapi;
 
 /// Runs the service command line and maps the outcome to a process exit status.
 ///

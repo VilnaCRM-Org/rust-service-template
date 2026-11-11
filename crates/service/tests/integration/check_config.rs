@@ -228,8 +228,6 @@ fn a_usage_error_exits_2_with_the_text_on_stderr(#[case] arguments: &[&str]) {
 
 #[rstest]
 #[case("serve")]
-#[case("openapi-export")]
-#[case("graphql-export")]
 #[case("healthcheck")]
 fn a_command_of_a_later_story_reports_that_it_is_not_available(#[case] command: &str) {
     let scratch = Scratch::new();
