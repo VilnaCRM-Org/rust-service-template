@@ -8,3 +8,5 @@ pub mod bus;
 pub mod cache;
 pub mod clock;
 pub mod id;
+pub mod messaging;
+pub mod persistence;
