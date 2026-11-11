@@ -43,16 +43,20 @@ fn the_fixture_workspace_breaks_one_rule_per_planted_violation() {
         "error[arch::ambiguous]: `overlap-domain` matches more than one layer: domain, overlap\n  --> crates/overlap/domain/Cargo.toml\n",
         "error[arch::lints]: `nolints-domain` does not inherit the workspace lint policy\n  --> crates/nolints/domain/Cargo.toml\n",
         "error[arch::layer]: `shop-domain` (layer `domain`, context `shop`) must not depend on `shop-infrastructure` (layer `infrastructure`, context `shop`)\n  --> crates/shop/domain/Cargo.toml\n   = help: layer `domain` may depend on: [domain]; ",
+        "error[arch::context]: `audit-domain` (layer `domain`, context `audit`) must not depend on `shop-domain` (layer `domain`, context `shop`)\n  --> crates/audit/domain/Cargo.toml\n",
+        "error[arch::external]: `ledger-domain` (layer `domain`, context `ledger`) must not depend on the third-party crate `serde`\n  --> crates/ledger/domain/Cargo.toml\n",
+        "error[arch::transitive]: `reports-application` (layer `application`, context `reports`) reaches `sqlx` through non-dev dependencies: `reports-application` -> `axum` -> `sqlx`\n  --> crates/reports/application/Cargo.toml\n",
+        "error[arch::path]: `misplaced-domain` (layer `domain`, context `misplaced`) is not at `crates/[<group>/]misplaced/domain` but at `crates/misplaced/core`\n  --> crates/misplaced/core/Cargo.toml\n",
     ] {
         assert!(
             stdout.contains(expected),
             "missing {expected:?} in\n{stdout}"
         );
     }
-    assert_eq!(stdout.matches("error[arch::").count(), 5, "{stdout}");
+    assert_eq!(stdout.matches("error[arch::").count(), 9, "{stdout}");
     assert!(
         stdout
-            .ends_with("architecture: FAILED. 5 violation(s) in 9 crate(s), 5 layer(s) checked\n"),
+            .ends_with("architecture: FAILED. 9 violation(s) in 14 crate(s), 5 layer(s) checked\n"),
         "{stdout}"
     );
 }
@@ -92,7 +96,7 @@ fn github_actions_adds_one_annotation_per_violation() {
         .lines()
         .filter(|line| line.starts_with("::error "))
         .collect();
-    assert_eq!(annotations.len(), 5, "{}", annotated.stdout);
+    assert_eq!(annotations.len(), 9, "{}", annotated.stdout);
     assert!(
         annotations.contains(&"::error file=crates/stray/Cargo.toml,title=Architecture (uncovered)::`stray` is not assigned to any layer"),
         "{annotations:?}"
@@ -166,7 +170,7 @@ fn a_model_that_covers_nothing_reports_every_crate_as_uncovered() {
     assert_eq!(run.code, Some(1), "{}", run.stderr);
     assert_eq!(
         run.stdout.matches("error[arch::uncovered]").count(),
-        9,
+        14,
         "{}",
         run.stdout
     );
@@ -208,5 +212,87 @@ fn a_missing_command_prints_the_usage_and_could_not_run() {
         run.stderr.contains("Usage: xtask <COMMAND>"),
         "{}",
         run.stderr
+    );
+}
+
+#[test]
+fn a_shared_context_and_a_dev_dependency_that_reaches_a_forbidden_crate_are_not_reported() {
+    let (model, workspace) = (fixture("valid.toml"), fixture("workspace/Cargo.toml"));
+
+    let run = run(&fixture_arguments(&model, &workspace), &[]);
+
+    // `billing-domain` depends on the crate of the shared context, `billing-application` has a
+    // dev-dependency on a stand-in that depends on `sqlx`.
+    assert!(!run.stdout.contains("`billing-domain`"), "{}", run.stdout);
+    assert!(
+        !run.stdout.contains("`billing-application`"),
+        "{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn every_dependency_rule_names_both_ends_of_the_edge() {
+    let (model, workspace) = (fixture("valid.toml"), fixture("workspace/Cargo.toml"));
+
+    let run = run(&fixture_arguments(&model, &workspace), &[]);
+
+    for (rule, ends) in [
+        ("context", ["`audit-domain`", "`shop-domain`"]),
+        ("external", ["`ledger-domain`", "`serde`"]),
+        ("transitive", ["`reports-application`", "`sqlx`"]),
+    ] {
+        let block = run
+            .stdout
+            .split("\n\n")
+            .find(|block| block.starts_with(&format!("error[arch::{rule}]")))
+            .unwrap();
+        for end in ends {
+            assert!(block.contains(end), "{rule}: {end} missing in {block}");
+        }
+    }
+}
+
+#[test]
+fn the_vendor_stand_ins_and_the_fixture_workspace_are_not_members_of_the_real_workspace() {
+    let manifest = workspace_root().join("Cargo.toml");
+
+    let output = std::process::Command::new("cargo")
+        .args(["metadata", "--locked", "--format-version", "1", "--no-deps"])
+        .arg("--manifest-path")
+        .arg(&manifest)
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "{output:?}");
+    let metadata: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let members: Vec<&str> = metadata["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|package| package["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(members.len(), 13, "{members:?}");
+    for name in [
+        "ledger-domain",
+        "reports-application",
+        "serde",
+        "sqlx",
+        "axum",
+        "rstest",
+    ] {
+        assert!(!members.contains(&name), "{name} is a workspace member");
+    }
+    let manifests: Vec<&str> = metadata["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|package| package["manifest_path"].as_str().unwrap())
+        .collect();
+    assert!(
+        manifests
+            .iter()
+            .all(|path| !path.contains("tests/fixtures")),
+        "{manifests:?}"
     );
 }

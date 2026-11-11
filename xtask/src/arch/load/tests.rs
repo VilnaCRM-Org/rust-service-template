@@ -7,7 +7,8 @@ use serde_json::json;
 
 use super::super::Failure;
 use super::super::model::Crate;
-use super::{config, inherits_lints, is_internal, workspace};
+use super::super::model::Reach;
+use super::{Edges, config, inherits_lints, is_internal, reach_from, workspace};
 
 const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/arch");
 
@@ -48,10 +49,15 @@ fn lists_every_member_sorted_by_name_with_its_manifest_relative_to_the_workspace
         .collect();
 
     let expected = [
+        ("audit-domain", "crates/audit/domain"),
         ("billing-application", "crates/billing/application"),
         ("billing-domain", "crates/billing/domain"),
+        ("ledger-domain", "crates/ledger/domain"),
+        ("misplaced-domain", "crates/misplaced/core"),
         ("nolints-domain", "crates/nolints/domain"),
         ("overlap-domain", "crates/overlap/domain"),
+        ("reports-application", "crates/reports/application"),
+        ("shared-domain", "crates/shared/domain"),
         ("shop-application", "crates/shop/application"),
         ("shop-domain", "crates/shop/domain"),
         ("shop-infrastructure", "crates/shop/infrastructure"),
@@ -108,9 +114,15 @@ fn direct_dependencies_know_whether_they_are_dev_and_whether_they_are_members() 
         facts("billing-application"),
         [
             ("billing-domain".to_owned(), false, true),
+            ("rstest".to_owned(), true, false),
             ("test-support".to_owned(), true, true)
         ]
     );
+    assert_eq!(
+        facts("billing-domain"),
+        [("shared-domain".to_owned(), false, true)]
+    );
+    assert_eq!(facts("ledger-domain"), [("serde".to_owned(), false, false)]);
     assert_eq!(facts("stray"), []);
 }
 
@@ -151,6 +163,21 @@ fn reads_the_layer_model() {
         .map(|layer| (layer.name.as_str(), layer.depends_on.as_slice()))
         .collect();
     assert_eq!(layers.len(), 5);
+    assert_eq!(model.contexts.shared, ["shared"]);
+    assert_eq!(model.layers[0].directory.as_deref(), Some("domain"));
+    assert_eq!(
+        model.layers[0].external,
+        ["async-trait", "thiserror", "uuid"]
+    );
+    assert_eq!(
+        model.layers[0].dev_external,
+        ["proptest", "rstest", "tokio"]
+    );
+    assert_eq!(
+        model.layers[0].forbidden_transitive,
+        ["axum", "hyper", "reqwest", "sqlx", "tokio"]
+    );
+    assert_eq!(model.layers[3].directory, None);
     assert_eq!(layers[0].0, "domain");
     assert_eq!(layers[1].0, "application");
     assert_eq!(layers[1].1, ["domain", "application"]);
@@ -199,4 +226,112 @@ fn a_model_with_an_unknown_key_is_invalid_and_names_the_key() {
             .ends_with("invalid.toml: unknown key `typo` in [[layer]]"),
         "{error}"
     );
+}
+
+fn reach_names(member: &Crate) -> Vec<&str> {
+    member
+        .reach
+        .iter()
+        .map(|reach| reach.name.as_str())
+        .collect()
+}
+
+fn chain(member: &Crate, name: &str) -> Vec<String> {
+    member
+        .reach
+        .iter()
+        .find(|reach| reach.name == name)
+        .unwrap()
+        .path
+        .clone()
+}
+
+#[test]
+fn a_crate_reaches_what_its_normal_and_build_dependencies_pull_in_transitively() {
+    let members = members();
+
+    let reports = find(&members, "reports-application");
+    assert_eq!(reach_names(reports), ["axum", "sqlx"]);
+    assert_eq!(chain(reports, "axum"), ["axum"]);
+    assert_eq!(chain(reports, "sqlx"), ["axum", "sqlx"]);
+    assert_eq!(reach_names(find(&members, "ledger-domain")), ["serde"]);
+}
+
+#[test]
+fn the_reach_follows_workspace_crates_too() {
+    let members = members();
+
+    assert_eq!(
+        reach_names(find(&members, "billing-application")),
+        ["billing-domain", "shared-domain"]
+    );
+    assert_eq!(
+        chain(find(&members, "billing-application"), "shared-domain"),
+        ["billing-domain", "shared-domain"]
+    );
+}
+
+#[test]
+fn a_dev_dependency_adds_nothing_to_the_reach() {
+    let members = members();
+
+    // `billing-application` has a dev-dependency on a stand-in that depends on `sqlx`, and on
+    // `test-support`.
+    let billing = find(&members, "billing-application");
+    assert!(!reach_names(billing).contains(&"sqlx"), "{billing:?}");
+    assert!(!reach_names(billing).contains(&"rstest"), "{billing:?}");
+    assert!(
+        !reach_names(billing).contains(&"test-support"),
+        "{billing:?}"
+    );
+    assert_eq!(reach_names(find(&members, "stray")), Vec::<&str>::new());
+}
+
+fn edges(list: &[(&str, &[&str])]) -> Edges {
+    list.iter()
+        .map(|&(name, targets)| {
+            (
+                name.to_owned(),
+                targets.iter().map(|&target| target.to_owned()).collect(),
+            )
+        })
+        .collect()
+}
+
+fn reach(name: &str, path: &[&str]) -> Reach {
+    Reach {
+        name: name.to_owned(),
+        path: path.iter().map(|&step| step.to_owned()).collect(),
+    }
+}
+
+#[test]
+fn the_reach_of_a_package_is_every_package_on_a_path_with_a_shortest_chain_sorted_by_name() {
+    let graph = edges(&[
+        ("a", &["c", "b"]),
+        ("b", &["d"]),
+        ("c", &["d", "e"]),
+        ("d", &["f"]),
+        ("e", &["a"]),
+        ("unrelated", &["z"]),
+    ]);
+
+    assert_eq!(
+        reach_from("a", &graph),
+        [
+            reach("b", &["b"]),
+            reach("c", &["c"]),
+            reach("d", &["b", "d"]),
+            reach("e", &["c", "e"]),
+            reach("f", &["b", "d", "f"]),
+        ]
+    );
+}
+
+#[test]
+fn a_package_without_edges_reaches_nothing_and_a_cycle_terminates() {
+    let graph = edges(&[("a", &["b"]), ("b", &["a"])]);
+
+    assert_eq!(reach_from("lonely", &graph), []);
+    assert_eq!(reach_from("a", &graph), [reach("b", &["b"])]);
 }

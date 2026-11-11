@@ -27,7 +27,7 @@ fn a_workspace_with_violations_is_reported_and_not_clean() {
     assert!(
         outcome
             .report
-            .ends_with("architecture: FAILED. 5 violation(s) in 9 crate(s), 5 layer(s) checked"),
+            .ends_with("architecture: FAILED. 9 violation(s) in 14 crate(s), 5 layer(s) checked"),
         "{}",
         outcome.report
     );
@@ -40,7 +40,7 @@ fn the_github_option_adds_the_annotations() {
 
     assert_eq!(
         outcome.report.matches("\n::error file=").count(),
-        5,
+        9,
         "{}",
         outcome.report
     );
@@ -53,7 +53,7 @@ fn a_model_that_covers_nothing_leaves_every_crate_uncovered() {
     assert!(!outcome.clean);
     assert_eq!(
         outcome.report.matches("error[arch::uncovered]").count(),
-        9,
+        14,
         "{}",
         outcome.report
     );

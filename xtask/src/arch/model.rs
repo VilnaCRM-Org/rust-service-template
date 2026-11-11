@@ -15,6 +15,17 @@ pub(crate) struct Crate {
     /// Whether the manifest has `[lints] workspace = true`.
     pub(crate) inherits_lints: bool,
     pub(crate) dependencies: Vec<Dependency>,
+    /// Every package reachable through non-dev edges of the resolved dependency graph, by name.
+    pub(crate) reach: Vec<Reach>,
+}
+
+/// A package that a workspace crate reaches through normal and build dependencies.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Reach {
+    /// The reached package.
+    pub(crate) name: String,
+    /// A shortest chain of packages from the crate's direct dependency to `name` (inclusive).
+    pub(crate) path: Vec<String>,
 }
 
 /// A direct dependency declared in the manifest.

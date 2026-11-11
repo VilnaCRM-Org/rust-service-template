@@ -8,18 +8,18 @@ use super::{Summary, render};
 fn rendered(violations: &[Violation], github: bool) -> String {
     let layer = || Layer {
         name: "domain".to_owned(),
-        crates: Vec::new(),
-        depends_on: Vec::new(),
-        dev_depends_on: Vec::new(),
+        ..Layer::default()
     };
     let member = |name: &str| Crate {
         name: name.to_owned(),
         manifest: String::new(),
         inherits_lints: true,
         dependencies: Vec::new(),
+        reach: Vec::new(),
     };
     let config = Config {
         layers: vec![layer(), layer()],
+        ..Config::default()
     };
     let workspace = Workspace {
         crates: vec![member("a"), member("b"), member("c")],

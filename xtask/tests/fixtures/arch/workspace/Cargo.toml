@@ -3,15 +3,20 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/billing/application",
-    "crates/billing/domain",
-    "crates/nolints/domain",
-    "crates/overlap/domain",
-    "crates/shop/application",
-    "crates/shop/domain",
-    "crates/shop/infrastructure",
-    "crates/stray",
-    "crates/test-support",
+  "crates/audit/domain",
+  "crates/billing/application",
+  "crates/billing/domain",
+  "crates/ledger/domain",
+  "crates/misplaced/core",
+  "crates/nolints/domain",
+  "crates/overlap/domain",
+  "crates/reports/application",
+  "crates/shared/domain",
+  "crates/shop/application",
+  "crates/shop/domain",
+  "crates/shop/infrastructure",
+  "crates/stray",
+  "crates/test-support",
 ]
 
 [workspace.lints.rust]

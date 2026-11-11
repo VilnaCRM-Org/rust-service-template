@@ -80,7 +80,7 @@ fn the_github_actions_flag_adds_the_annotations() {
     assert_eq!(run.code, ExitCode::FAILURE);
     assert_eq!(
         run.stdout.matches("\n::error file=").count(),
-        5,
+        9,
         "{}",
         run.stdout
     );

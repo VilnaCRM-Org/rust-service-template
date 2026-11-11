@@ -8,8 +8,7 @@ fn layer(name: &str, crates: &[&str]) -> Layer {
     Layer {
         name: name.to_owned(),
         crates: crates.iter().map(|&pattern| pattern.to_owned()).collect(),
-        depends_on: Vec::new(),
-        dev_depends_on: Vec::new(),
+        ..Layer::default()
     }
 }
 
@@ -84,6 +83,7 @@ fn layers_of_lists_every_layer_that_covers_the_crate() {
             layer("shop", &["shop-*"]),
             layer("service", &["service"]),
         ],
+        ..Config::default()
     };
     let names = |crate_name: &str| -> Vec<&str> {
         config
@@ -140,6 +140,84 @@ fn the_schema_reads_layers_with_optional_lists() {
     assert_eq!(config.layers[0].dev_depends_on, ["c"]);
     assert_eq!(config.layers[1].depends_on, Vec::<String>::new());
     assert_eq!(config.layers[1].dev_depends_on, Vec::<String>::new());
+}
+
+#[test]
+fn the_schema_reads_the_allow_lists_the_directory_and_the_shared_contexts() {
+    let config: Config = toml::from_str(
+        "[contexts]\nshared = ['shared', 'kernel']\n\
+         [[layer]]\nname = 'a'\ncrates = ['a-*']\ndirectory = 'a'\nexternal = ['x']\n\
+         dev_external = ['y']\nforbidden_transitive = ['z']\n\
+         [[layer]]\nname = 'b'\ncrates = ['b']\n",
+    )
+    .unwrap();
+
+    assert_eq!(config.contexts.shared, ["shared", "kernel"]);
+    let (a, b) = (&config.layers[0], &config.layers[1]);
+    assert_eq!(a.directory.as_deref(), Some("a"));
+    assert_eq!(a.external, ["x"]);
+    assert_eq!(a.dev_external, ["y"]);
+    assert_eq!(a.forbidden_transitive, ["z"]);
+    assert_eq!(b.directory, None);
+    assert_eq!(b.external, Vec::<String>::new());
+    assert_eq!(b.dev_external, Vec::<String>::new());
+    assert_eq!(b.forbidden_transitive, Vec::<String>::new());
+}
+
+#[test]
+fn a_model_without_a_contexts_table_has_no_shared_context() {
+    let config: Config = toml::from_str("[contexts]\n").unwrap();
+
+    assert_eq!(config.contexts.shared, Vec::<String>::new());
+    assert!(!toml::from_str::<Config>("").unwrap().is_shared("shared"));
+}
+
+#[test]
+fn a_context_is_shared_when_it_is_listed_by_exact_name() {
+    let config: Config = toml::from_str("[contexts]\nshared = ['shared']\n").unwrap();
+
+    assert!(config.is_shared("shared"));
+    assert!(!config.is_shared("shop"));
+    assert!(!config.is_shared("shared-kernel"));
+}
+
+fn lists(external: &[&str], dev_external: &[&str], forbidden: &[&str]) -> Layer {
+    let owned = |items: &[&str]| items.iter().map(|&item| item.to_owned()).collect();
+    Layer {
+        external: owned(external),
+        dev_external: owned(dev_external),
+        forbidden_transitive: owned(forbidden),
+        ..layer("domain", &["*-domain"])
+    }
+}
+
+#[test]
+fn a_third_party_crate_is_allowed_by_the_external_list_and_by_the_dev_list_as_a_dev_dependency() {
+    let layer = lists(&["serde", "aws-*"], &["rstest"], &[]);
+
+    assert!(layer.allows_external("serde", false));
+    assert!(layer.allows_external("serde", true));
+    assert!(layer.allows_external("aws-config", false));
+    assert!(layer.allows_external("rstest", true));
+    assert!(!layer.allows_external("rstest", false));
+    assert!(!layer.allows_external("axum", false));
+    assert!(!layer.allows_external("axum", true));
+}
+
+#[test]
+fn a_layer_without_lists_allows_no_third_party_crate_and_a_star_allows_all() {
+    assert!(!lists(&[], &[], &[]).allows_external("serde", true));
+    assert!(lists(&["*"], &[], &[]).allows_external("anything", false));
+}
+
+#[test]
+fn reaching_a_crate_is_forbidden_when_a_pattern_of_the_list_matches() {
+    let layer = lists(&["sqlx"], &["sqlx"], &["sqlx", "hyper*"]);
+
+    assert!(layer.forbids_reaching("sqlx"));
+    assert!(layer.forbids_reaching("hyper-util"));
+    assert!(!layer.forbids_reaching("serde"));
+    assert!(!lists(&[], &[], &[]).forbids_reaching("sqlx"));
 }
 
 #[test]

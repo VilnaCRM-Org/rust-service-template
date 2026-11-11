@@ -20,25 +20,48 @@ const LAYER_KEYS: [&str; 8] = [
 ];
 
 /// The part of the file that the rules read.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub(crate) struct Config {
+    /// The `[contexts]` table.
+    #[serde(default)]
+    pub(crate) contexts: Contexts,
     /// Layers, matched against workspace crate names.
     #[serde(default, rename = "layer")]
     pub(crate) layers: Vec<Layer>,
 }
 
+/// Which bounded contexts every context may depend on besides itself.
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct Contexts {
+    /// The shared kernel: contexts that every other context may depend on.
+    #[serde(default)]
+    pub(crate) shared: Vec<String>,
+}
+
 /// One architectural layer and what it may depend on.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub(crate) struct Layer {
     pub(crate) name: String,
     /// Crate-name patterns (`*` matches any run of characters, once).
     pub(crate) crates: Vec<String>,
+    /// Name of the directory that holds a crate of this layer; switches on the rule `path`.
+    #[serde(default)]
+    pub(crate) directory: Option<String>,
     /// Layers this layer may depend on.
     #[serde(default)]
     pub(crate) depends_on: Vec<String>,
     /// Layers this layer may depend on in addition, as dev-dependencies only.
     #[serde(default)]
     pub(crate) dev_depends_on: Vec<String>,
+    /// Third-party crates that a crate of this layer may depend on (patterns).
+    #[serde(default)]
+    pub(crate) external: Vec<String>,
+    /// Third-party crates that are allowed in addition, as dev-dependencies only (patterns).
+    #[serde(default)]
+    pub(crate) dev_external: Vec<String>,
+    /// Crates that must not be reachable through non-dev dependencies (patterns).
+    #[serde(default)]
+    pub(crate) forbidden_transitive: Vec<String>,
 }
 
 /// A key that the schema does not know.
@@ -76,6 +99,11 @@ fn find_unknown(table: &Table, known: &[&str], name: &'static str) -> Result<(),
 }
 
 impl Config {
+    /// Whether every context may depend on the context `name`.
+    pub(crate) fn is_shared(&self, name: &str) -> bool {
+        self.contexts.shared.iter().any(|shared| shared == name)
+    }
+
     /// Every layer whose patterns match the crate `name`.
     pub(crate) fn layers_of(&self, name: &str) -> Vec<&Layer> {
         self.layers
@@ -93,6 +121,17 @@ impl Layer {
             .any(|pattern| pattern_matches(pattern, name))
     }
 
+    /// Whether a crate of this layer may depend on the third-party crate `name`: it is in
+    /// `external`, or in `dev_external` when the dependency is a dev-dependency.
+    pub(crate) fn allows_external(&self, name: &str, dev: bool) -> bool {
+        listed(&self.external, name) || (dev && listed(&self.dev_external, name))
+    }
+
+    /// Whether a crate of this layer must not reach the crate `name` through non-dev edges.
+    pub(crate) fn forbids_reaching(&self, name: &str) -> bool {
+        listed(&self.forbidden_transitive, name)
+    }
+
     /// The bounded context of the crate `name`: the text that the `*` of the first matching
     /// pattern matched (`some-module-domain` against `*-domain` gives `some-module`).
     pub(crate) fn context_of<'name>(&self, name: &'name str) -> Option<&'name str> {
@@ -101,6 +140,13 @@ impl Layer {
             .find_map(|pattern| capture(pattern, name))
             .filter(|context| !context.is_empty())
     }
+}
+
+/// Whether one of the `patterns` matches `name`.
+fn listed(patterns: &[String], name: &str) -> bool {
+    patterns
+        .iter()
+        .any(|pattern| pattern_matches(pattern, name))
 }
 
 /// Whether `name` matches `pattern`, where one `*` matches any run of characters.

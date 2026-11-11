@@ -12,6 +12,7 @@ billing-domain = { path = "../domain" }
 
 [dev-dependencies]
 test-support = { path = "../../test-support" }
+rstest = { path = "../../../../vendor/rstest" }
 
 [lints]
 workspace = true

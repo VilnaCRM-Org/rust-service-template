@@ -1,7 +1,7 @@
 //! The rules: pure functions from the model and the workspace facts to violations.
 
 use super::config::{Config, Layer};
-use super::model::{Crate, Dependency, Workspace};
+use super::model::{Crate, Dependency, Reach, Workspace};
 
 /// Which rule a violation breaks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -9,6 +9,10 @@ pub(crate) enum Rule {
     Uncovered,
     Ambiguous,
     Layer,
+    Context,
+    External,
+    Transitive,
+    Path,
     Lints,
 }
 
@@ -19,6 +23,10 @@ impl Rule {
             Self::Uncovered => "uncovered",
             Self::Ambiguous => "ambiguous",
             Self::Layer => "layer",
+            Self::Context => "context",
+            Self::External => "external",
+            Self::Transitive => "transitive",
+            Self::Path => "path",
             Self::Lints => "lints",
         }
     }
@@ -93,12 +101,40 @@ fn ambiguous(member: &Crate, layers: &[&Layer]) -> Violation {
 }
 
 fn check_layer(config: &Config, layer: &Layer, member: &Crate) -> Vec<Violation> {
-    member
+    let mut found: Vec<Violation> = member
         .dependencies
         .iter()
-        .filter(|dependency| dependency.internal)
-        .filter_map(|dependency| check_edge(config, layer, member, dependency))
-        .collect()
+        .flat_map(|dependency| check_dependency(config, layer, member, dependency))
+        .collect();
+    found.extend(
+        member
+            .reach
+            .iter()
+            .filter(|reach| layer.forbids_reaching(&reach.name))
+            .map(|reach| transitive(layer, member, reach)),
+    );
+    found.extend(check_path(layer, member));
+    found
+}
+
+/// A workspace dependency is judged by the rules `layer` and `context`, a third-party one by
+/// the rule `external`.
+fn check_dependency(
+    config: &Config,
+    layer: &Layer,
+    member: &Crate,
+    dependency: &Dependency,
+) -> Vec<Violation> {
+    if dependency.internal {
+        check_edge(config, layer, member, dependency)
+            .into_iter()
+            .chain(check_context(config, layer, member, dependency))
+            .collect()
+    } else {
+        check_external(layer, member, dependency)
+            .into_iter()
+            .collect()
+    }
 }
 
 /// A dependency on a workspace crate must lead to a layer that `depends_on` lists, or, for a
@@ -133,6 +169,128 @@ fn check_edge(
             format!(
                 "{}; declare a port (trait) in the inner layer and implement it in the outer one",
                 allowance(layer)
+            ),
+        )
+    })
+}
+
+/// A layered crate may depend on crates of its own context and of the shared contexts only.
+/// Crates without a context (no `*` in the pattern that matched) are not judged.
+fn check_context(
+    config: &Config,
+    layer: &Layer,
+    member: &Crate,
+    dependency: &Dependency,
+) -> Option<Violation> {
+    let targets = config.layers_of(&dependency.name);
+    let [target] = targets.as_slice() else {
+        return None;
+    };
+    let from = layer.context_of(&member.name)?;
+    let to = target.context_of(&dependency.name)?;
+    (from != to && !config.is_shared(to)).then(|| {
+        violation(
+            Rule::Context,
+            member,
+            format!(
+                "{} must not depend on {}",
+                describe(layer, &member.name),
+                describe(target, &dependency.name)
+            ),
+            format!(
+                "context `{from}` may depend on itself and on the shared contexts: [{}]; \
+                 share what both contexts need through a shared crate",
+                config.contexts.shared.join(", ")
+            ),
+        )
+    })
+}
+
+/// A third-party dependency must be on the allow-list of the layer; a dev-dependency may also be
+/// on the dev allow-list.
+fn check_external(layer: &Layer, member: &Crate, dependency: &Dependency) -> Option<Violation> {
+    if layer.allows_external(&dependency.name, dependency.dev) {
+        return None;
+    }
+    let (kind, hint) = if dependency.dev {
+        (
+            "have a dev-dependency on",
+            format!(
+                "layer `{}` may use the third-party crates [{}] and, as dev-dependencies, [{}]",
+                layer.name,
+                layer.external.join(", "),
+                layer.dev_external.join(", ")
+            ),
+        )
+    } else {
+        (
+            "depend on",
+            format!(
+                "layer `{}` may use the third-party crates [{}]; add the crate to `external` of \
+                 the layer only if the architecture allows it",
+                layer.name,
+                layer.external.join(", ")
+            ),
+        )
+    };
+    Some(violation(
+        Rule::External,
+        member,
+        format!(
+            "{} must not {kind} the third-party crate `{}`",
+            describe(layer, &member.name),
+            dependency.name
+        ),
+        hint,
+    ))
+}
+
+fn transitive(layer: &Layer, member: &Crate, reach: &Reach) -> Violation {
+    violation(
+        Rule::Transitive,
+        member,
+        format!(
+            "{} reaches `{}` through non-dev dependencies: `{}` -> `{}`",
+            describe(layer, &member.name),
+            reach.name,
+            member.name,
+            reach.path.join("` -> `")
+        ),
+        format!(
+            "layer `{}` must not reach [{}]; remove or replace the dependency that pulls `{}` in",
+            layer.name,
+            layer.forbidden_transitive.join(", "),
+            reach.name
+        ),
+    )
+}
+
+/// A crate of a layer with a `directory` sits at `crates/[<group>/]<context>/<directory>`; where
+/// the layer has no context, any single name stands in for it.
+fn check_path(layer: &Layer, member: &Crate) -> Option<Violation> {
+    let directory = layer.directory.as_deref()?;
+    let context = layer.context_of(&member.name);
+    let mut parts: Vec<&str> = member.manifest.split('/').collect();
+    parts.pop();
+    let fits = match parts.as_slice() {
+        ["crates", between @ .., last] if (1..=2).contains(&between.len()) => {
+            *last == directory && context.is_none_or(|context| between.last() == Some(&context))
+        }
+        _ => false,
+    };
+    (!fits).then(|| {
+        violation(
+            Rule::Path,
+            member,
+            format!(
+                "{} is not at `crates/[<group>/]{}/{directory}` but at `{}`",
+                describe(layer, &member.name),
+                context.unwrap_or("<name>"),
+                parts.join("/")
+            ),
+            format!(
+                "move the crate to `crates/[<group>/]{}/{directory}`",
+                context.unwrap_or("<name>")
             ),
         )
     })

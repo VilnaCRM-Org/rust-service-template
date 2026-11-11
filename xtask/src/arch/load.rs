@@ -1,6 +1,6 @@
 //! Reads `architecture.toml` and turns `cargo metadata` into the workspace model.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
 use std::path::Path;
 
@@ -9,7 +9,7 @@ use toml::Table;
 
 use super::Failure;
 use super::config::{self, Config};
-use super::model::{Crate, Dependency, Workspace};
+use super::model::{Crate, Dependency, Reach, Workspace};
 
 /// Reads and validates the configuration file.
 pub(crate) fn config(path: &Path) -> Result<Config, Failure> {
@@ -41,16 +41,22 @@ pub(crate) fn workspace(manifest: &Path) -> Result<Workspace, Failure> {
         .into_iter()
         .map(|package| package.name.as_str())
         .collect();
+    let edges = edges(&metadata);
     let mut crates: Vec<Crate> = metadata
         .workspace_packages()
         .into_iter()
-        .map(|package| member(&metadata, &members, package))
+        .map(|package| member(&metadata, &members, &edges, package))
         .collect();
     crates.sort_by(|left, right| left.name.cmp(&right.name));
     Ok(Workspace { crates })
 }
 
-fn member(metadata: &Metadata, members: &BTreeSet<&str>, package: &Package) -> Crate {
+fn member(
+    metadata: &Metadata,
+    members: &BTreeSet<&str>,
+    edges: &Edges,
+    package: &Package,
+) -> Crate {
     let relative = package
         .manifest_path
         .strip_prefix(&metadata.workspace_root)
@@ -68,7 +74,62 @@ fn member(metadata: &Metadata, members: &BTreeSet<&str>, package: &Package) -> C
                 internal: is_internal(dependency, members),
             })
             .collect(),
+        reach: reach_from(&package.name, edges),
     }
+}
+
+/// Package name to the names of the packages it depends on through normal or build edges.
+type Edges = BTreeMap<String, BTreeSet<String>>;
+
+/// The non-dev edges of the resolved dependency graph, by package name.
+fn edges(metadata: &Metadata) -> Edges {
+    let names: BTreeMap<_, _> = metadata
+        .packages
+        .iter()
+        .map(|package| (&package.id, package.name.as_str()))
+        .collect();
+    let mut edges = Edges::new();
+    let nodes = metadata
+        .resolve
+        .iter()
+        .flat_map(|resolve| &resolve.nodes)
+        .filter_map(|node| Some((names.get(&node.id)?, node)));
+    for (from, node) in nodes {
+        let targets = node
+            .deps
+            .iter()
+            .filter(|dep| {
+                dep.dep_kinds
+                    .iter()
+                    .any(|info| info.kind != DependencyKind::Development)
+            })
+            .filter_map(|dep| names.get(&dep.pkg))
+            .map(|name| (*name).to_owned());
+        edges.entry((*from).to_owned()).or_default().extend(targets);
+    }
+    edges
+}
+
+/// Every package reachable from `start`, each with a shortest chain, sorted by name.
+fn reach_from(start: &str, edges: &Edges) -> Vec<Reach> {
+    let mut seen = BTreeSet::from([start]);
+    let mut queue = VecDeque::from([(start, Vec::<&str>::new())]);
+    let mut found = Vec::new();
+    while let Some((name, path)) = queue.pop_front() {
+        for next in edges.get(name).into_iter().flatten() {
+            if seen.insert(next.as_str()) {
+                let mut chain = path.clone();
+                chain.push(next);
+                found.push(Reach {
+                    name: next.clone(),
+                    path: chain.iter().map(|&step| step.to_owned()).collect(),
+                });
+                queue.push_back((next, chain));
+            }
+        }
+    }
+    found.sort_by(|left, right| left.name.cmp(&right.name));
+    found
 }
 
 /// Whether a dependency is a workspace member: a path dependency whose package is a member.
