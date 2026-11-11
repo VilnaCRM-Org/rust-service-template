@@ -166,13 +166,14 @@ fn the_export_commands_are_told_apart() {
 }
 
 #[test]
-fn healthcheck_takes_a_port() {
-    let cli = parse(&["healthcheck", "--port", "9100"]).unwrap();
+fn healthcheck_takes_a_port_and_a_host() {
+    let cli = parse(&["healthcheck", "--port", "9100", "--host", "10.0.3.7"]).unwrap();
 
     let Command::Healthcheck(args) = cli.command else {
         panic!("expected healthcheck");
     };
     assert_eq!(args.port.as_deref(), Some("9100"));
+    assert_eq!(args.host.as_deref(), Some("10.0.3.7"));
 }
 
 #[rstest]
@@ -296,6 +297,12 @@ fn the_migrate_and_healthcheck_settings_are_bound_to_their_variables() {
         .unwrap();
     assert_eq!(wait.get_env().unwrap(), "DATABASE_WAIT_TIMEOUT");
     assert!(wait.is_hide_env_values_set());
+    let host = healthcheck
+        .get_arguments()
+        .find(|argument| argument.get_id() == "host")
+        .unwrap();
     assert_eq!(port.get_env().unwrap(), "APP_PORT");
     assert!(port.is_hide_env_values_set());
+    assert_eq!(host.get_env().unwrap(), "APP_HOST");
+    assert!(host.is_hide_env_values_set());
 }

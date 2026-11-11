@@ -4,7 +4,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::future::join_all;
-use health_check_domain::{HealthProbe, HealthReport, ProbeFailure, ProbeFailureCause};
+use health_check_domain::{Dependency, HealthProbe, HealthReport, ProbeFailure, ProbeFailureCause};
+use shared_domain::error_chain;
 
 /// Probes every registered dependency and reports the ones that failed.
 #[derive(Debug)]
@@ -40,13 +41,13 @@ impl HealthService {
             dependency: probe.dependency(),
             cause,
         };
-        log_failure(&failure);
+        log_failure(failure.dependency, &error_chain(&failure.cause));
         Some(failure)
     }
 }
 
-fn log_failure(failure: &ProbeFailure) {
-    tracing::warn!(dependency = failure.dependency.identifier(), cause = %failure.cause, "health probe failed");
+fn log_failure(dependency: Dependency, cause: &str) {
+    tracing::warn!(dependency = dependency.identifier(), cause = %cause, "health probe failed");
 }
 
 #[cfg(test)]

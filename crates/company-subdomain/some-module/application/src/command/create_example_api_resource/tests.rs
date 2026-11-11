@@ -2,8 +2,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use shared_domain::{
-    Command as _, CommandHandler as _, DomainEvent, EventBus, EventBusError, Uuid,
-    UuidGenerator as _,
+    Command as _, CommandHandler as _, DomainEvent, EventBus, EventBusError, SubscriberFailure,
+    Uuid, UuidGenerator as _,
 };
 use some_module_domain::{ExampleApiResourceId, ExampleApiResourceRepository};
 use test_support::bus::{PublishedEvent, RecordingEventBus};
@@ -238,4 +238,68 @@ async fn a_failed_publication_is_logged_and_the_command_still_succeeds() {
         Some(published.first().unwrap().event_id.to_string().as_str())
     );
     assert_eq!(line.field("error"), Some("recording bus failure"));
+}
+
+/// An error whose text is generic and whose reason sits in its source, like an SDK error.
+#[derive(Debug)]
+struct Layered(&'static str, Option<Box<Self>>);
+
+impl std::fmt::Display for Layered {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.0)
+    }
+}
+
+impl std::error::Error for Layered {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.1
+            .as_deref()
+            .map(|source| -> &(dyn std::error::Error + 'static) { source })
+    }
+}
+
+/// An event bus whose subscriber fails with a layered error.
+#[derive(Debug)]
+struct LayeredFailureBus;
+
+#[async_trait::async_trait]
+impl EventBus for LayeredFailureBus {
+    async fn publish(&self, events: Vec<Box<dyn DomainEvent>>) -> Result<(), EventBusError> {
+        let failures = events
+            .iter()
+            .map(|event| SubscriberFailure {
+                event_name: event.event_name(),
+                event_id: event.event_id(),
+                source: Box::new(Layered(
+                    "dispatch failure",
+                    Some(Box::new(Layered("connection refused", None))),
+                )),
+            })
+            .collect();
+        Err(EventBusError { failures })
+    }
+}
+
+#[tokio::test]
+async fn a_failed_publication_logs_the_whole_error_chain_of_the_subscriber() {
+    let (recorder, _guard) = LogRecorder::install();
+    let bus: Arc<dyn EventBus> = Arc::new(LayeredFailureBus);
+    let handler = CreateExampleApiResourceHandler::new(
+        Arc::new(InMemoryExampleApiResourceRepository::new()),
+        bus,
+        Arc::new(FixedClock::at(time())),
+        Arc::new(SequenceUuidGenerator::starting_at(100)),
+    );
+
+    handler
+        .handle(command("Name", "Description"))
+        .await
+        .unwrap();
+
+    let lines = recorder.lines();
+    assert_eq!(lines.len(), 1);
+    assert_eq!(
+        lines.first().unwrap().field("error"),
+        Some("dispatch failure: connection refused")
+    );
 }

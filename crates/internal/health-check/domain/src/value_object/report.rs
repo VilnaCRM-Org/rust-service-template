@@ -10,7 +10,7 @@ use super::dependency::Dependency;
 #[derive(Debug, thiserror::Error)]
 pub enum ProbeFailureCause {
     /// The probe returned an error.
-    #[error("probe failed: {0}")]
+    #[error("probe failed")]
     Failed(#[source] BoxError),
     /// The probe did not finish within its deadline.
     #[error("probe timed out after {0:?}")]

@@ -48,7 +48,7 @@ fn a_report_keeps_the_failures_in_the_order_given() {
 fn a_failed_cause_names_the_error_and_keeps_it_as_its_source() {
     let cause = ProbeFailureCause::Failed(Box::new(Refused));
 
-    assert_eq!(cause.to_string(), "probe failed: connection refused");
+    assert_eq!(cause.to_string(), "probe failed");
     assert_eq!(cause.source().unwrap().to_string(), "connection refused");
 }
 

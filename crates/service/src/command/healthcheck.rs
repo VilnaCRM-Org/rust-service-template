@@ -1,7 +1,8 @@
-//! `service healthcheck`: requests `/ping` on the loopback interface, with no dependency access.
+//! `service healthcheck`: requests `/ping` on the address the service listens on (the loopback
+//! interface when it listens on every interface), with no dependency access.
 
 use std::io::{Read as _, Write as _};
-use std::net::{Ipv4Addr, SocketAddr, TcpStream};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream};
 use std::process::ExitCode;
 use std::time::Duration;
 
@@ -18,8 +19,7 @@ const DEFAULT_PORT: u16 = 8081;
     clippy::disallowed_methods,
     reason = "the liveness probe owns this loopback connection"
 )]
-fn probe(port: u16) -> std::io::Result<bool> {
-    let address = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
+fn probe(address: SocketAddr) -> std::io::Result<bool> {
     let mut stream = TcpStream::connect_timeout(&address, TIMEOUT)?;
     stream.set_read_timeout(Some(TIMEOUT))?;
     stream.set_write_timeout(Some(TIMEOUT))?;
@@ -29,13 +29,44 @@ fn probe(port: u16) -> std::io::Result<bool> {
     Ok(response.starts_with("HTTP/1.1 200"))
 }
 
-/// Requests `/ping` on `127.0.0.1:<port>`: 0 when the answer is 200, 1 otherwise (including an
-/// unparsable port, a refused connection and a timeout). Prints nothing.
+/// The address to probe for the configured `APP_HOST`: the loopback address when the variable is
+/// absent or names an unspecified address (`0.0.0.0` or `::` accept connections on the loopback
+/// interface of their family), the address itself otherwise. `None` when it is not an IP address.
+fn target_host(host: Option<&str>) -> Option<IpAddr> {
+    let Some(text) = host else {
+        return Some(IpAddr::V4(Ipv4Addr::LOCALHOST));
+    };
+    let address = text.parse::<IpAddr>().ok()?;
+    if !address.is_unspecified() {
+        return Some(address);
+    }
+    Some(if address.is_ipv4() {
+        IpAddr::V4(Ipv4Addr::LOCALHOST)
+    } else {
+        IpAddr::V6(Ipv6Addr::LOCALHOST)
+    })
+}
+
+/// Requests `/ping` on the address the service listens on and the port.
+///
+/// The address is `--host` / `APP_HOST` (loopback by default). The exit status is 0 when the
+/// answer is 200 and 1 otherwise, including an unparsable host or port, a refused connection and a
+/// timeout. Prints nothing.
 #[must_use]
 pub fn run(args: &HealthcheckArgs) -> ExitCode {
-    let port = args.port.as_deref().map_or(Ok(DEFAULT_PORT), str::parse);
-    match port.map(probe) {
-        Ok(Ok(true)) => ExitCode::SUCCESS,
+    let port = args
+        .port
+        .as_deref()
+        .map_or(Some(DEFAULT_PORT), |text| text.parse().ok());
+    let host = target_host(args.host.as_deref());
+    match port
+        .zip(host)
+        .map(|(port, host)| probe(SocketAddr::new(host, port)))
+    {
+        Some(Ok(true)) => ExitCode::SUCCESS,
         _ => ExitCode::FAILURE,
     }
 }
+
+#[cfg(test)]
+mod tests;

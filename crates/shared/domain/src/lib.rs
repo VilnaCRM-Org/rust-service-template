@@ -17,7 +17,7 @@ pub use bus::command::{Command, CommandBus, CommandHandler};
 pub use bus::error::{BusError, ErasedBusError, ErasedMessage};
 pub use bus::event::{EventBus, EventBusError, SubscriberFailure};
 pub use bus::query::{Query, QueryBus, QueryHandler};
-pub use error::BoxError;
+pub use error::{BoxError, error_chain};
 pub use event::{DomainEvent, DomainEventSubscriber};
 pub use port::cache::{Cache, CacheError};
 pub use port::clock::Clock;

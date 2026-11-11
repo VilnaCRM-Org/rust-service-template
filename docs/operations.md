@@ -26,6 +26,8 @@ Migrations are plain SQL files in `migrations/` at the workspace root, written a
 
 Both migration commands wait for the database first: one attempt per second until `DATABASE_WAIT_TIMEOUT` elapses (default 30 seconds). Each failed attempt prints `waiting for database (attempt <n>): <error>` on stderr. When the database stays unreachable the command exits with status 1 and prints the connection error. An invalid configuration exits with status 2.
 
+Migrations run under `DATABASE_STATEMENT_TIMEOUT` like every statement of the service (default 5 seconds, accepted range 1 millisecond to 24 days; PostgreSQL treats 0 as "no limit", so 0 is rejected). A statement that runs longer is cancelled with `canceling statement due to statement timeout`, the command exits with status 1 and the compose service `app`, which waits for `migrate`, does not start. Before a long migration such as an index build or a backfill, raise the variable for the migrate step only, for example `DATABASE_STATEMENT_TIMEOUT=30m make migrate`, or set it in the environment of the `migrate` container.
+
 In a deployed environment the production image runs the same step with its first argument: `migrate` applies and `migrate revert` reverts. The compose files run it as the one-shot service `migrate`, which the service `app` waits for.
 
 Rules:
@@ -46,7 +48,7 @@ A `.down.sql` file that drops a column or table destroys data. Take a backup bef
 
 ## Health-probe runbook
 
-`GET /api/health` answers `204` with an empty body when every probe succeeds. Otherwise it answers `500` with a problem document of type `/problems/dependency-unavailable`. Its `failures` member holds one entry per failing dependency, and `detail` joins the messages with a semicolon and a space. The messages are fixed and identical in every environment. The underlying cause is never returned: it is a log line `health probe failed` at `WARN` with the fields `dependency` and `cause`, and it carries the request id of the probe request.
+`GET /api/health` answers `204` with an empty body when every probe succeeds. Otherwise it answers `500` with a problem document of type `/problems/dependency-unavailable`. Its `failures` member holds one entry per failing dependency, and `detail` joins the messages with a semicolon and a space. The messages are fixed and identical in every environment. The underlying cause is never returned: it is a log line `health probe failed` at `WARN` with the fields `dependency` and `cause` (the whole error chain, outermost first, joined by a colon and a space, for example `probe failed: dispatch failure: <reason>`), and it carries the request id of the probe request.
 
 `GET /ping` is the liveness check. It touches no dependency, so a dependency outage never restarts a healthy process. Use `/ping` for container and process liveness and `/api/health` for readiness behind a load balancer.
 
@@ -143,7 +145,7 @@ Fixed messages:
 | `request failed` | ERROR | `error` | the error chain behind a 5xx problem |
 | `panic` | ERROR | `panic` | message and location; the request gets a 500 problem and the process keeps running |
 | `health probe failed` | WARN | `dependency`, `cause` | see the health-probe runbook |
-| `event publication failed` | ERROR | `event_name`, `event_id`, `error` | one per failing subscriber; the request still succeeds |
+| `event publication failed` | ERROR | `event_name`, `event_id`, `error` | one per failing subscriber, `error` is the whole error chain joined by a colon and a space; the request still succeeds |
 | `domain event` | INFO, target `audit` | `event_name`, `event_id`, `aggregate_id`, `occurred_at` | the audit subscriber |
 | `shutdown signal received` | INFO | `signal` | start of the shutdown sequence |
 | `grace period elapsed, forcing shutdown` | WARN | `grace_period` | `serve` then exits with status 1 |
@@ -172,7 +174,7 @@ A client that reports a problem should quote the `x-request-id` of the response;
 
 An exit status 1 after a deployment therefore means that at least one request was cut off by the end of the grace period. Check the access log for requests that did not log `request completed`, and consider raising `SHUTDOWN_GRACE_PERIOD` or lowering `HTTP_REQUEST_TIMEOUT` (default 10 seconds). A bind failure or runtime failure also exits with status 1 and logs `serve failed`. Status 2 is always an invalid configuration.
 
-Set the orchestrator's termination timeout to at least 15 seconds, so that SIGKILL does not arrive before the grace period ends. The container healthcheck runs `["/app/service", "healthcheck"]` (the image has no shell) every 10 seconds with a timeout of 3 seconds and 3 retries; it probes `/ping`.
+Set the orchestrator's termination timeout to at least 15 seconds, so that SIGKILL does not arrive before the grace period ends. The container healthcheck runs `["/app/service", "healthcheck"]` (the image has no shell) every 10 seconds with a timeout of 3 seconds and 3 retries; it probes `/ping` on the address in `APP_HOST` (the loopback address when `APP_HOST` is `0.0.0.0` or `::`, as in the image), so a service bound to one specific address is probed on that address.
 
 ## Toolchain update procedure
 

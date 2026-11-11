@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use health_check_domain::{Dependency, HealthProbe, HealthReport, ProbeFailureCause};
 use rstest::rstest;
+use shared_domain::BoxError;
 use test_support::log::LogRecorder;
 use test_support::probe::StubProbe;
 use tokio::time::Instant;
@@ -99,7 +100,7 @@ async fn a_failed_probe_keeps_its_error_as_the_cause() {
 
     let cause = &report.failures()[0].cause;
     assert!(matches!(cause, ProbeFailureCause::Failed(_)));
-    assert_eq!(cause.to_string(), "probe failed: stub probe failure");
+    assert_eq!(cause.to_string(), "probe failed");
 }
 
 #[tokio::test(start_paused = true)]
@@ -173,4 +174,54 @@ async fn a_healthy_check_logs_nothing() {
     let _report = service(probes_failing(&[])).check().await;
 
     assert_eq!(recorder.lines(), Vec::new());
+}
+
+/// An error whose text is generic and whose reason sits in its source, like an SDK error.
+#[derive(Debug)]
+struct Layered(&'static str, Option<Box<Self>>);
+
+impl std::fmt::Display for Layered {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.0)
+    }
+}
+
+impl std::error::Error for Layered {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.1
+            .as_deref()
+            .map(|source| -> &(dyn std::error::Error + 'static) { source })
+    }
+}
+
+#[derive(Debug)]
+struct LayeredProbe;
+
+#[async_trait::async_trait]
+impl HealthProbe for LayeredProbe {
+    fn dependency(&self) -> Dependency {
+        Dependency::MessageBroker
+    }
+
+    async fn check(&self) -> Result<(), BoxError> {
+        Err(Box::new(Layered(
+            "dispatch failure",
+            Some(Box::new(Layered("connection refused", None))),
+        )))
+    }
+}
+
+#[tokio::test]
+async fn the_log_holds_the_whole_error_chain_of_a_failed_probe() {
+    let (recorder, _guard) = LogRecorder::install();
+    let probe: Arc<dyn HealthProbe> = Arc::new(LayeredProbe);
+
+    let _report = HealthService::new(vec![probe], TIMEOUT).check().await;
+
+    let lines = recorder.lines();
+    assert_eq!(lines.len(), 1);
+    assert_eq!(
+        lines[0].field("cause"),
+        Some("probe failed: dispatch failure: connection refused")
+    );
 }

@@ -6,7 +6,7 @@ use axum::http::header::CONTENT_TYPE;
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
-use shared_domain::BusError;
+use shared_domain::{BusError, error_chain};
 use utoipa::ToSchema;
 use validator::{ValidationErrors, ValidationErrorsKind};
 
@@ -138,13 +138,6 @@ impl Problem {
             Self::new(status).with_detail(text)
         }
     }
-}
-
-fn error_chain(cause: &(dyn std::error::Error + 'static)) -> String {
-    std::iter::successors(Some(cause), |error| error.source())
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join(": ")
 }
 
 fn log_request_failed(error: &str) {

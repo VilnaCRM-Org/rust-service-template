@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use shared_domain::{
     AggregateRoot as _, Clock, Command, CommandHandler, EventBus, SubscriberFailure, Uuid,
-    UuidGenerator,
+    UuidGenerator, error_chain,
 };
 use some_module_domain::{
     ExampleApiResource, ExampleApiResourceDescription, ExampleApiResourceId,
@@ -94,7 +94,9 @@ impl CreateExampleApiResourceHandler {
     /// command, because the resource is already stored.
     async fn publish(&self, resource: &mut ExampleApiResource) {
         if let Err(error) = self.event_bus.publish(resource.pull_domain_events()).await {
-            error.failures.iter().for_each(log_publication_failure);
+            for failure in &error.failures {
+                log_publication_failure(failure, &error_chain(&*failure.source));
+            }
         }
     }
 }
@@ -109,8 +111,8 @@ impl CommandHandler<CreateExampleApiResource> for CreateExampleApiResourceHandle
     }
 }
 
-fn log_publication_failure(failure: &SubscriberFailure) {
-    tracing::error!(event_name = failure.event_name, event_id = %failure.event_id, error = %failure.source, "event publication failed");
+fn log_publication_failure(failure: &SubscriberFailure, error: &str) {
+    tracing::error!(event_name = failure.event_name, event_id = %failure.event_id, error = %error, "event publication failed");
 }
 
 #[cfg(test)]

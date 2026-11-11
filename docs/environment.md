@@ -11,13 +11,13 @@ A service that adds variables for its own adapters adds their rows here. The syn
 | Name | Type | Default | Required | Consumer | PHP name |
 | --- | --- | --- | --- | --- | --- |
 | `APP_ENV` | `dev`, `test` or `prod` | `prod` | no | `service` (the GraphQL explorer is on in `dev` only); compose | `APP_ENV` |
-| `APP_HOST` | IP address | `0.0.0.0` | no | `service serve` | none (Caddy) |
+| `APP_HOST` | IP address | `0.0.0.0` | no | `service serve`; `service healthcheck` (probes this address, or the loopback address when this one is `0.0.0.0` or `::`) | none (Caddy) |
 | `APP_PORT` | integer 0 to 65535 (0 = any free port, for tests) | `8081` | no | `service serve`, `service healthcheck`; compose | listener `:8081` in the Caddyfile |
 | `LOG_LEVEL` | `tracing` filter directives | `info` | no | `service serve` (the other commands write plain text) | none |
 | `DATABASE_URL` | `postgres://` or `postgresql://` URL | none | yes for `serve`, `migrate`, `migrate revert`, `check-config` | `service`; `sqlx-cli`; `#[sqlx::test]`; the end-to-end world | `DB_URL` |
 | `DATABASE_MAX_CONNECTIONS` | integer 1 to 100 | `10` | no | `service` | none |
 | `DATABASE_ACQUIRE_TIMEOUT` | duration | `2s` | no | `service` | none |
-| `DATABASE_STATEMENT_TIMEOUT` | duration | `5s` | no | `service` | none |
+| `DATABASE_STATEMENT_TIMEOUT` | duration, `1ms` to `24d` (`0`, a value below `1ms` and a value above `24d` are rejected) | `5s` | no | `service`, including `service migrate` (see [Migrations and rollback](operations.md#migrations-and-rollback)) | none |
 | `DATABASE_WAIT_TIMEOUT` | duration | `30s` | no | `service migrate` (one attempt per second until it elapses) | entrypoint loop, 60 tries |
 | `AWS_REGION` | string | none | yes for `serve`, `check-config` | `service` | `AWS_SQS_REGION` |
 | `AWS_ENDPOINT_URL_SQS` | `http://` or `https://` URL | unset (regional AWS endpoint) | no | `service` | `AWS_SQS_ENDPOINT_BASE` + `LOCALSTACK_PORT` |

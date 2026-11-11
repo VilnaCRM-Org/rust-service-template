@@ -30,7 +30,7 @@ pub enum Command {
     OpenapiExport(ExportArgs),
     /// Write the GraphQL schema (SDL) to a file or to standard output.
     GraphqlExport(ExportArgs),
-    /// Ask a running service on the loopback interface whether it is alive.
+    /// Ask a running service whether it is alive (on the loopback interface or the `APP_HOST` address).
     Healthcheck(HealthcheckArgs),
 }
 
@@ -189,9 +189,13 @@ pub struct ExportArgs {
 /// Arguments of `healthcheck`.
 #[derive(Debug, Clone, Args)]
 pub struct HealthcheckArgs {
-    /// TCP port of the service on the loopback interface (default 8081).
+    /// TCP port of the service (default 8081).
     #[arg(long = "port", env = "APP_PORT", hide_env_values = true)]
     pub port: Option<String>,
+    /// IP address the service listens on; the loopback interface is probed when it is an
+    /// unspecified address such as `0.0.0.0` (default `127.0.0.1`).
+    #[arg(long = "host", env = "APP_HOST", hide_env_values = true)]
+    pub host: Option<String>,
 }
 
 #[cfg(test)]

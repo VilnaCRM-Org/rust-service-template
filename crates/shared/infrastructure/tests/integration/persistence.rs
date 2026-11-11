@@ -166,6 +166,30 @@ async fn a_query_succeeds_against_the_real_database_and_connections_carry_the_st
 }
 
 #[tokio::test]
+async fn an_out_of_range_statement_timeout_is_kept_within_what_the_server_accepts() {
+    let tiny = PostgresSettings {
+        statement_timeout: Duration::ZERO,
+        ..support::postgres_settings()
+    };
+    let huge = PostgresSettings {
+        statement_timeout: Duration::from_hours(60 * 24),
+        ..support::postgres_settings()
+    };
+
+    let mut shown = Vec::new();
+    for settings in [tiny, huge] {
+        let pool = connect_lazy(&settings).unwrap();
+        let timeout: String = sqlx::query_scalar("SHOW statement_timeout")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        shown.push(timeout);
+    }
+
+    assert_eq!(shown, ["1ms", "24d"]);
+}
+
+#[tokio::test]
 async fn a_statement_longer_than_the_statement_timeout_is_cancelled() {
     let settings = PostgresSettings {
         statement_timeout: Duration::from_millis(200),

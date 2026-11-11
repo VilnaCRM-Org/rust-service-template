@@ -96,6 +96,28 @@ fn every_invalid_or_missing_variable_is_named_in_one_run_without_its_value() {
     assert!(!errors.contains("staging"));
 }
 
+#[rstest]
+#[case("0")]
+#[case("500us")]
+#[case("30d")]
+fn a_statement_timeout_outside_its_range_is_rejected(#[case] value: &str) {
+    let scratch = Scratch::new();
+    let variables = [
+        VALID_ENVIRONMENT[0],
+        VALID_ENVIRONMENT[1],
+        ("DATABASE_STATEMENT_TIMEOUT", value),
+    ];
+
+    let output = scratch.run(&["check-config"], &variables);
+
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(stdout(&output), "");
+    assert_eq!(
+        stderr(&output),
+        "DATABASE_STATEMENT_TIMEOUT: must be a duration from 1ms to 24d\n"
+    );
+}
+
 #[test]
 fn a_key_id_without_a_secret_names_the_missing_variable() {
     let scratch = Scratch::new();

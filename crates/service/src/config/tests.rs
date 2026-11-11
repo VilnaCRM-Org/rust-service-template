@@ -555,6 +555,51 @@ fn the_request_timeout_must_exceed_the_probe_timeout() {
     assert!(Config::from_args(timeouts("2s", "2s", "3s", "3001ms")).is_ok());
 }
 
+#[rstest]
+#[case::zero("0s")]
+#[case::bare_zero("0")]
+#[case::below_a_millisecond("500us")]
+#[case::above_the_range("30d")]
+#[case::just_above_the_range("24d 1s")]
+fn a_statement_timeout_outside_one_millisecond_to_24_days_is_rejected(#[case] value: &str) {
+    let args = ServeArgs {
+        database: DatabaseArgs {
+            statement_timeout: some(value),
+            ..valid().database
+        },
+        ..valid()
+    };
+
+    assert_eq!(
+        problems(args),
+        [(
+            "DATABASE_STATEMENT_TIMEOUT",
+            "must be a duration from 1ms to 24d".to_owned()
+        )]
+    );
+}
+
+#[rstest]
+#[case::lower_bound("1ms", Duration::from_millis(1))]
+#[case::upper_bound("24d", Duration::from_hours(24 * 24))]
+#[case::default_like("5s", Duration::from_secs(5))]
+fn a_statement_timeout_inside_the_range_is_accepted(
+    #[case] value: &str,
+    #[case] expected: Duration,
+) {
+    let args = ServeArgs {
+        database: DatabaseArgs {
+            statement_timeout: some(value),
+            ..valid().database
+        },
+        ..valid()
+    };
+
+    let config = Config::from_args(args).unwrap();
+
+    assert_eq!(config.database.statement_timeout, expected);
+}
+
 #[test]
 fn a_timeout_above_its_prd_ceiling_is_accepted() {
     let args = ServeArgs {

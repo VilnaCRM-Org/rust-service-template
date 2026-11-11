@@ -11,7 +11,9 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use shared_infrastructure::messaging::SqsSettings;
-use shared_infrastructure::persistence::PostgresSettings;
+use shared_infrastructure::persistence::{
+    MAX_STATEMENT_TIMEOUT, MIN_STATEMENT_TIMEOUT, PostgresSettings,
+};
 use sqlx::postgres::PgConnectOptions;
 use tracing_subscriber::EnvFilter;
 
@@ -282,7 +284,7 @@ fn database(collector: &mut Collector, args: &DatabaseArgs) -> Option<PostgresSe
     );
     let statement = collector.collect(
         "DATABASE_STATEMENT_TIMEOUT",
-        duration(args.statement_timeout.as_deref(), Duration::from_secs(5)),
+        statement_timeout(args.statement_timeout.as_deref()),
     );
     Some(PostgresSettings {
         url: url?,
@@ -430,6 +432,17 @@ fn duration(raw: Option<&str>, default: Duration) -> Parsed<Duration> {
         humantime::parse_duration(value)
             .map_err(|_error| "must be a duration such as 500ms, 2s or 1m".to_owned())
     })
+}
+
+/// `DATABASE_STATEMENT_TIMEOUT`: PostgreSQL reads 0 as "no timeout" and refuses more than about
+/// 24.8 days, so the value must lie between 1 millisecond and 24 days.
+fn statement_timeout(raw: Option<&str>) -> Parsed<Duration> {
+    let value = duration(raw, Duration::from_secs(5))?;
+    if (MIN_STATEMENT_TIMEOUT..=MAX_STATEMENT_TIMEOUT).contains(&value) {
+        Ok(value)
+    } else {
+        Err("must be a duration from 1ms to 24d".to_owned())
+    }
 }
 
 fn parsed<T: FromStr>(raw: Option<&str>, default: T, reason: &str) -> Parsed<T> {

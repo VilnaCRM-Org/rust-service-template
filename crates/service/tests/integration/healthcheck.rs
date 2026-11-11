@@ -65,3 +65,72 @@ fn prints_nothing() {
     assert_eq!(output.stdout, Vec::<u8>::new());
     assert_eq!(output.stderr, Vec::<u8>::new());
 }
+
+#[test]
+fn probes_the_address_the_service_listens_on() {
+    let scratch = Scratch::new();
+    let server = serve(
+        &scratch,
+        &[
+            ("DATABASE_URL", DEAD_DATABASE_URL),
+            ("AWS_REGION", "us-east-1"),
+            ("APP_HOST", "127.0.0.2"),
+        ],
+    );
+    let port = server.port.to_string();
+    let with_host = |host: &str| {
+        scratch
+            .run(
+                &["healthcheck"],
+                &[("APP_PORT", port.as_str()), ("APP_HOST", host)],
+            )
+            .status
+            .code()
+    };
+
+    let bound = with_host("127.0.0.2");
+    let loopback = with_host("127.0.0.1");
+    let unspecified = with_host("0.0.0.0");
+    let invalid = with_host("not-an-address");
+    let flag = scratch
+        .run(
+            &["healthcheck", "--port", &port, "--host", "127.0.0.2"],
+            &[],
+        )
+        .status
+        .code();
+    let finished = server.terminate();
+
+    assert_eq!(bound, Some(0));
+    assert_eq!(flag, Some(0));
+    assert_eq!(loopback, Some(1));
+    assert_eq!(unspecified, Some(1));
+    assert_eq!(invalid, Some(1));
+    assert_eq!(finished.code, Some(0));
+}
+
+#[test]
+fn an_unspecified_listener_is_probed_on_the_loopback_interface() {
+    let scratch = Scratch::new();
+    let server = serve(
+        &scratch,
+        &[
+            ("DATABASE_URL", DEAD_DATABASE_URL),
+            ("AWS_REGION", "us-east-1"),
+            ("APP_HOST", "0.0.0.0"),
+        ],
+    );
+    let port = server.port.to_string();
+
+    let alive = scratch
+        .run(
+            &["healthcheck"],
+            &[("APP_PORT", port.as_str()), ("APP_HOST", "0.0.0.0")],
+        )
+        .status
+        .code();
+    let finished = server.terminate();
+
+    assert_eq!(alive, Some(0));
+    assert_eq!(finished.code, Some(0));
+}

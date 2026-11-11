@@ -105,10 +105,16 @@ fn carries_the_service_identity_and_the_contract_version() {
     let info = &json_document()["info"];
 
     assert_eq!(json_document()["openapi"], "3.1.0");
-    assert_eq!(info["title"], "Rust Service Template API");
+    assert_eq!(
+        info["title"],
+        concat!(env!("CARGO_PKG_DESCRIPTION"), " API")
+    );
     assert_eq!(
         info["description"],
-        "This API provides endpoints to manage Rust Service Template data within VilnaCRM."
+        format!(
+            "This API provides endpoints to manage {} data within VilnaCRM.",
+            env!("CARGO_PKG_DESCRIPTION")
+        )
     );
     assert_eq!(info["version"], "1.0.0");
     assert_eq!(info["version"], API_VERSION);
@@ -116,7 +122,7 @@ fn carries_the_service_identity_and_the_contract_version() {
         info["contact"],
         json!({
             "name": "VilnaCRM Support",
-            "url": "https://github.com/VilnaCRM-Org/rust-service-template",
+            "url": env!("CARGO_PKG_REPOSITORY"),
             "email": "support@vilnacrm.com",
         })
     );
@@ -127,6 +133,12 @@ fn carries_the_service_identity_and_the_contract_version() {
             "url": "https://creativecommons.org/publicdomain/zero/1.0/",
         })
     );
+}
+
+#[test]
+fn the_identity_comes_from_the_package_manifest_and_is_never_empty() {
+    assert_ne!(env!("CARGO_PKG_DESCRIPTION"), "");
+    assert!(env!("CARGO_PKG_REPOSITORY").starts_with("https://"));
 }
 
 #[test]
