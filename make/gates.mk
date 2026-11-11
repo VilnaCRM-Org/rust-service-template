@@ -23,7 +23,7 @@ E2E_CMD          = cargo test --locked -p e2e-tests --test e2e
 COVERAGE_CLEAN_CMD = cargo llvm-cov clean --workspace
 COVERAGE_RUN_CMD   = cargo llvm-cov --no-report nextest --locked --workspace --lib --bins --test integration --profile ci
 COVERAGE_LCOV_CMD  = cargo llvm-cov report --lcov --output-path target/coverage/lcov.info
-COVERAGE_HTML_CMD  = cargo llvm-cov report --html --output-dir target/coverage/html
+COVERAGE_HTML_CMD  = cargo llvm-cov report --html --output-dir target/coverage
 COVERAGE_GATE_CMD  = cargo llvm-cov report --fail-under-lines 100 --fail-under-functions 100
 COVERAGE_XML_CMD   = cargo llvm-cov report --cobertura --output-path target/coverage/coverage.xml
 MUTANTS_CMD      = env -u CARGO_TARGET_DIR -u CARGO_BUILD_WARNINGS cargo mutants --workspace --cargo-arg=--locked $(if $(MUTANTS_SHARD),--shard $(MUTANTS_SHARD))
