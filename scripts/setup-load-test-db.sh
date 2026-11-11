@@ -11,13 +11,13 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-default_project="$(basename "$ROOT" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_\n-' '-')-load"
-project="${LOAD_TEST_PROJECT:-$default_project}"
+dev_project="$(basename "$ROOT" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_\n-' '-')"
+project="${LOAD_TEST_PROJECT:-${dev_project}-load}"
 db_user="${DB_USER:-app}"
 db_name="${DB_NAME:-app}"
 
-# The development project must never be the target: refuse when the names are the same.
-if [ -z "$project" ] || [ "$project" = "${COMPOSE_PROJECT_NAME-}" ]; then
+# The development project must never be the target: refuse its name, however it was given.
+if [ "$project" = "${COMPOSE_PROJECT_NAME-}" ] || [ "$project" = "$dev_project" ]; then
   echo "setup-load-test-db.sh: refusing to act on project '${project}': it must differ from the development project" >&2
   exit 2
 fi
