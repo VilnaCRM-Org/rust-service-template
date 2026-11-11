@@ -3,7 +3,8 @@
 # documentation-drift gate G26, the architecture-model gate G27 and the invariants gate G31. There is no passing-run
 # test of a gate: the passing run of lint-repo is the gate itself (DD-02, DD-07). The template-sync check of the
 # synchronised Rust files has no Make target, so its passing run is a test here, next to its negative
-# (architecture-delivery.md "CLI Tests (Bats)", file make_repository.bats).
+# (architecture-delivery.md "CLI Tests (Bats)", file make_repository.bats). The same holds for the check of the home
+# directory of the development stage of the Dockerfile (FR95).
 #
 # A violation is planted under a name that the linter picks up (the fixtures keep the extension .txt and are excluded
 # from every linter) and is removed by restore_planted, which the teardown calls.
@@ -161,6 +162,147 @@ synchronised_rust_files_naming_the_example() {
   run synchronised_rust_files_naming_the_example
   assert_success
   assert_output 'crates/shared/infrastructure/tests/integration/planted_example_table.rs'
+}
+
+# --- FR95: the home directory of the development stage ------------------------------------------------------
+
+# Reports a Dockerfile ($1) whose stage $2, with the stages it is built from, leaves the directory that HOME points to
+# world-writable with the sticky bit. The common-utils feature of .devcontainer/ gives the user a .bashrc in that
+# directory and then appends to it as root, which the kernel setting fs.protected_regular (set on the hosted runners)
+# refuses in a sticky world-writable directory of another owner. The numeric modes of the chmod commands are applied
+# in order; a symbolic mode on HOME is reported, because it is not evaluated. Exit status 0 nothing to report, 1 a
+# finding, 2 the stage or its HOME is missing.
+dev_home_finding() {
+  awk -v want="$2" '
+    function trim(s) { sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s); return s }
+    function bare(p) { gsub(/^["\047]|["\047]$/, "", p); if (p != "/") sub(/\/+$/, "", p); return p }
+    function handle(line, at,    n, i, k, ins, img, p, last) {
+      n = split(trim(line), w, /[[:space:]]+/)
+      ins = toupper(w[1])
+      if (ins == "FROM") {
+        i = 2
+        while (i <= n && w[i] ~ /^--/) i++
+        img = w[i]
+        cur = (i + 2 <= n && toupper(w[i + 1]) == "AS") ? w[i + 2] : img
+        parent[cur] = ((img in known) && img != cur) ? img : ""
+        known[cur] = 1
+        return
+      }
+      if (cur == "") return
+      if (ins == "ENV") {
+        if (n >= 3 && w[2] == "HOME") home[cur] = bare(w[3])
+        for (i = 2; i <= n; i++) if (w[i] ~ /^HOME=/) home[cur] = bare(substr(w[i], 6))
+        return
+      }
+      if (ins != "RUN") return
+      for (i = 2; i < n; i++) {
+        if (w[i] != "chmod") continue
+        k = i + 1
+        while (k <= n && (w[k] ~ /^--/ || w[k] ~ /^-[RcfvHLP]+$/)) k++
+        for (p = k + 1; p <= n; p++) {
+          if (w[p] == "&&" || w[p] == "||" || w[p] == ";" || w[p] == "|") break
+          last = (w[p] ~ /;$/)
+          ops++
+          ostage[ops] = cur; omode[ops] = w[k]; oline[ops] = at
+          opath[ops] = w[p]
+          sub(/;$/, "", opath[ops])
+          opath[ops] = bare(opath[ops])
+          if (last) break
+        }
+      }
+    }
+    /^[[:space:]]*#/ { next }
+    {
+      if (buf == "") start = NR
+      line = $0
+      if (line ~ /\\[[:space:]]*$/) { sub(/\\[[:space:]]*$/, "", line); buf = buf line " "; next }
+      handle(buf line, start)
+      buf = ""
+    }
+    END {
+      if (buf != "") handle(buf, start)
+      if (!(want in known)) { printf "stage %s not found in %s\n", want, FILENAME; exit 2 }
+      m = 0
+      for (s = want; s != "" && m < 100; s = parent[s]) { m++; chain[m] = s; inchain[s] = 1 }
+      h = ""
+      for (i = m; i >= 1; i--) if (chain[i] in home) h = home[chain[i]]
+      if (h == "") { printf "stage %s of %s sets no HOME\n", want, FILENAME; exit 2 }
+      bad = 0
+      for (i = 1; i <= ops; i++) {
+        if (!(ostage[i] in inchain)) continue
+        if (opath[i] != h && opath[i] != "$HOME" && opath[i] != "${HOME}") continue
+        if (omode[i] !~ /^[0-7]+$/) {
+          printf "%s:%d: stage %s changes HOME %s with the symbolic mode %s\n", FILENAME, oline[i], ostage[i], h, omode[i]
+          exit 1
+        }
+        d = substr(omode[i], length(omode[i]), 1) + 0
+        sticky = length(omode[i]) >= 4 && (substr(omode[i], length(omode[i]) - 3, 1) + 0) % 2 == 1
+        bad = sticky && (d == 2 || d == 3 || d == 6 || d == 7)
+        at = oline[i]; mode = omode[i]; stage = ostage[i]
+      }
+      if (bad) {
+        printf "%s:%d: stage %s gives HOME %s the mode %s: world-writable with the sticky bit\n", FILENAME, at, stage, h, mode
+        exit 1
+      }
+    }
+  ' "$1"
+}
+
+# The stage of the Dockerfile that .devcontainer/devcontainer.json builds.
+devcontainer_target() {
+  sed -n 's/.*"target"[[:space:]]*:[[:space:]]*"\([A-Za-z0-9_.-]*\)".*/\1/p' .devcontainer/devcontainer.json
+}
+
+# A Dockerfile in ${tmp}: stage base runs $1, stage dev (built from base) runs $2 and sets HOME, stage prod runs $3.
+planted_dockerfile() {
+  printf 'FROM debian:13 AS base\nRUN %s\n\nFROM base AS dev\nRUN mkdir -p /cargo /home/dev \\\n && %s\nENV LANG=C.UTF-8 \\\n    HOME=/home/dev\n\nFROM base AS prod\nRUN %s\n' \
+    "$1" "$2" "$3" >"${tmp}/Dockerfile"
+}
+
+@test "the development stage does not leave its home directory world-writable with the sticky bit" {
+  stage="$(devcontainer_target)"
+  [[ -n "${stage}" ]]
+  run dev_home_finding Dockerfile "${stage}"
+  assert_success
+  assert_output ''
+}
+
+@test "a world-writable home directory with the sticky bit in the development stage is reported" {
+  planted_dockerfile true 'chmod 1777 /cargo /home/dev /cargo-target' true
+  run dev_home_finding "${tmp}/Dockerfile" dev
+  assert_failure 1
+  assert_output "${tmp}/Dockerfile:5: stage dev gives HOME /home/dev the mode 1777: world-writable with the sticky bit"
+
+  planted_dockerfile 'mkdir -p /home/dev && chmod 3777 /home/dev/' true true
+  run dev_home_finding "${tmp}/Dockerfile" dev
+  assert_failure 1
+  assert_output --partial 'stage base gives HOME /home/dev the mode 3777'
+
+  planted_dockerfile true 'chmod 0777 /home/dev && chmod +t /home/dev' true
+  run dev_home_finding "${tmp}/Dockerfile" dev
+  assert_failure 1
+  assert_output --partial 'stage dev changes HOME /home/dev with the symbolic mode +t'
+}
+
+@test "a home directory without the sticky bit, or one changed outside the development stage, is not reported" {
+  planted_dockerfile true 'chmod 1777 /cargo /cargo-target && chmod 0777 /home/dev' 'chmod 1777 /home/dev'
+  run dev_home_finding "${tmp}/Dockerfile" dev
+  assert_success
+  assert_output ''
+
+  planted_dockerfile 'mkdir -p /home/dev && chmod 1777 /home/dev' 'chmod 777 "/home/dev"' true
+  run dev_home_finding "${tmp}/Dockerfile" dev
+  assert_success
+  assert_output ''
+
+  planted_dockerfile true 'chmod 1775 /home/dev' true
+  run dev_home_finding "${tmp}/Dockerfile" dev
+  assert_success
+  assert_output ''
+
+  run dev_home_finding "${tmp}/Dockerfile" builder
+  assert_failure 2
+  assert_output "stage builder not found in ${tmp}/Dockerfile"
 }
 
 # --- G26, G27, G31 ------------------------------------------------------------------------------------------

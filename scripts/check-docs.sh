@@ -6,9 +6,10 @@
 # Reads every tracked Markdown file of <dir> (default: the current directory) except CHANGELOG.md and
 # specs/**, and applies seven rules. Every violation is one line `(<rule>) <file>:<line>: <message>`.
 #   (1) a cited `make <target>` must be a Make target;
-#   (2) a cited `service <command>` must be in the help of the binary (a `--` and option words between `service`
-#       and the command are skipped, so `cargo run -p service -- <command>` is checked too), and a cited slash
-#       command must have a file under .claude/commands/;
+#   (2) a cited `service <command>` must be in the help of the binary (option words between `service` and the
+#       command are skipped; after `-p`, `--package` or `--bin` the word `service` names the package, so the command
+#       is read only after a `--` word, option words after it skipped, as in `cargo run -p service -- <command>`,
+#       and nothing is checked without one), and a cited slash command must have a file under .claude/commands/;
 #   (3) a backticked token that begins with the name of a tracked top-level file or directory, or of _bmad/,
 #       _bmad-output/, .ralph/ or bmalph/state/, must name a path that exists or that a git-ignore rule matches,
 #       checked up to its first placeholder or wildcard character;

@@ -210,7 +210,7 @@ CI installs the cargo tools with `taiki-e/install-action`, pinned by commit, wit
 
 ## First measurements
 
-These tables record what the first runs cost, so that later changes can be judged against them. The local values were entered by Story 10.5; the hosted-runner values are those of the first complete pipeline run, on commit `db7fe08` of the bootstrap pull request on 2026-11-11. The duration of a documentation-only pull request (budget 5 minutes) has not been measured yet: no such pull request has run.
+These tables record what the first runs cost, so that later changes can be judged against them. The local values were entered by Story 10.5; the hosted-runner values are those of the first complete pipeline run, on commit `db7fe08` of the bootstrap pull request on 2026-11-11, and of the first run of the scheduled workflow on `main`, on commit `3e0bd3e` on 2026-11-11. The duration of a documentation-only pull request (budget 5 minutes) has not been measured yet: no such pull request has run.
 
 Conditions of the local runs, 2026-11-11: a virtual machine with 4 vCPUs, 15 GB of memory and Linux 6.18, a fresh clone in a temporary directory (project name `service-clone`), no build directory and no compiler cache. Cargo ran with `CARGO_INCREMENTAL=0` and `CARGO_PROFILE_DEV_DEBUG=0` and everything else at its default. The hosted jobs use the same two settings: the pull-request jobs that run cargo on the runner receive both from the toolchain action (`actions-rust-lang/setup-rust-toolchain` sets them), and the scheduled clean-clone job `clean-bootstrap-ci`, which does not use that action, sets both in the `env` of its workflow. The pinned tools were already installed on the machine, so `make bootstrap` did not compile them. Both container images were built beforehand from the same commit and the runs used `BUILD_IMAGE=0`, so the image builds are not part of any duration below. The development image had been built earlier the same day, and its inputs (`make/tool-versions.mk`, `scripts/install-tools.sh`, `scripts/install-bats.sh` and the base image) had not changed since. The machine was shared with other work (load average 3.84 at the start of `make bootstrap`). The commit is `d152806`.
 
@@ -223,7 +223,7 @@ Local runs, on that machine:
 | `make start` | 2026-11-11 | 12 s | within 60 s with images and cache present | yes | after the `make ci` run, images and build output present, the stack stopped before |
 | `make ci base_ref=HEAD` (Story 10.4, for comparison) | 2026-11-11 | 1575 s (26 min 15 s) | within 45 minutes on 4 vCPUs | yes | warm compiler cache and build directory in the working tree, commit `ecbca71`, 295 Bats tests; this run is not comparable with the cold run above: it used other cargo settings and ran beside other work |
 | `make mutation-tests` (Story 9.3, all 8 shards, one after the other) | 2026-11-11 | 339 s to 1146 s per shard, see below | none | not applicable | 665 mutants: 409 caught, 256 unviable, none missed or timed out |
-| `npx --yes @devcontainers/cli@0.90.0 build`, the two features of `.devcontainer/devcontainer.json` only (partial) | 2026-11-11 | 79 s | none | not applicable | partial evidence: `build` was replaced by a development image built earlier on this machine (plus the network settings the machine needs), so only the two feature layers were built; common-utils 2.7.1 created the user `dev` (uid and gid 1000, groups `dev` and `docker`) and docker-in-docker 4.1.3 with `moby: false` installed Docker 29.9.3, Compose v2.40.3 and buildx v0.39.0 on Debian trixie; the full build of the committed definition is first measured by the job `devcontainer-build` after the merge |
+| `npx --yes @devcontainers/cli@0.90.0 build`, the two features of `.devcontainer/devcontainer.json` only (partial) | 2026-11-11 | 79 s | none | not applicable | partial evidence: `build` was replaced by a development image built earlier on this machine (plus the network settings the machine needs), so only the two feature layers were built; common-utils 2.7.1 created the user `dev` (uid and gid 1000, groups `dev` and `docker`) and docker-in-docker 4.1.3 with `moby: false` installed Docker 29.9.3, Compose v2.40.3 and buildx v0.39.0 on Debian trixie; the first full build of the committed definition, by the job `devcontainer-build` of the scheduled run on commit `3e0bd3e` (below), failed in the common-utils feature, which this run did not show because the kernel setting `fs.protected_regular` is 0 on this machine |
 
 The budgets are the ones of the PRD. All three are met by the local runs; no budget, threshold or timeout was changed. The local runs are not a measurement of a cold hosted runner: they excluded the installation of the tools and both image builds (see the conditions). The hosted runs of commit `db7fe08` measured the two image builds, each in a job that starts without any cache (the image caches are saved on `main` only, and `main` had not run these workflows):
 
@@ -232,7 +232,7 @@ The budgets are the ones of the PRD. All three are met by the local runs; no bud
 | cold build of the development image | `Bats: surface`, build step 16:29:11Z to 16:32:05Z | 2 min 54 s |
 | cold build of the production image | `Smoke load tests`, build step 16:28:40Z to 16:32:40Z | 4 min 0 s |
 
-Estimate for a cold hosted runner, from these figures and the local runs (a sum of figures from two machines with 4 vCPUs each, not a measurement): `make bootstrap` about 116 s plus 2 min 54 s, that is about 4 min 50 s, plus the installation of the pinned tools, which no run has measured (budget 15 minutes); `make ci` about 24 min 42 s plus 4 min 0 s, that is about 28 min 42 s (budget 45 minutes). The three budgets of NFR35 are confirmed or revised from the first run of the scheduled job `clean-bootstrap-ci`, which runs both commands on a clean clone on a hosted runner; until then they stand as initial budgets.
+Estimate for a cold hosted runner, from these figures and the local runs (a sum of figures from two machines with 4 vCPUs each, not a measurement): `make bootstrap` about 116 s plus 2 min 54 s, that is about 4 min 50 s, plus the installation of the pinned tools, which no run has measured (budget 15 minutes); `make ci` about 24 min 42 s plus 4 min 0 s, that is about 28 min 42 s (budget 45 minutes). The first run of the scheduled job `clean-bootstrap-ci`, which runs both commands on a clean clone on a hosted runner, measured them and confirms the budgets of both (see the scheduled run below).
 
 Stages of the `make ci` run, from the timestamps of the log (the stage that was running was sampled every 2 s, so each boundary is accurate to about 2 s):
 
@@ -294,6 +294,29 @@ Pull-request jobs on a hosted runner, commit `db7fe08` of the bootstrap pull req
 | `docs-check` | 2026-11-11 | 1 min 41 s | check `Documentation drift` |
 
 The whole pull request on that commit: the first check started at 16:28:08Z, the last check other than the mutation check (`Makefile tests (Bats)`) ended at 16:39:01Z, 10 min 53 s later, and the mutation check (`Mutation tests`) ended at 16:43:53Z, 15 min 45 s after the first start. This is within the cold budget of 40 minutes, the mutation check apart, and within the 45 minutes per shard of the mutation check; the Bats requirement of 20 minutes, read per group because the six groups are separate jobs, is met by the longest group with 10 min 19 s. The warm budget of 20 minutes is measured on the first pull request after a push to `main` has saved the caches.
+
+Scheduled run on a hosted runner: run 43107219243 of the workflow `Scheduled verification`, started by hand (`workflow_dispatch`) on `main` after the merge of the bootstrap pull request, commit `3e0bd3e`, 2026-11-11, on GitHub-hosted runners with the label `ubuntu-24.04`. The job `Clean bootstrap and make ci` (`clean-bootstrap-ci`) restores no cache (its log does not show the number of CPUs of the runner); its `make bootstrap` installed the pinned tools, built the development image and started the stack. Durations from the start and end times of the steps and of the job:
+
+| Step of `clean-bootstrap-ci` | Duration | Budget of the PRD | Budget met | Notes |
+| --- | --- | --- | --- | --- |
+| `Bootstrap` (`make bootstrap`) | 447 s (7 min 27 s) | `GET /ping` within 15 minutes | yes | the application container reported healthy at the end of the step; its health check sends `GET /ping` |
+| `Run every gate` (`make ci`) | 1828 s (30 min 28 s) | within 45 minutes | yes | exit 0, 378 Bats tests, all `ok` |
+| `Require a clean working tree` | 0 s (start and end in the same second) | none | not applicable | passed: the two commands left the working tree unchanged |
+| the whole job | 2294 s (38 min 14 s) | none | not applicable | from the start to the end of the job |
+
+This run confirms the budgets of NFR35 for `make bootstrap` (15 minutes) and `make ci` (45 minutes) on a hosted runner, from a clean clone with no restored cache and no manual step (NFR34). The budget of `make start` with images and build output present is measured on the local machine only (12 s, above).
+
+The mutation shards of the same run ran `make mutation-tests` over the whole workspace in 5 shards; every shard and the job `Mutation tests` passed: 699 mutants, 459 caught, 240 unviable, none missed or timed out. The duration is that of the job:
+
+| Shard | Mutants | Caught | Unviable | Duration |
+| --- | --- | --- | --- | --- |
+| 0/5 | 140 | 58 | 82 | 9 min 17 s |
+| 1/5 | 140 | 92 | 48 | 15 min 36 s |
+| 2/5 | 140 | 72 | 68 | 7 min 6 s |
+| 3/5 | 140 | 116 | 24 | 8 min 46 s |
+| 4/5 | 139 | 121 | 18 | 8 min 19 s |
+
+The job `Development container build` (`devcontainer-build`) of the same run failed after 2 min 55 s. The `dev` stage of the `Dockerfile` built; the common-utils feature then stopped with `/home/dev/.bashrc: Permission denied`, because the `dev` stage gave the home directory the sticky bit and the runner's kernel refuses root an append to a file of another user in such a directory (`fs.protected_regular`). The `Dockerfile` now gives the home directory mode `0777` without the sticky bit; the build of the fixed definition has not yet run on a hosted runner.
 
 ## Accepted findings: `.trivyignore` and `.gitleaksignore`
 
