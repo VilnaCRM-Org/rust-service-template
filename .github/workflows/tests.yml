@@ -19,7 +19,7 @@ env:
 
 jobs:
   changes:
-    name: Detect changes
+    name: Changes
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -144,7 +144,7 @@ jobs:
         run: scripts/ci/mutation-plan.sh >> "$GITHUB_OUTPUT"
 
   mutation-shard:
-    name: Mutation shard ${{ matrix.index }}
+    name: Mutation shard ${{ matrix.shard }}
     needs: [changes, mutation-plan]
     if: needs.changes.outputs.code == 'true' && needs.mutation-plan.outputs.count != '0'
     runs-on: ubuntu-24.04
