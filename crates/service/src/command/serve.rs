@@ -2,6 +2,7 @@
 //!
 //! Every line it writes is one JSON log entry on standard output (NFR31).
 
+use std::net::SocketAddr;
 use std::process::ExitCode;
 use std::time::Duration;
 
@@ -62,11 +63,8 @@ const fn mode(app_env: AppEnv) -> &'static str {
     }
 }
 
-fn log_listening(listener: &TcpListener, config: &Config) -> std::io::Result<()> {
-    let addr = listener.local_addr()?;
-    let env = mode(config.app_env);
+fn log_listening(addr: SocketAddr, env: &str) {
     tracing::info!(%addr, env, version = env!("CARGO_PKG_VERSION"), "listening");
-    Ok(())
 }
 
 fn log_signal(name: &str) {
@@ -108,7 +106,8 @@ async fn serve(config: &Config) -> Result<Shutdown, BoxError> {
     let adapters = Adapters::connect(config).await?;
     let router = bootstrap::router(adapters, config)?;
     let listener = bind(config).await?;
-    log_listening(&listener, config)?;
+    let addr = listener.local_addr()?;
+    log_listening(addr, mode(config.app_env));
     let (stop, stopping) = watch::channel(false);
     let server = axum::serve(listener, router).with_graceful_shutdown(stopped(stopping));
     let server = tokio::spawn(async move { server.await });

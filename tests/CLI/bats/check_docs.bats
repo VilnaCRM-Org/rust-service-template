@@ -337,6 +337,28 @@ EOF
   assert_line --regexp '^\(2\) README\.md:[0-9]+: slash command /no-such-cmd has no file '
 }
 
+@test "rule 2: a name that only a test file of the generated tree uses as a path is reported" {
+  mkdir -p "${tree}/crates/service/tests"
+  printf 'const HELP: &str = "http://localhost/help";\n' >"${tree}/crates/service/tests/help.rs"
+  append README.md <<'EOF'
+Ask `/help` for the list.
+EOF
+  check
+  assert_failure 1
+  assert_line --regexp '^\(2\) README\.md:[0-9]+: slash command /help has no file '
+}
+
+@test "rule 2: /ping is accepted without any other file, and so is the first segment of an OpenAPI path" {
+  edit_file "${tree}/docker-compose.yml" sed 's|http://localhost:8081/ping|true|'
+  mkdir -p "${tree}/.github/openapi-spec"
+  printf 'openapi: 3.1.0\npaths:\n  /v2/widgets:\n    get: {}\n  /v2/widgets/{id}:\n    get: {}\n' >"${tree}/.github/openapi-spec/spec.yaml"
+  append README.md <<'EOF'
+The routes `/ping` and `/v2/widgets` answer.
+EOF
+  check
+  assert_success
+}
+
 # --- rule (3): paths -------------------------------------------------------------------------------------------
 
 @test "rule 3: a backticked path under a tracked directory that does not exist is reported" {

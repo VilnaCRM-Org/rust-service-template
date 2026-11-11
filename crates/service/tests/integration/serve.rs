@@ -135,6 +135,8 @@ fn an_idle_service_stops_on_sigterm_within_two_seconds() {
         ["listening", "shutdown signal received", "stopped"]
     );
     assert_eq!(finished.lines[1]["signal"], "SIGTERM");
+    assert_eq!(finished.lines[1]["level"], "INFO");
+    assert_eq!(finished.lines[2]["level"], "INFO");
     assert_eq!(finished.stderr, "");
 }
 
@@ -149,6 +151,8 @@ fn sigint_stops_the_service_like_sigterm() {
     assert_eq!(finished.code, Some(0));
     assert_eq!(finished.lines[1]["signal"], "SIGINT");
     assert_eq!(finished.lines[2]["message"], "stopped");
+    assert_eq!(finished.lines[1]["level"], "INFO");
+    assert_eq!(finished.lines[2]["level"], "INFO");
 }
 
 #[test]

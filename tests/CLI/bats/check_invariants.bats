@@ -423,7 +423,7 @@ EOF
   append docker-compose.yml '  replica:'
   append docker-compose.yml "    image: postgres:\${DB_VERSION:-16}-alpine"
   check
-  assert_violation b 'replica|postgres:.*has no digest'
+  assert_violation b 'docker-compose.yml:[0-9]+: image postgres:.*DB_VERSION.*has no digest'
 }
 
 @test "(b) a development-container feature referenced by tag is refused" {

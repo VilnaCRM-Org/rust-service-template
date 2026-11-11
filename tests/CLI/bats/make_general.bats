@@ -153,12 +153,12 @@ run_hook() {
   require_command cargo
   run_hook pre "${REPO_ROOT}/Cargo.toml"
   assert_success
-  sed 's/^serde_json = "1.0.154"$/serde_json = "1.0.153"/' Cargo.toml >"${tmp}/edited.toml"
+  sed 's/^\(serde_json = "\)[^"]*"$/\1>=0.0.1"/' Cargo.toml >"${tmp}/edited.toml"
   run ! cmp -s Cargo.toml "${tmp}/edited.toml"
   plant_replace Cargo.toml "${tmp}/edited.toml"
   run_hook post "${REPO_ROOT}/Cargo.toml"
   assert_success
-  assert_file_contains Cargo.toml '^serde_json = "1.0.153"$'
+  assert_file_contains Cargo.toml '^serde_json = ">=0.0.1"$'
 }
 
 @test "the assistant hook refuses an edit of clippy.toml before it happens" {

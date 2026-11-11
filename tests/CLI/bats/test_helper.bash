@@ -14,6 +14,8 @@ _common_setup() {
   bats_load_library bats-assert
   bats_load_library bats-file
   cd "${REPO_ROOT}" || return 1
+  # Approval overrides of the caller must not reach the tests: only a test that sets one itself sees it.
+  unset CONFIG_CHANGE_APPROVED BREAKING_CHANGE_APPROVED ALLOW_PROTECTED_CONFIG_EDIT
   restore_planted
 }
 

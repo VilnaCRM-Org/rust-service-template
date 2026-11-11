@@ -24,8 +24,9 @@
 #
 # What counts as a citation: only inline code spans and the lines of fenced blocks, never plain prose. A slash
 # command is a code span that is exactly `/name` (or starts with `/name `). It is accepted when .claude/commands/
-# has the file name.md, or when `/name` occurs as a path in another tracked file that is not Markdown (an HTTP
-# route in the source, a mount point in the Dockerfile); `/ping` and `/api` are therefore not slash commands.
+# has the file name.md, or when `/name` is the first segment of a path of the OpenAPI snapshot, of a route that
+# the service router registers (`/ping` included) or the WORKDIR of the Dockerfile; `/ping` and `/api` are
+# therefore not slash commands. Test files and fixtures are never read.
 #
 # The script starts no cargo command. The help texts of the binary are read from <dir> of --service-help
 # (root.txt, serve.txt, migrate.txt and healthcheck.txt, written by the recipe of `make docs-check`). "Tracked" means
@@ -132,8 +133,22 @@ for file in "${help_dir}"/*.txt; do
   help_commands "${file}" | sed "s/^/${command_name} /" >>"${work}/subcommands" || true
 done
 
+# Accepted names come from closed sources only: the command files, the first path segments of the OpenAPI
+# snapshot, the routes of the service router (and /ping), and the WORKDIR of the Dockerfile. No test or
+# fixture is read.
 {
   find "${root}/.claude/commands" -maxdepth 1 -type f -name '*.md' 2>/dev/null | sed -E 's|.*/([^/]+)\.md$|\1|'
+  echo ping
+  if [[ -f "${root}/.github/openapi-spec/spec.yaml" ]]; then
+    awk '/^paths:/ {in_paths = 1; next} /^[^ #]/ {in_paths = 0} in_paths && /^  \/[a-z]/ {print $1}' \
+      "${root}/.github/openapi-spec/spec.yaml" | sed -E 's|^/([a-z][a-z0-9_-]*).*|\1|'
+  fi
+  if [[ -f "${root}/crates/service/src/http/router.rs" ]]; then
+    grep -oE '\.route\("/[a-z][a-z0-9_-]*' "${root}/crates/service/src/http/router.rs" | sed -E 's|.*"/||' || true
+  fi
+  if [[ -f "${root}/Dockerfile" ]]; then
+    awk '$1 == "WORKDIR" && $2 ~ /^\/[a-z]/ {print $2}' "${root}/Dockerfile" | sed -E 's|^/([a-z][a-z0-9_-]*).*|\1|'
+  fi
 } | sort -u >"${work}/slash"
 
 # --- rules (1) to (4), citations and paths --------------------------------------------------------------
@@ -368,19 +383,10 @@ if [[ -s "${work}/markdown" ]]; then
   done <"${work}/awk-findings"
 fi
 
-# Rule (2), slash commands: a name without a command file must at least be a path used by another tracked file.
+# Rule (2), slash commands: every candidate left by the awk program is a name outside the accepted set.
 if [[ -s "${work}/slash-candidates" ]]; then
-  grep -vE '\.md$' "${work}/files" >"${work}/non-markdown" || true
-  : >"${work}/used-raw"
-  while IFS= read -r path; do
-    [[ -f "${root}/${path}" ]] || continue
-    status=0
-    grep -ohI -E '/[a-z][a-z0-9-]*' "${root}/${path}" >>"${work}/used-raw" 2>/dev/null || status=$?
-    [[ "${status}" -le 1 ]] || could_not_run "grep failed on ${path}"
-  done <"${work}/non-markdown"
-  sed 's|^/||' "${work}/used-raw" | sort -u >"${work}/used-paths"
-  awk -F'\t' 'FILENAME == ARGV[1] {used[$1] = 1; next} !($1 in used) {print "(2) " $2 ": slash command /" $1 " has no file .claude/commands/" $1 ".md and is no path of any other tracked file"}' \
-    "${work}/used-paths" "${work}/slash-candidates" | sort -u >>"${findings}"
+  awk -F'\t' '{print "(2) " $2 ": slash command /" $1 " has no file .claude/commands/" $1 ".md and is no route, API path or mount point of the service"}' \
+    "${work}/slash-candidates" | sort -u >>"${findings}"
 fi
 
 # Rule (3): the candidate paths must exist or be ignored by git.

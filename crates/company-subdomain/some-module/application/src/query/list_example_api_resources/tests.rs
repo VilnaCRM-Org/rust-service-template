@@ -23,18 +23,18 @@ fn view(counter: u128) -> ExampleApiResourceView {
     }
 }
 
-async fn handler_over(
-    repository: InMemoryExampleApiResourceRepository,
-) -> ListExampleApiResourcesHandler {
+/// A working repository that holds three resources.
+async fn seeded_repository() -> InMemoryExampleApiResourceRepository {
+    let repository = InMemoryExampleApiResourceRepository::new();
     for counter in 1..=3 {
         let resource = ExampleApiResource::restore(
             ExampleApiResourceId::new(id(counter)),
             ExampleApiResourceName::new(format!("n{counter}")).unwrap(),
             ExampleApiResourceDescription::new("Description".to_owned()).unwrap(),
         );
-        let _stored = repository.save(&resource).await;
+        repository.save(&resource).await.unwrap();
     }
-    ListExampleApiResourcesHandler::new(Arc::new(repository))
+    repository
 }
 
 fn ask(page: u32, items_per_page: u32) -> ListExampleApiResources {
@@ -51,7 +51,7 @@ fn the_query_is_named_after_its_type() {
 
 #[tokio::test]
 async fn pages_hold_the_newest_views_first() {
-    let handler = handler_over(InMemoryExampleApiResourceRepository::new()).await;
+    let handler = ListExampleApiResourcesHandler::new(Arc::new(seeded_repository().await));
 
     let first = handler.handle(ask(1, 2)).await.unwrap();
     let second = handler.handle(ask(2, 2)).await.unwrap();
@@ -64,7 +64,7 @@ async fn pages_hold_the_newest_views_first() {
 
 #[tokio::test]
 async fn an_invalid_page_request_is_invalid_page() {
-    let handler = handler_over(InMemoryExampleApiResourceRepository::new()).await;
+    let handler = ListExampleApiResourcesHandler::new(Arc::new(seeded_repository().await));
 
     let page = handler.handle(ask(0, 2)).await.unwrap_err();
     let size = handler.handle(ask(1, 101)).await.unwrap_err();
@@ -81,7 +81,9 @@ async fn an_invalid_page_request_is_invalid_page() {
 
 #[tokio::test]
 async fn a_failing_repository_is_a_storage_error() {
-    let handler = handler_over(InMemoryExampleApiResourceRepository::failing()).await;
+    let handler = ListExampleApiResourcesHandler::new(Arc::new(
+        InMemoryExampleApiResourceRepository::failing(),
+    ));
 
     let error = handler.handle(ask(1, 2)).await.unwrap_err();
 

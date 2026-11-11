@@ -260,4 +260,7 @@ listening_entries() {
   assert_success
   run docker ps --all --quiet --filter "label=com.docker.compose.project=${PROJECT_NAME}"
   assert_output ''
+  run docker volume ls --quiet --filter "label=com.docker.compose.project=${PROJECT_NAME}"
+  assert_success
+  assert_output --regexp '.+'
 }

@@ -117,7 +117,7 @@ plant_smoke_budget() {
   plant_smoke_budget 0.001
   run make --no-print-directory smoke-load-tests
   assert_failure
-  assert_output --regexp 'thresholds on metrics .* have been crossed|p\(99\)<0\.001'
+  assert_output --regexp 'thresholds on metrics .* have been crossed'
   assert_file_exists "${RESULTS_DIR}/smoke-health.html"
   run isolated_project_resources
   assert_success
