@@ -1,3 +1,5 @@
+This wrapper requires local BMALPH assets under `_bmad/`, which this repository intentionally keeps out of git. If `_bmad/` is missing in a fresh clone or workspace, run `make bmalph-setup` first, or `bmalph upgrade --force` if BMALPH is already installed for this repo.
+
 # Start Implementation
 
 Transition from BMAD planning (Phase 3) to Ralph implementation (Phase 4).
