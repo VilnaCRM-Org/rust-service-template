@@ -435,7 +435,7 @@ Nothing is pushed before Story 10.5 is verified, and GitHub Actions cannot run o
 | Template sync, both flavours | Runs only in a downstream repository | The self-guard makes both workflows do nothing in the template; `.templatesyncignore` is compared with its listing; the first downstream run is started by hand |
 | Label-driven checks (G19, G20, G25, G28): evaluation again on `labeled`, `unlabeled`, `edited` | Events exist only on GitHub | The approval variables `CONFIG_CHANGE_APPROVED` and `BREAKING_CHANGE_APPROVED` are tested locally in both states by the Bats suite |
 | Mutation check on the bootstrap pull request (the diff is the whole repository) | Shard count and duration depend on the real mutant count | `scripts/ci/mutation-plan.sh` sizes the matrix (one shard per 150 mutants, at most 8, 45 min each); Story 9.3 measures seconds per mutant; Story 10.5 checks that the changed-code mode selects every mutant |
-| Load budget (NFR1): the shipped smoke budget is the ceiling of 500 ms | The rule needs a p99 from a hosted 4-vCPU runner | Story 9.1 records the local p99; the budget is lowered after the first hosted run through a pull request with the label `approved-config-change` (DD-25) |
+| Load budget (NFR1): the smoke budget was shipped at the ceiling of 500 ms until the first hosted run | The rule needs a p99 from a hosted 4-vCPU runner | Story 9.1 records the local p99; the budget was set from the first hosted run on pull request #1 (50 ms from the p99 of 7.25 ms; every protected file is new against `main`, so no label applied) (DD-25) |
 | Cache effectiveness (NFR40) | Needs the log of a rerun | Cache keys and the image layer cache are specified; the `surface` Bats group is expected to recompile inside the development container (F-10) |
 | CodeQL for Rust, SARIF upload, Codecov upload | Hosted services; code scanning may be unavailable | Publications, not gates (PD-22, PD-12); `CODE_SCANNING_ENABLED` switches the first two; each skips with a notice |
 | Dependabot: six ecosystems, the toolchain ecosystem, the comment on the pinned `uses:` line of `bats-group` | Runs only on GitHub | The file follows the options reference; if an update drops the zizmor comment, G23 fails on that pull request and the ignore moves to `.github/zizmor.yml` |
@@ -472,7 +472,7 @@ Binding for the orchestrator, every implementing agent and every verifying agent
 - **C9 Small additions through the owning story, each with a deviation entry.** Story 3.4 or 9.7 asserts that `API_HOST` and `API_PORT` override the target (F-03). Story 8.5 lists aliases and helper targets among the targets without a Bats test (F-04). Story 7.4 or the final review opens the explorer page once with `APP_ENV=dev` (F-12).
 - **C10 Before Story 10.5.** Apply the deviation entries to the architecture documents; correct the "four shards" statements of the core document (F-05); refresh `specs/rust-service-template-bootstrap/` with the placeholders kept, this report and the run summary included, the README status rows updated and the number of bundle files stated consistently (F-07).
 - **C11 After Story 10.5, before the push.** Repeat the review-verified checks NFR20, NFR23, NFR27, NFR44 and NFR46 on the repository and record them in the run summary.
-- **C12 First push and first merge.** The first hosted run is the measurement: change a timeout or the shard divisor only from recorded numbers; rerun one unchanged commit for NFR40 and decide F-10; set the smoke budget from the hosted p99 in a pull request labelled `approved-config-change`; maintainers create the labels, required checks, squash merging, App secrets and code-scanning settings of `docs/repository-settings.md`.
+- **C12 First push and first merge.** The first hosted run is the measurement: change a timeout or the shard divisor only from recorded numbers; rerun one unchanged commit for NFR40 (F-10 is decided: two recorded exceptions, delivery open item 5); set the smoke budget from the hosted p99 (done on pull request #1, where every protected file is new against `main`, so no label applies: 50 ms from 7.25 ms); maintainers create the labels, required checks, squash merging, App secrets and code-scanning settings of `docs/repository-settings.md`.
 
 ## Summary and Recommendations
 
@@ -508,7 +508,7 @@ C1 to C12 of "Constraints for the Implementation Loop". In one line each: C1 mak
 | F-07 | bundle | The tracked bundle has a twelfth file (`scope-decisions.md`) while the manifest and Story 8.8 count eleven; README rows for this report and the run summary say "Pending" | minor | C10 |
 | F-08 | PRD readings | Four readings are used but not recorded: `detail` optional (FR6), 32-bit page values (FR22), "two values" (FR92(d)), files with an external reader (NFR23) | minor | run summary |
 | F-09 | open decision | NFR35 and NFR39 against the estimates (DV-04) | open | C8, C12 |
-| F-10 | open decision | NFR40 is not expected to hold literally for the `surface` Bats group | open | C12 |
+| F-10 | decided | NFR40 holds for every job except two recorded exceptions: the surface Bats group (compiles inside the development container) and the weekly devcontainer-build (built from nothing on purpose) | accepted | C12 (the rerun still checks every other job) |
 | F-11 | process | Six NFRs name this review as verification before any code exists | minor | C11, C12 |
 | F-12 | risk | The explorer page is never loaded in a browser | low | C9 |
 | F-13 | sizing | Stories 9.2, 9.3, 10.4 and 10.5 are open-ended; 7.6 and 9.1 have conditional scope | minor | C7 |
@@ -530,7 +530,7 @@ This assessment recorded 16 findings in 8 categories: 0 blocking, 2 to resolve b
 
 ## Orchestrator Disposition of the Conditions
 
-Added by the orchestrating agent after the assessment above. The assessment itself is unchanged.
+Added by the orchestrating agent after the assessment above. The assessment itself is unchanged, except the row F-10 of the findings, condition C12 and the risk row of the load budget, which were updated after the FR/NFR review gate (iteration 1) decided F-10 and the smoke budget was set from the first hosted run.
 
 | Condition | Disposition |
 | --- | --- |
@@ -543,6 +543,6 @@ Added by the orchestrating agent after the assessment above. The assessment itse
 | C9 | Carried into Stories 3.4, 8.5 and 7.4 through the deviation rule. |
 | C10 | Done before Story 10.5. Two documentation passes applied every entry of `deviations.md` to `architecture.md`, `architecture-delivery.md`, `epics.md` and this bundle's other documents: the first pass the entries recorded during the implementation stories, among them the corrected "four shards" statements of the core document (F-05); the second pass the entries of the fixes after the first hosted runs and of the final review. `specs/rust-service-template-bootstrap/` was then refreshed from `_bmad-output/planning-artifacts/` with the placeholders kept; its README lists the eleven layout files and `scope-decisions.md` and has no pending row (F-07). |
 | C11 | Scheduled: after Story 10.5 and before the push. |
-| C12 | Open until the first hosted run. |
+| C12 | Partly done. The first hosted runs on pull request #1 measured the smoke profile (p99 7.25 ms), and the smoke budget was set from it (50 ms; every protected file is new against `main`, so no label applied). F-10 is decided: NFR40 holds except for two recorded exceptions, the `surface` Bats group and the weekly `devcontainer-build` job (delivery, open item 5). The rerun of one unchanged commit for NFR40, the timeouts and the maintainer settings wait for the first push to `main`. |
 
 One rule of the assessment is replaced. "Nothing is pushed before the last story is verified" becomes: handed-over stories of Epics 1 to 9 are pushed as they land, because the branch holds no workflow file until Story 10.1 and a push therefore starts no hosted check; from Story 10.1 on nothing is pushed until Story 10.5 is verified. This keeps finished work safe if the session is interrupted.

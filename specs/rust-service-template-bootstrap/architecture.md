@@ -19,7 +19,7 @@ lastStep: 8
 status: 'complete'
 completedAt: '2026-11-10'
 revisedAt: '2026-11-11'
-revision: 'aligned with the final PRD (FR1 to FR126, NFR1 to NFR47, G1 to G31, PD-1 to PD-31) after the validation round of three reviewers; the deviation entries of the implementation were applied'
+revision: 'aligned with the final PRD (FR1 to FR126, NFR1 to NFR47, G1 to G31, PD-1 to PD-31) after the validation round of three reviewers; the deviation entries of the implementation and of the remediation batches of the FR/NFR review gate (iteration 1) were applied'
 companionDocument: '_bmad-output/planning-artifacts/architecture-delivery.md'
 ---
 
@@ -381,7 +381,7 @@ Crates and features considered and not adopted, with the reason: `async-graphql-
 
 ### AD-13 Request id and logging
 
-- **Decision.** Header `x-request-id`. An inbound value is accepted when it matches `^[A-Za-z0-9._-]{1,128}$`; otherwise it is dropped and a UUID is generated (`tower_http::request_id::MakeRequestUuid`). The id is echoed on every response, including 404, 405, panic and timeout responses, and recorded on the request span `http.request` with fields `http.request.method`, `http.route` (the route template, or `unmatched`), `url.path` and `request_id`. Logs are JSON, one object per line on stdout, through `tracing-subscriber` (`.json().flatten_event(true).with_current_span(true).with_span_list(false)`). The level filter is `LOG_LEVEL`. No pretty format exists (NFR31). The line schema is in "Observability and Operations".
+- **Decision.** Header `x-request-id`. An inbound value is accepted when it matches `^[A-Za-z0-9._-]{1,128}$`; otherwise it is dropped and a UUID is generated (`tower_http::request_id::MakeRequestUuid`). The id is echoed on every response, including 404, 405, panic and timeout responses, and recorded on the request span `http.request` with fields `http.request.method`, `http.route` (the route template, or `unmatched`), `url.path` and `request_id`. Logs are JSON, one object per line on stdout, through `tracing-subscriber` (`.json().flatten_event(true).with_current_span(true).with_span_list(true)`: `span` is the innermost open span and `spans` lists every open span, outermost first, so an entry written inside a span that a request opened, such as the `SQS.ListQueues` span of the AWS SDK at `debug` level, still carries the `http.request` span with the request id). The level filter is `LOG_LEVEL`. No pretty format exists (NFR31). The line schema is in "Observability and Operations".
 - **Rationale.** Scope 3.1 (P1). Sanitising the inbound id keeps hostile input out of logs and response headers.
 - **Alternatives rejected.** Trusting any inbound value. A second, human-readable log format (NFR31 requires every line to be JSON).
 - **Consequences.** Log lines written outside a request (start-up, shutdown) carry no request id.
@@ -614,14 +614,14 @@ crates/shared/infrastructure/                 crate shared-infrastructure
   src/cache.rs (+tests)            `MokaCache`
   src/clock.rs                     `SystemClock` (the one caller of `SystemTime::now`)
   src/id.rs                        `UuidV7Generator` (the one caller of `uuid::Uuid::now_v7`)
-  src/messaging.rs                 `SqsSettings`, `sqs_client`
-  src/persistence.rs               `PostgresSettings`, `connect_lazy`, `MIGRATOR`
+  src/messaging.rs (+tests)        `SqsSettings`, `sqs_client`
+  src/persistence.rs (+tests)      `PostgresSettings`, `connect_lazy`, `MIGRATOR`
   tests/integration/main.rs        module declarations
   tests/integration/support.rs     `SqsSettings` and `PostgresSettings` of the test stack, read from the environment
   tests/integration/clock.rs       two readings of `SystemClock` do not go backwards and lie after 2026-01-01
   tests/integration/id.rs          `UuidV7Generator` returns distinct, ordered version-7 UUIDs
   tests/integration/cache.rs       per-entry TTL expires in real time
-  tests/integration/persistence.rs pool against PostgreSQL and against a dead port; migrations apply, revert, re-apply
+  tests/integration/persistence.rs pool against PostgreSQL and against a dead port; migrations apply, revert, re-apply to the same catalog (no table, column or migration count of the example)
   tests/integration/messaging.rs   client against LocalStack and against a dead port within the timeout
 
 crates/internal/health-check/domain/          crate health-check-domain
@@ -683,6 +683,7 @@ crates/company-subdomain/some-module/infrastructure/   crate some-module-infrast
   src/lib.rs
   src/persistence.rs               `PgExampleApiResourceRepository`
   tests/integration/main.rs
+  tests/integration/migration.rs   the example migration: the table and its named constraints, one reversible migration, the constraints reject an empty name and an oversized description
   tests/integration/repository.rs  save, find, page order and bounds, duplicate id, unreachable database (`#[sqlx::test]`)
 
 crates/service/                               crate service (library + binary `service`)
@@ -750,7 +751,7 @@ tests/support/                                crate test-support (test doubles; 
 
 tests/e2e/                                    crate e2e-tests (one test target `e2e`, harness = false)
   Cargo.toml
-  main.rs                          cucumber runner: `fail_on_skipped`, features from `../../features`, removal of databases left by a
+  main.rs                          cucumber runner: `fail_on_skipped_with(|_, _, _| true)` (every skipped step fails, also under the tag `@allow.skipped`), features from `../../features`, removal of databases left by a
                                    killed run, `after` hook that drops the scenario database
   world.rs                         `AppWorld`: failing dependencies, last response, created ids, scenario database; builds the
                                    app per request
@@ -1209,9 +1210,7 @@ impl PageRequest {
     pub const DEFAULT_ITEMS_PER_PAGE: u32 = 30;
     pub const MAX_ITEMS_PER_PAGE: u32 = 100;
     pub fn new(page: u32, items_per_page: u32) -> Result<Self, InvalidPageRequest>;   // page >= 1; 1 <= items_per_page <= 100
-    pub const fn page(self) -> u32;             // by value: clippy::trivially_copy_pass_by_ref
-    pub const fn items_per_page(self) -> u32;
-    pub fn limit(self) -> i64;                  // items_per_page
+    pub fn limit(self) -> i64;                  // items_per_page; by value: clippy::trivially_copy_pass_by_ref
     pub fn offset(self) -> i64;                 // (page - 1) * items_per_page, computed in i64 (cannot overflow)
 }
 
@@ -1337,6 +1336,8 @@ pub trait EventBus: std::fmt::Debug + Send + Sync {
     async fn publish(&self, events: Vec<Box<dyn DomainEvent>>) -> Result<(), EventBusError>;
 }
 ```
+
+The example slice takes its list defaults from `PageRequest::DEFAULT_PAGE` and `PageRequest::DEFAULT_ITEMS_PER_PAGE` (`some-module-application`, `http/dto.rs`, converted with `cast_signed`), so every public item of `PageRequest` has a user (NFR23).
 
 ### In-process adapters: `shared-infrastructure`
 
@@ -2177,7 +2178,7 @@ sqlx adds its own bookkeeping table `_sqlx_migrations`; it is not declared in a 
 
 - `.cargo/config.toml` sets `SQLX_OFFLINE=true` for every cargo invocation, so builds never contact a database and a runtime `DATABASE_URL` cannot break compilation (FR121). Verified: an offline build without the metadata fails with sqlx's message that names the missing query.
 - `.sqlx/` at the workspace root is committed. After changing a query or a migration: apply migrations to the development database, then run `cargo sqlx prepare --workspace -- --all-targets --all-features`. Verified: the command writes three files for the three statements, in 50 s cold, although `SQLX_OFFLINE=true` is set in `.cargo/config.toml` (sqlx-cli overrides it for its own build).
-- Gate (QG-11, G30): `cargo sqlx prepare --workspace --check -- --all-targets --all-features --locked` fails when `.sqlx/` is stale (verified without `--locked`: exit status 0 when current, 1 after a query change). It needs a freshly migrated database: the test database, which `setup-test-db` has just reset.
+- Gate (QG-11, G30): `cargo sqlx prepare --workspace --check -- --all-targets --all-features --locked` fails when `.sqlx/` is stale (verified without `--locked`: exit status 0 when current, 1 after a query change). A committed query file that no current query generates is only a warning of sqlx-cli 0.9.0 (`potentially unused queries found in .sqlx`, exit status 0), so the Make target runs the command through `scripts/check-sqlx-metadata.sh`, which fails on that warning (delivery document, target `validate-sqlx-metadata`). It needs a freshly migrated database: the test database, which `setup-test-db` has just reset.
 - Side effect to know: `prepare --workspace`, with or without `--check`, sets the modification time of the source files of every workspace crate that depends on sqlx macros (read in the sqlx-cli 0.9.0 source), so the next build recompiles those crates. No file content changes and `git status` stays clean.
 - Test code uses the adapters or unchecked `sqlx::query(..)`; the `query!` macros are used in production code only, so `.sqlx/` holds production queries. sqlx 0.9 rejects a SQL string built at run time (`dynamic SQL strings should be audited for possible injections`); the two statements of the end-to-end world that carry a database name are wrapped in `sqlx::AssertSqlSafe(..)` (verified), and no production code builds SQL at run time.
 
@@ -2221,11 +2222,12 @@ sqlx adds its own bookkeeping table `_sqlx_migrations`; it is not declared in a 
 | `SHUTDOWN_GRACE_PERIOD` | duration | `10s` | no | `service` | none |
 | `DB_VERSION` | string | `16` | no | compose | `DB_VERSION` |
 | `DB_HOST` | host name | `localhost` | no | `.env` interpolation; compose sets `database` inside containers | host part of `DB_URL` |
-| `DB_PORT` | integer | `5432` | no | compose; `.env` interpolation | `DB_PORT` |
+| `DB_PORT` | integer | `5432` | no | compose (the host port of `database`); `.env` interpolation; compose sets `5432`, the port inside the compose network, in the `app` and `migrate` containers, so a changed host port does not change their URL | `DB_PORT` |
 | `DB_NAME`, `DB_USER`, `DB_PASSWORD` | string | `app`, `app`, `local-dev-only` | no | compose; `.env` interpolation | same names |
 | `LOCALSTACK_HOST` | host name | `localhost` | no | `.env` interpolation; compose sets `localstack` inside containers | `AWS_SQS_ENDPOINT_BASE` |
-| `LOCALSTACK_PORT` | integer | `4566` | no | compose; `.env` interpolation | `LOCALSTACK_PORT` |
+| `LOCALSTACK_PORT` | integer | `4566` | no | compose (the host port of `localstack`); `.env` interpolation; compose sets `4566`, the port inside the compose network, in the `app` container | `LOCALSTACK_PORT` |
 | `STRUCTURIZR_PORT` | integer | `8080` | no | compose | `STRUCTURIZR_PORT` |
+| `GITHUB_TOKEN` | token | unset | no | compose: the source of the build secret `github_token` of the development image; raises the rate limit of the tool downloads | none |
 | `TEST_SEED` | unsigned 64-bit integer | `20261110`, the seed recorded in `.cargo/config.toml` (FR51) | no | `test_support::seed::TestRng` | none (PHP data was unseeded) |
 | `PROPTEST_RNG_SEED` | unsigned 64-bit integer | `20261110`, recorded in `.cargo/config.toml` | no | property tests (`proptest` reads it) | none |
 | `SQLX_OFFLINE` | `true` | `true` from `.cargo/config.toml` | no | sqlx macros at build time | none |
@@ -2238,7 +2240,7 @@ Not carried from PHP: `APP_SECRET`, `AWS_SQS_VERSION`, `EMAIL_QUEUE_NAME`, `MESS
 
 ### Committed environment files
 
-Both files are tracked and are not git-ignored. They contain placeholders for the local compose stack only. `${NAME}` references are resolved by `dotenvy`, by Docker Compose and by `scripts/with-env.sh` (delivery document), and in all three a value already present in the process environment wins (verified for dotenvy 0.15.7 and Compose 5.6.1: `${DB_HOST}` and `${DB_PORT}` are taken from the process environment first, and an explicit `DATABASE_URL` wins). That is how the same file works on a host (`localhost`) and inside a container (compose sets `DB_HOST=database` and `LOCALSTACK_HOST=localstack`). Compose must not inject `DATABASE_URL`, `AWS_ENDPOINT_URL_SQS`, `APP_ENV` or `LOG_LEVEL` into the development container, because an injected value would win over `.env.test` in the test targets. Sourcing a file in a shell (`set -a; . ./.env`) overrides the caller's values and must not be used. `scripts/with-env.sh` reads a value as dotenvy 0.15.7 and Compose read it for the forms on which the two agree: a value in double quotes loses the quotes (`\"`, `\\` and `\n` are unescaped, `${NAME}` is expanded), a value in single quotes loses the quotes and stays literal, an unquoted value ends at whitespace followed by `#`, and an `export ` prefix is accepted. A form that the two read differently (an unquoted value with whitespace, a quote or a backslash, a `$` that does not start `${NAME}`, an unknown escape, an unclosed quote, a comment right after the `=`) makes it exit 2 with `with-env.sh: invalid value in <file>: <line>`, so a committed value has one meaning in all three readers.
+Both files are tracked and are not git-ignored. They contain placeholders for the local compose stack only. `${NAME}` references are resolved by `dotenvy`, by Docker Compose and by `scripts/with-env.sh` (delivery document), and in all three a value already present in the process environment wins (verified for dotenvy 0.15.7 and Compose 5.6.1: `${DB_HOST}` and `${DB_PORT}` are taken from the process environment first, and an explicit `DATABASE_URL` wins). That is how the same file works on a host (`localhost`) and inside a container (compose sets `DB_HOST=database` and `LOCALSTACK_HOST=localstack` and the in-network ports `DB_PORT=5432` and `LOCALSTACK_PORT=4566`, so a host port changed in `.env` changes only what compose publishes). Compose must not inject `DATABASE_URL`, `AWS_ENDPOINT_URL_SQS`, `APP_ENV` or `LOG_LEVEL` into the development container, because an injected value would win over `.env.test` in the test targets. Sourcing a file in a shell (`set -a; . ./.env`) overrides the caller's values and must not be used. `scripts/with-env.sh` reads a value as dotenvy 0.15.7 and Compose read it for the forms on which the two agree: a value in double quotes loses the quotes (`\"`, `\\` and `\n` are unescaped, `${NAME}` is expanded), a value in single quotes loses the quotes and stays literal, an unquoted value ends at whitespace followed by `#`, and an `export ` prefix is accepted. A form that the two read differently (an unquoted value with whitespace, a quote or a backslash, a `$` that does not start `${NAME}`, an unknown escape, an unclosed quote, a comment right after the `=`) makes it exit 2 with `with-env.sh: invalid value in <file>: <line>`, so a committed value has one meaning in all three readers.
 
 `.env` (development):
 
@@ -2311,7 +2313,8 @@ Verified in the validation round by 10 process-level tests of the skeleton (1.4 
 | `message` | always | fixed text from the list below |
 | `target` | always | Rust module path, or `audit` for audit entries |
 | event fields | per message | flattened into the top level |
-| `span` | inside a request | `{"name":"http.request","http.request.method":…,"http.route":…,"url.path":…,"request_id":…}` |
+| `span` | inside a request | the innermost open span: `{"name":"http.request","http.request.method":…,"http.route":…,"url.path":…,"request_id":…}` of `http.request`, or a span opened inside the request |
+| `spans` | inside a request | every open span, outermost first; the first element is always the `http.request` span with the `request_id` |
 
 Fixed messages and their fields:
 
@@ -2337,17 +2340,21 @@ Example of an access-log line and of an audit line (wrapped here; each is one li
 ```json
 {"timestamp":"2026-11-10T18:26:05.318149Z","level":"INFO","message":"request completed","http.response.status_code":201,
  "duration_ms":4,"target":"service::http::trace","span":{"name":"http.request","http.request.method":"POST",
- "http.route":"/api/example_api_resources","url.path":"/api/example_api_resources","request_id":"b2e86631-0be4-4080-a320-5c43459dbfea"}}
+ "http.route":"/api/example_api_resources","url.path":"/api/example_api_resources","request_id":"b2e86631-0be4-4080-a320-5c43459dbfea"},
+ "spans":[{"name":"http.request","http.request.method":"POST","http.route":"/api/example_api_resources",
+ "url.path":"/api/example_api_resources","request_id":"b2e86631-0be4-4080-a320-5c43459dbfea"}]}
 {"timestamp":"2026-11-10T18:26:05.317902Z","level":"INFO","message":"domain event","event_name":"example_api_resource.created",
  "event_id":"01a1c6b5-cb86-7134-868a-7608036facff","aggregate_id":"01a1c6b5-cb86-7134-868a-7608036facfe",
  "occurred_at":"2026-11-10T18:26:05.317880Z","target":"audit","span":{"name":"http.request","http.request.method":"POST",
- "http.route":"/api/example_api_resources","url.path":"/api/example_api_resources","request_id":"b2e86631-0be4-4080-a320-5c43459dbfea"}}
+ "http.route":"/api/example_api_resources","url.path":"/api/example_api_resources","request_id":"b2e86631-0be4-4080-a320-5c43459dbfea"},
+ "spans":[{"name":"http.request","http.request.method":"POST","http.route":"/api/example_api_resources",
+ "url.path":"/api/example_api_resources","request_id":"b2e86631-0be4-4080-a320-5c43459dbfea"}]}
 ```
 
 ### Operations
 
 - **Log level.** `LOG_LEVEL` takes `tracing_subscriber::EnvFilter` directives: a level (`debug`) or per-target levels (`info,sqlx=warn,audit=info`). An invalid directive is a configuration error. Request and response bodies, request headers other than the request id, and `DATABASE_URL` are never logged.
-- **Request id.** Header `x-request-id`; accepted pattern and generation as in AD-13; present on every response and in the `span` of every log line of the request.
+- **Request id.** Header `x-request-id`; accepted pattern and generation as in AD-13; present on every response and in the first element of `spans` of every log line of the request.
 - **Access log.** Exactly one `request completed` line per request, including `/ping`, 404 and 405.
 - **Panics.** The panic hook installed by `telemetry::init` writes the `panic` line inside the request span, so it carries the request id; `CatchPanicLayer` answers with the 500 problem; the process keeps running. With the production telemetry on a captured writer a panicking probe yields three lines, `panic`, `request failed` (ERROR, written by `Problem::internal` for every 5xx) and `request completed`, all JSON and all with the request id (`tests/integration/panic.rs`).
 - **Shutdown sequence.** t = 0: SIGTERM or SIGINT, line `shutdown signal received`; the listener is closed and new connections are refused (measured: within 10 ms of that line). In-flight requests continue. When the last one completes: line `stopped`, exit 0 (an idle service exits within 2 s). At t = `SHUTDOWN_GRACE_PERIOD` (default 10 s): line `grace period elapsed, forcing shutdown`, the remaining connections are dropped, exit 1 within 2 s (measured: 0.25 s after the period ended). A container orchestrator must allow at least 15 s before SIGKILL. An exit status 1 after a deploy therefore means that a request was cut.
@@ -2386,7 +2393,7 @@ Rules are numbered so a review can cite them. "Must" rules are checked by a gate
 3. Tests that need a database, LocalStack, real time, a socket or the built binary live in `tests/integration/` of the crate, one module per subject, declared in `tests/integration/main.rs`. Elapsed real time is measured with `tokio::time::Instant`, which is not on the ban list and reads the real clock outside a paused runtime.
 3a. In the root file of a test target (`tests/integration/main.rs`, `tests/e2e/main.rs`) every module is declared `#[cfg(test)] mod <name>;`. `cfg(test)` is set for every test target, also with `harness = false`, and the attribute makes clippy treat the helper functions of those modules as test code, so the relaxations of `clippy.toml` (`allow-unwrap-in-tests` and the others) apply and no suppression is needed for `unwrap`, `expect`, `panic!` or indexing in helpers (verified on the `service` integration tests and on `e2e-tests`: QG-03 exits 0 with no crate-level or module-level `expect`). The `main` function of `tests/e2e/main.rs` is the only code outside such a module and unwraps nothing.
 4. Every behaviour needs a test in the crate that owns the code: mutants are judged by the tests of their own crate, and coverage counts the unit and integration suites only (AD-24). A behaviour that an end-to-end scenario exercises still needs a unit or integration test.
-5. Random test data comes from `test_support::seed::TestRng` only. Assertions never depend on a generated value except by comparing with the value that was generated.
+5. Random test data comes from `test_support::seed::TestRng` only. A test binds its generator as the first statement of the test function (`let mut rng = TestRng::from_env();`) and keeps it until the test ends; helpers take `&mut TestRng` and never create one. Assertions never depend on a generated value except by comparing with the value that was generated.
 6. A test double is added to `test-support` only when a second crate needs it; every method of every double is exercised by at least one test.
 6a. Every function that writes a log entry has a test that asserts level, message and fields: through `test_support::log::LogRecorder` in unit tests, or through the JSON lines of the spawned binary in the `service` integration tests. Without such a test the mutant "replace the function with `()`" survives.
 7. `main.rs` contains only the call into the library.
@@ -2933,7 +2940,7 @@ Integration tests run under nextest, which gives every test its own process; `pa
 
 - `test_support::seed::TestRng::from_env()` reads `TEST_SEED` (a `u64`) and wraps `rand::rngs::StdRng::seed_from_u64(seed)`. Cargo supplies the seed recorded in `.cargo/config.toml` (`20261110`), so pull-request runs and `make ci` are reproducible by default (FR51, NFR29). A test binary started outside cargo without the variable fails with a message that names `TEST_SEED`; no seed is ever drawn silently.
 - The scheduled workflow sets `TEST_SEED` and `PROPTEST_RNG_SEED` to a fresh value (the run id) and prints both, so each scheduled run explores other data (delivery document).
-- `TestRng` implements `Drop`: when the thread is panicking it prints `TEST_SEED=<seed>` to stderr, so a failing test always shows the seed; nextest and `cargo test` print captured stderr for failed tests.
+- `TestRng` prints `TEST_SEED=<seed>` to stderr when it is dropped while the thread is panicking, so a generator that the test keeps until it ends shows the seed of every failing test; nextest and `cargo test` print captured stderr for failed tests. The writer of that line is a type parameter with the default `std::io::Stderr` (`TestRng<W = Stderr>`); the crate-private constructor `TestRng::with_report(seed, writer)` lets the unit test `a_generator_alive_at_the_panic_writes_its_seed_line` read the line.
 - Fixtures in `test_support::fixture` take `&mut TestRng` and generate data with `fake` (`fake_with_rng`). UUIDs come from `SequenceUuidGenerator` or `fake::uuid::UUIDv7` (feature `uuid` of `fake`), never from `Faker.fake::<Uuid>()` (its version bits are random).
 - Rerun: `TEST_SEED=<seed> cargo nextest run …` reproduces the data. Property tests (256 cases) take their seed from `PROPTEST_RNG_SEED` in the same way (proptest 1.12.0 reads the variable), print it on failure and persist failing cases under `proptest-regressions/`.
 
@@ -2997,7 +3004,7 @@ Every double derives or implements `Debug`, because the ports require it. `LogRe
 
 ### Gherkin features
 
-Step phrases are an interface shared with the PHP template. The runner calls `fail_on_skipped()`, so an undefined or skipped step fails the run, and `max_concurrent_scenarios(8)`. Step vocabulary (cucumber expressions):
+Step phrases are an interface shared with the PHP template. The runner calls `fail_on_skipped_with(|_feature, _rule, _scenario| true)`, so an undefined or skipped step fails the run, also in a scenario, rule or feature tagged `@allow.skipped`, which the plain `fail_on_skipped()` of cucumber 0.23.0 lets pass, and `max_concurrent_scenarios(8)`. Step vocabulary (cucumber expressions):
 
 - `Given the cache is not working`, `Given the database is not available`, `Given the message broker is not available`
 - `Given an example API resource exists with name {string} and description {string}` (creates it through `POST` and asserts the 201)
@@ -3270,16 +3277,16 @@ The baseline is the final PRD: FR1 to FR126, NFR1 to NFR47, gates G1 to G31. Eve
 
 | FR | Delivered by | Verified by |
 | --- | --- | --- |
-| FR1 | `service serve`; `APP_ENV`, `APP_PORT`; AD-12, AD-18; `axum` without `http2`; `listening` entry with `env` | `service/tests/integration/serve.rs` |
+| FR1 | `service serve`; `APP_ENV`, `APP_PORT`; AD-12, AD-18; `axum` without `http2`; `listening` entry with `env` | `service/tests/integration/serve.rs`; `http/router/tests.rs` (`no_response_is_compressed_and_no_other_protocol_is_advertised`: `/ping`, `/api/example_api_resources`, `/api/docs/swagger-ui-bundle.js` and `/api/unknown`, each without and with `accept-encoding: gzip, deflate, br, zstd`, carry no `content-encoding`, `alt-svc` or `strict-transport-security` and the same body) |
 | FR2 | subcommand table in "Configuration" (seven commands) | `service/tests/integration/*` |
 | FR3 | environment table; `.env`, `.env.test` | `service/src/config/tests.rs` |
-| FR4 | AD-07; `service check-config`; pair rule for the AWS credentials | `config/tests.rs`, `integration/check_config.rs`; QG-12 (G6) |
+| FR4 | AD-07; `service check-config`; pair rule for the AWS credentials | `config/tests.rs` (`AWS_ENDPOINT_URL_SQS` is parsed as a URI: scheme `http` or `https`, a non-empty host, and after the optional user information either the host alone or the host, `:` and a port from 0 to 65535), `integration/check_config.rs`; QG-12 (G6) |
 | FR5 | AD-04; `bootstrap::Adapters`, `bootstrap::event_bus`, `bootstrap::router` | `bootstrap/tests.rs` (each port replaced once); `e2e` |
-| FR6 | AD-06; `shared-application::http` | handler and router unit tests; `http_errors.feature` |
+| FR6 | AD-06; `shared-application::http` | handler and router unit tests (in the service crate `handlers_use_only_the_problem_aware_extractors` checks the handlers of `src/http` and `src/graphql`; `GET /api/docs/%FF` is the 400 problem); `http_errors.feature` |
 | FR7 | AD-22; `ValidatedJson`, `ValidatedQuery` | `extract/tests.rs`; `example_api_resource.feature` |
 | FR8 | AD-19; `service::http::docs` | `docs/tests.rs`; `api_docs.feature` |
 | FR9 | AD-18, AD-14; `service::graphql::handler` (422 for a body that is not a GraphQL request; pinned explorer page; policy naming the origin) | `graphql/handler/tests.rs`; `graphql.feature` |
-| FR10 | AD-13; `service::http::{request_id, trace}`, `telemetry` | `integration/serve.rs`; `request_id/tests.rs`, `trace/tests.rs` |
+| FR10 | AD-13; `service::http::{request_id, trace}`, `telemetry` | `integration/serve.rs` (also `entries_inside_nested_spans_carry_the_request_id`, `LOG_LEVEL=debug`); `request_id/tests.rs`, `trace/tests.rs` |
 | FR11 | AD-14; `service::http::security_headers`; the two page policies | `router/tests.rs`, `docs/tests.rs`, `graphql/handler/tests.rs`; `http_errors.feature` |
 | FR12 | AD-15; `command/serve.rs` (exit 0 drained, exit 1 forced) | `integration/serve.rs` |
 | FR13 | AD-08, AD-10, AD-15; configuration table | dead-port integration tests; `middleware/tests.rs` |
@@ -3300,7 +3307,7 @@ The baseline is the final PRD: FR1 to FR126, NFR1 to NFR47, gates G1 to G31. Eve
 | FR29 | `shared-domain::value_object::uuid`; `UuidV7Generator` | `uuid/tests.rs`; `integration/id.rs` |
 | FR30 | `DATABASE_URL`; test database strategy | `integration/persistence.rs` |
 | FR31 | `ExampleApiResourceRepository`; `PgExampleApiResourceRepository` | `integration/repository.rs` |
-| FR32 | AD-20; `migrations/`; `service migrate`; (d) Delivery: "Containers and Compose" (the `migrate` step) | `integration/migrate.rs`, `integration/persistence.rs` |
+| FR32 | AD-20; `migrations/`; `service migrate`; (d) Delivery: "Containers and Compose" (the `migrate` step) | `integration/migrate.rs`, `integration/persistence.rs`; `integration/serve.rs` (`serve_applies_no_migration_to_a_database_that_was_never_migrated`: (c)) |
 | FR33 | AD-20; `service migrate revert` | `integration/migrate.rs`, `integration/persistence.rs` |
 | FR34 | AD-09; `Cache`, `MokaCache` | `cache/tests.rs`, `integration/cache.rs` |
 | FR35 | AD-10; `sqs_client`; pair validation of the credentials (AD-07) | `integration/messaging.rs`; `config/tests.rs` |
@@ -3350,7 +3357,7 @@ The baseline is the final PRD: FR1 to FR126, NFR1 to NFR47, gates G1 to G31. Eve
 | FR123 | `clippy.toml` thresholds; AD-27 | QG-20 (G3) |
 | FR124 | manifests; `[bans.workspace-dependencies] unused = "deny"` | QG-10 (G8) |
 | FR125 | Delivery: "Command Surface" (`validate-invariants`, `scripts/check-invariants.sh`); this document supplies `rust-version = "1.99.1"`, the `allow_attributes*` lints, rule 15, crate and binary names | G31 |
-| FR126 | AD-08 (lazy pool), AD-10 (client built without network access), AD-12 | `integration/serve.rs` with unreachable dependencies |
+| FR126 | AD-08 (lazy pool), AD-10 (client built without network access), AD-12 | `integration/serve.rs` with unreachable dependencies, and `health_recovers_without_a_restart_when_the_database_comes_back` (500 naming only the database while it is missing, 204 from the same process once it exists) |
 
 ### Non-functional requirements
 
@@ -3384,10 +3391,10 @@ The baseline is the final PRD: FR1 to FR126, NFR1 to NFR47, gates G1 to G31. Eve
 | NFR27 | "Requirements to Architecture Mapping"; planning bundle in Delivery: "AI Guidance and Documentation" | this section |
 | NFR28 | clippy `disallowed-methods` list; rules 2, 3 and 20 | 10 banned wall-clock, UUID and socket APIs; 4 production items and the test support helpers carry the reasoned suppression |
 | NFR29 | `TestRng`, recorded seeds; `#[sqlx::test]`; one database per scenario; nextest (one process per test) | seed `20261110` |
-| NFR30 | `HealthService` unit tests; `health_check.feature` | 7 combinations; `fail_on_skipped` |
-| NFR31 | AD-07, AD-13; plain-text `migrate` | `integration/serve.rs` (request sequence, invalid configuration, bind failure) and `integration/panic.rs` (forced panic) |
+| NFR30 | `HealthService` unit tests; `health-check-application` `http/tests.rs` | 7 combinations of the report and of the `500` body (`detail`, `failures`, no message of a healthy dependency, no cause); `health_check.feature`, `fail_on_skipped_with` |
+| NFR31 | AD-07, AD-13; plain-text `migrate` | `integration/serve.rs` (request sequence, entries of nested spans at `debug` level, invalid configuration, bind failure) and `integration/panic.rs` (forced panic) |
 | NFR32 | AD-20; QG-11 | `integration/persistence.rs`, `integration/migrate.rs` |
-| NFR33 | AD-20; compose part in Delivery: "Containers and Compose" | `DATABASE_WAIT_TIMEOUT` 30 s, one attempt per second |
+| NFR33 | AD-20; compose part in Delivery: "Containers and Compose" | `DATABASE_WAIT_TIMEOUT` 30 s, one attempt per second (`config/tests.rs`, `the_migrate_wait_timeout_defaults_to_thirty_seconds`) |
 | NFR34, NFR35 | Delivery: DD-02; "CI/CD Workflows" (`scheduled.yml`) | measured runtimes per gate in "Gate commands" |
 | NFR36 | Delivery: DD-01 "Make execution model" | `check-config` exit statuses |
 | NFR37 | Delivery: DD-04, DD-22; "Command Surface" (`doctor`) | tool versions |

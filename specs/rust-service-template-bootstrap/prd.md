@@ -45,7 +45,7 @@ classification:
   complexity: low domain complexity, high breadth
   projectContext: greenfield
 date: 2026-11-10
-lastEdited: '2026-11-10'
+lastEdited: '2026-11-11'
 editHistory:
   - date: '2026-11-10'
     changes: >-
@@ -59,6 +59,10 @@ editHistory:
       400/422 boundary, the GraphQL contract, start-up and shutdown behaviour, the configuration table,
       target classes and supported platforms; gave every NFR a verification method; added the sections
       Target Users and Risks and Mitigations and an NFR digest for the bmalph context extract.
+  - date: '2026-11-11'
+    changes: >-
+      Amendment from the FR/NFR review gate (iteration 1): NFR40 records two accepted exceptions to its cache
+      clause, the `surface` Bats group and the weekly `devcontainer-build` job (finding F-10 of the readiness review). No id changed.
 author: BMad
 ---
 
@@ -776,7 +780,7 @@ Where a requirement says "ceiling", the architect records the final value at or 
 ### CI cost
 
 - NFR39: On 4-vCPU GitHub-hosted runners a pull request completes its last required check within 20 min of the push on warm caches and within 40 min on cold caches; the changed-code mutation check is outside these two figures and has its own timeout of at most 45 min; a documentation-only pull request completes within 5 min; 100% of jobs declare a timeout of at most 45 min, except the clean-clone job of FR95, whose timeout is at most 75 min; the Bats job completes within 20 min. Initial budgets, revised only with a recorded measurement. [NEW-26, NEW-28, P17; K-11]
-- NFR40: 100% of pull-request workflows cancel superseded runs of the same ref; 100% of jobs that compile Rust code or build an image restore a dependency and build cache or an image layer cache; on a rerun of an unchanged commit 0 third-party dependencies are recompiled and 0 unchanged image layers are rebuilt, verified by the readiness review from the log of one rerun; the image definition keeps dependencies in a layer separate from source, and the build context excludes version-control data, build output and test results. [NEW-25, NEW-26, CAP-DM-04, CAP-DM-06, P17]
+- NFR40: 100% of pull-request workflows cancel superseded runs of the same ref; 100% of jobs that compile Rust code or build an image restore a dependency and build cache or an image layer cache, except the `surface` Bats group and the weekly `devcontainer-build` job, the two exceptions recorded in architecture-delivery.md, open item 5; on a rerun of an unchanged commit 0 third-party dependencies are recompiled and 0 unchanged image layers are rebuilt, verified by the readiness review from the log of one rerun; the image definition keeps dependencies in a layer separate from source, and the build context excludes version-control data, build output and test results. [NEW-25, NEW-26, CAP-DM-04, CAP-DM-06, P17]
 - NFR41: Coverage is computed and uploaded by exactly 1 job; G11, G12 and G14 are reported from one execution of the suites, in CI and in `make ci`; apart from the determinism check of NFR7, each contract snapshot is generated once per workflow run; a job starts only the stack services it uses. [CAP-TQ-16, CAP-CI-04, P9, P17]
 - NFR42: The scheduled run on `main` executes at least weekly, and Dependabot checks each of its six ecosystems at least monthly. [NEW-29, CAP-CI-28, P18]
 

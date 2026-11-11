@@ -252,7 +252,7 @@ How to read a story:
 - No community starter template is used (architecture "Starter Template Evaluation"): Story 1.1 creates the workspace by hand from the architecture.
 - No UX design document exists: the product has no user interface beyond the API documentation page and the development-only GraphQL explorer, both covered by FR8 and FR9.
 - Corrections of the architecture validation round that the stories apply: a create whose event publication fails after the save returns 201 and logs the failure; a forced end of the shutdown grace period exits non-zero; coverage counts the unit and integration suites only; every port trait has `Debug` as a supertrait; tests that spawn a binary forward `LLVM_PROFILE_FILE`; mutation runs unset `CARGO_BUILD_WARNINGS` and the shard count scales with the mutant count; the development stack creates no root-owned `./target`; the scaffolder refreshes the lock file; `service --help` hides environment values.
-- Corrections of the two architecture revisions that this version of the stories applies: no 409 and only two GraphQL error codes; page numbers without an upper bound; one K6 scenario (`health`) with the NFR1 ceilings as budgets; six Bats groups in sixteen files and no second passing run of a gate in the suite; `scripts/ci/mutation-plan.sh` with one shard per 150 mutants; the seeds `TEST_SEED` and `PROPTEST_RNG_SEED` recorded in `.cargo/config.toml`; the build directory of the development image at `/cargo-target`; the read-only static-analysis job with a separate upload job; no end-to-end JUnit file, no `migrate status`, no `docs/php-to-rust.md` and no `scripts/wait-for-service.sh`.
+- Corrections of the two architecture revisions that this version of the stories applies: no 409 and only two GraphQL error codes; page numbers without an upper bound; one K6 scenario (`health`) with the NFR1 ceilings as budgets; six Bats groups in eighteen files and no second passing run of a gate in the suite; `scripts/ci/mutation-plan.sh` with one shard per 150 mutants; the seeds `TEST_SEED` and `PROPTEST_RNG_SEED` recorded in `.cargo/config.toml`; the build directory of the development image at `/cargo-target`; the read-only static-analysis job with a separate upload job; no end-to-end JUnit file, no `migrate status`, no `docs/php-to-rust.md` and no `scripts/wait-for-service.sh`.
 - The stories are scheduled with one git worktree per story; section "Implementation Order and Parallel Tracks" states the waves, the rules for concurrent execution and the exclusive resources.
 - Model allocation (scope-decisions section 9): each story is implemented by one agent in one session and verified by an independent agent that runs the acceptance criteria.
 
@@ -489,7 +489,7 @@ Gates:
 - **Epic 6: Example Bounded Context** (Stories 6.1 to 6.4). The `ExampleApiResource` slice: domain, use cases, REST and GraphQL adapters, PostgreSQL repository. Requirements: FR19 to FR24, FR31, FR121.
 - **Epic 7: Service Runtime and Composition Root** (Stories 7.1 to 7.7). The binary and its commands, configuration, HTTP surface, contract snapshots, composition root, graceful shutdown, an early conformance run and the Gherkin suite. Requirements: FR1 to FR5, FR8 to FR12, FR18, FR55 to FR57, FR71 to FR73, FR126.
 - **Epic 8: AI Guidance and Documentation** (Stories 8.1 to 8.8). Entry files, skills, settings, bmalph integration, README and policies, in-repository documents, planning bundle. Requirements: FR97, FR101, FR104 to FR109, FR111 to FR118.
-- **Epic 9: Every Gate Proven Locally** (Stories 9.1 to 9.11). Isolated production-image stack with Schemathesis and smoke load, coverage, mutation testing, the Bats suite in sixteen files, the invariants and documentation-drift gates. Requirements: FR58, FR59, FR67, FR76, FR77, FR84, FR110, FR124, FR125.
+- **Epic 9: Every Gate Proven Locally** (Stories 9.1 to 9.11). Isolated production-image stack with Schemathesis and smoke load, coverage, mutation testing, the Bats suite in eighteen files, the invariants and documentation-drift gates. Requirements: FR58, FR59, FR67, FR76, FR77, FR84, FR110, FR124, FR125.
 - **Epic 10: Hosted CI, Release and Maintenance Automation** (Stories 10.1 to 10.5). Eleven workflows, Dependabot, the template-sync ignore list, the full local gate run and the clean-clone verification. Requirements: FR49, FR66, FR68, FR93 to FR96, FR99, FR100.
 
 ## Epic 1: Workspace Foundation and Command Surface
@@ -998,7 +998,7 @@ Verify: `make lint-load-tests`; `make lint-shell`; `make lint-prettier`; `tests/
 
 **Given** `tests/Load/config.json.dist`
 **When** it is compared with the listing in "`config.json.dist`"
-**Then** it is equal: one endpoint `health`, the PHP load shapes (smoke 10 requests per second for 10 s with 5 virtual users; average 25; stress 150; spike 200), the budgets 500, 200, 1000 and 5000 ms of DD-25 and `delayBetweenScenarios` 60
+**Then** it is equal: one endpoint `health`, the PHP load shapes (smoke 10 requests per second for 10 s with 5 virtual users; average 25; stress 150; spike 200), the budgets 50, 200, 1000 and 5000 ms of DD-25 (smoke derived from the hosted measurement) and `delayBetweenScenarios` 60
 
 **Given** `scripts/health.js`
 **When** it is compared with the PHP file
@@ -1084,7 +1084,7 @@ Verify: `COMMIT_TITLE='feat(#12): add health endpoint' make check-commit-message
 **Then** the value is `.githooks`; each hook is an executable POSIX shell file that chooses the GNU Make to run (`$MAKE` when it is set, else `gmake` when it exists, else `make`) and calls only that make (`check-commit-message`, `pre-commit`, `pre-push`)
 **And** `make -n pre-commit` shows `format-check`, `lint-code`, `architecture`, `check-security-offline` and `unused-dependencies` and no target that needs a container or the network, and `make -n pre-push` shows `unit-tests`
 
-**Given** a temporary clone of the repository with a local bare remote, cocogitto 7.0.0 and a stub `gh` on `PATH`, and one new commit `feat(#1): first feature` (cocogitto is not installed by `make install`; where `cog --version` does not print `cog 7.0.0`, the story and the verifier install it with `cargo install cocogitto --version 7.0.0 --locked --root "$(mktemp -d)"` and put that `bin` first on `PATH`)
+**Given** a temporary clone of the repository with a local bare remote, cocogitto 7.0.0 and a stub `gh` on `PATH`, and one new commit `feat(#1): first feature` (`make install` installs cocogitto at `COCOGITTO_VERSION` of `make/tool-versions.mk` through `scripts/install-tools.sh`; `tests/CLI/bats/make_release.bats` runs these cases in such a clone)
 **When** `scripts/release.sh` is run in it
 **Then** it exits 0; the head of `main` on the remote has the subject `chore(release): v0.1.0 [skip ci]`; tag `v0.1.0` points to that commit; `CHANGELOG.md` contains a heading `## v0.1.0 (` with `### Features` and keeps its header; `Cargo.toml` and `Cargo.lock` state the version and `cargo metadata --locked` succeeds; the stub `gh` was called with `release create v0.1.0`
 **And** in a clone without any `v*` tag whose only new commit is `fix(#1): first fix`, `scripts/release.sh` also releases `v0.1.0` (the manifest version), and `scripts/release.sh --version 1.0.0` releases `v1.0.0`
@@ -1116,11 +1116,11 @@ Verify: `make validate-architecture-model`; `make lint-shell`; `git status --por
 
 **Given** `workspace.dsl` at the repository root
 **When** `make validate-architecture-model` is run
-**Then** it exits 0: the Structurizr image pinned in `make/tool-versions.mk` parses the file, the JSON export under `target/reports/structurizr/` contains `systemContextViews`, `containerViews` and `componentViews`, and the names of the elements shown in the component view, read from the export, equal the workspace crates that `cargo tree --locked --workspace --depth 0 --prefix none` lists on the script's standard input, minus `xtask`, `test-support` and `e2e-tests` (ten components)
+**Then** it exits 0: the Structurizr image pinned in `make/tool-versions.mk` parses the file, the JSON export under `target/reports/structurizr/` contains `systemContextViews`, `containerViews` and `componentViews`, and the names of the elements shown in the component view, read from the export, equal the workspace crates that `cargo tree --locked --workspace --depth 0 --prefix none` lists on the script's standard input, minus `xtask`, `test-support` and `e2e-tests` (ten components), and every workspace-internal dependency between two modelled crates has a relationship in the model (`architecture model OK: 10 components match the workspace crates; every dependency between them has a relationship`)
 
 **Given** the component `some-module-infrastructure` temporarily removed from `workspace.dsl`
 **When** `make validate-architecture-model` is run
-**Then** it exits non-zero and names the missing component; with a line that does not parse appended instead, it exits non-zero with the parser's error; `git checkout -- workspace.dsl` restores the file. The remaining rule kinds (each view kind missing, an extra component, a component excluded from the component view) are tested at script level in `check_architecture_model.bats` (Story 9.10)
+**Then** it exits non-zero and names the missing component; with a line that does not parse appended instead, it exits non-zero with the parser's error; `git checkout -- workspace.dsl` restores the file. The remaining rule kinds (each view kind missing, an extra component, a component excluded from the component view, a dependency between two modelled crates without a relationship) are tested at script level in `check_architecture_model.bats` (Story 9.10)
 
 **Given** the model
 **When** it is read
@@ -1937,7 +1937,7 @@ Verify: `cmp features/health_check.feature ${PHP_TEMPLATE_DIR}/features/health_c
 
 **Given** a temporary feature file with the step `Given something nobody implemented` planted under `features/`
 **When** `make e2e-tests` is run
-**Then** it exits non-zero and reports the step as unmatched (`fail_on_skipped`); after the file is removed the target exits 0
+**Then** it exits non-zero and reports the step as unmatched (`fail_on_skipped_with`, which also fails a skipped step in a scenario tagged `@allow.skipped`); after the file is removed the target exits 0
 
 **Given** the workspace
 **When** `cargo nextest run --locked --workspace --lib --bins` is run
@@ -2615,7 +2615,7 @@ Verify: `make docs-check` (expected: exit 0, or only the rule (3) lines that the
 
 **Given** rule (2), rule (5) and rule (6)
 **When** the script needs the command list, the variable list and the target list
-**Then** it reads the help texts that the recipe wrote through `$(EXEC)` to `target/reports/docs-check/` (`--service-help <dir>`) and starts no cargo command itself; rule (5) compares `docs/environment.md` with the union of: the variables in the help of `service serve`, `migrate` and `healthcheck`; the variables interpolated in the four compose files; the names in `.env` and `.env.test`; the `?=` variables of the `Makefile` and its two fragments; and the `[env]` keys of `.cargo/config.toml`; rule (6) accepts a target of `make/service.mk` that is documented in `docs/make-targets-service.md`
+**Then** it reads the help texts that the recipe wrote through `$(EXEC)` to `target/reports/docs-check/` (`--service-help <dir>`) and starts no cargo command itself; rule (5) compares `docs/environment.md` with the union of: the variables in the help of `service serve`, `migrate` and `healthcheck`; the variables interpolated in the four compose files and the variables that their top-level `secrets:` read with `environment:`; the names in `.env` and `.env.test`; the `?=` variables of the `Makefile` and its two fragments; and the `[env]` keys of `.cargo/config.toml`; rule (6) accepts a target of `make/service.mk` that is documented in `docs/make-targets-service.md`
 
 **Given** the skills
 **When** rule (7) runs on the repository
@@ -2803,7 +2803,7 @@ Verify: `make lint-actions`; `make lint-yaml`; `make lint-prettier`; `make lint-
 
 **Given** `scheduled.yml`
 **When** it is read
-**Then** it runs on cron `23 4 * * 1` and on `workflow_dispatch`, never cancels, and has the jobs `clean-bootstrap-ci` (clean checkout, no restored cache, `make bootstrap` then `make ci`, timeout 75), `mutation-plan`, `mutation-shard` and `mutation-tests` (the full run, shards sized by `scripts/ci/mutation-plan.sh`), `security-gates` (G7, G9, G10), `code-scanning` and `devcontainer-build` (`@devcontainers/cli` at `DEVCONTAINER_CLI_VERSION`); workflow `env` sets `TEST_SEED` and `PROPTEST_RNG_SEED` to `${{ github.run_id }}` and the jobs that run tests print both in their summary; every job ends with a step that writes the failing target and its last output lines to the job summary on failure
+**Then** it runs on cron `23 4 * * 1` and on `workflow_dispatch`, never cancels, and has the jobs `clean-bootstrap-ci` (clean checkout, no restored cache, `make bootstrap` then `make ci`, then the step `Require a clean working tree`, which fails when `git status --porcelain` is not empty (FR68), timeout 75), `mutation-plan`, `mutation-shard` and `mutation-tests` (the full run, shards sized by `scripts/ci/mutation-plan.sh`), `security-gates` (G7, G9, G10), `code-scanning` and `devcontainer-build` (`@devcontainers/cli` at `DEVCONTAINER_CLI_VERSION`); workflow `env` sets `TEST_SEED` and `PROPTEST_RNG_SEED` to `${{ github.run_id }}` and `CARGO_INCREMENTAL` and `CARGO_PROFILE_DEV_DEBUG` to `'0'` and the jobs that run tests print both in their summary; every job ends with a step that writes the failing target and its last output lines to the job summary on failure
 
 **Given** `release.yml`
 **When** it is read
@@ -2815,7 +2815,7 @@ Verify: `make lint-actions`; `make lint-yaml`; `make lint-prettier`; `make lint-
 
 **Given** `.templatesyncignore`
 **When** it is compared with the listing
-**Then** it is equal: the service-owned block (`.templatesyncignore`, README, changelog, workspace manifest and lock file, `.sqlx/`, migrations, both snapshots, `workspace.dsl`, `bmalph/config.json`, `specs/`, `crates/company-subdomain/`, the four feature files other than the health feature, `tests/Load/config.json.dist`, `docs/requests.http`) and the block of template-owned files a service extends (`.env`, `.env.test`, `docs/adr/`, `docs/environment.md`, `.github/dependabot.yml`, the skill index, the policy and exception files, the health-check and `service` wiring files, the four `service` tests that build `Adapters` or name the example context (`src/http/router/tests.rs`, `tests/integration/bootstrap.rs`, `migrate.rs` and `serve.rs`), `tests/support/`, `tests/e2e/`)
+**Then** it is equal: the service-owned block (`.templatesyncignore`, README, changelog, workspace manifest and lock file, `.sqlx/`, migrations, both snapshots, `workspace.dsl`, `bmalph/config.json`, `specs/`, `crates/company-subdomain/`, the four feature files other than the health feature, `tests/Load/config.json.dist`, `docs/requests.http`) and the block of template-owned files a service extends (`.env`, `.env.test`, `docs/adr/`, `docs/environment.md`, `.github/dependabot.yml`, the skill index, the policy and exception files, the health-check and `service` wiring files, the five `service` tests that build `Adapters` or name the example context (`src/http/router/tests.rs`, `tests/integration/bootstrap.rs`, `migrate.rs`, `serve.rs` and `panic.rs`), `tests/support/`, `tests/e2e/`)
 
 **Given** `.github/dependabot.yml`
 **When** it is read
@@ -2828,7 +2828,7 @@ Verify: `make lint-actions`; `make lint-yaml`; `make lint-prettier`; `make lint-
 ### Story 10.4: Full local gate run with the workflows in place
 
 As a platform maintainer,
-I want every stage of `make ci` to pass on the working tree once the workflow files and all sixteen Bats files exist,
+I want every stage of `make ci` to pass on the working tree once the workflow files and all eighteen Bats files exist,
 So that the clean-clone proof starts from a green tree.
 
 Track: E.
@@ -2842,9 +2842,9 @@ Verify: `make validate-invariants`; `make ci base_ref=HEAD`; `git status --porce
 
 **Acceptance Criteria:**
 
-**Given** the repository with all eleven workflow files and all sixteen Bats files
+**Given** the repository with all eleven workflow files and all eighteen Bats files
 **When** `make validate-invariants` is run
-**Then** it exits 0 with all eight rules: every action is pinned by SHA, every workflow declares `permissions`, `concurrency` and job timeouts, every `tool:` version equals `make/tool-versions.mk`, the gate targets of `make ci-list` equal the gate targets the pull-request workflows run, apart from the documented CI-only steps, every Bats file carries exactly one tag of the six groups, and every job name of a pull-request workflow is in `docs/repository-settings.md`
+**Then** it exits 0 with all eight rules: every action is pinned by SHA, every workflow declares `permissions`, `concurrency` and job timeouts, every `tool:` version equals `make/tool-versions.mk`, every gate target of `make ci-list` is run by a workflow with a `pull_request` trigger, and every workflow runs only gate targets of `make ci-list` and the documented CI-only steps, every Bats file carries exactly one tag of the six groups, and every job name of a pull-request workflow is in `docs/repository-settings.md`
 
 **Given** the committed tree
 **When** `make ci base_ref=HEAD` is run
