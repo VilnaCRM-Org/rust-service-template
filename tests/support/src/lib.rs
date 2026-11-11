@@ -4,8 +4,10 @@
 pub mod bus;
 pub mod cache;
 pub mod clock;
+pub mod fixture;
 pub mod id;
 pub mod log;
+pub mod repository;
 pub mod seed;
 
 /// Runs a future that completes without waiting for anything, such as the doubles of this crate.
