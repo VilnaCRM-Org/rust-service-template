@@ -34,18 +34,8 @@ echo "Options - Smoke: ${run_smoke}, Average: ${run_average}, Stress: ${run_stre
 
 mkdir -p "${LOAD_DIR}/results"
 
-read -r -a docker_cmd <<<"${DOCKER:-docker}"
-
-env_args=()
-if [[ -n "${API_HOST:-}" ]]; then
-  env_args+=(-e "API_HOST=${API_HOST}")
-fi
-if [[ -n "${API_PORT:-}" ]]; then
-  env_args+=(-e "API_PORT=${API_PORT}")
-fi
-
-"${docker_cmd[@]}" run --rm --network host --user "$(id -u):$(id -g)" \
-  -v "${LOAD_DIR}:/loadTests" "${env_args[@]}" \
+docker run --rm --network host --user "$(id -u):$(id -g)" \
+  -v "${LOAD_DIR}:/loadTests" -e API_HOST -e API_PORT \
   -e K6_WEB_DASHBOARD=true -e K6_WEB_DASHBOARD_PORT=-1 -e K6_WEB_DASHBOARD_PERIOD=1s \
   -e K6_WEB_DASHBOARD_EXPORT="/loadTests/results/${html_prefix}${scenario}.html" \
   "${K6_IMAGE}" run --summary-trend-stats='avg,min,med,max,p(95),p(99)' "/loadTests/scripts/${scenario}.js" \

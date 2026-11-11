@@ -30,7 +30,7 @@ export default class Utils {
       } catch (fallbackError) {
         throw new Error(
           `Failed to load configuration from config.json and config.json.dist: ${configError.message}; ${fallbackError.message}`,
-          { cause: configError }
+          { cause: fallbackError }
         );
       }
     }
