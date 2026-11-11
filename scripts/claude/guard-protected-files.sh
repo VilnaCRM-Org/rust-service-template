@@ -55,7 +55,7 @@ mkdir -p "$state_dir"
 refresh_items() {
   local tmp
   tmp=$(mktemp "$state_dir/items.XXXXXX")
-  if ! cargo xtask config-guard --list > "$tmp" 2> /dev/null; then
+  if ! env -u CONFIG_CHANGE_APPROVED cargo xtask config-guard --list > "$tmp" 2> /dev/null; then
     rm -f "$tmp"
     return 1
   fi
@@ -123,7 +123,13 @@ fi
 base=$(cat "$base_file")
 rm -f "$base_file" "$base_path"
 
-report=$(env -u CONFIG_CHANGE_APPROVED cargo xtask config-guard --base "$base" 2> /dev/null || true)
+guard_status=0
+report=$(env -u CONFIG_CHANGE_APPROVED cargo xtask config-guard --base "$base" 2> "$state_dir/guard.err") || guard_status=$?
+if [ "$guard_status" -ne 0 ] && grep -qF 'configuration guard could not run' "$state_dir/guard.err"; then
+  reason=$(grep -F 'configuration guard could not run' "$state_dir/guard.err" | head -n 1 | sed 's/^.*configuration guard could not run: *//')
+  echo "Warning: the protected configuration guard could not run: ${reason}; CI enforces the list." >&2
+  exit 0
+fi
 changed=$(printf '%s\n' "$report" | grep -F 'Modification of locked configuration' | grep -F ": $path " || true)
 if [ -n "$changed" ]; then
   git restore --source="$base" --worktree -- "$path"
