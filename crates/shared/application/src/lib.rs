@@ -4,3 +4,6 @@
 //!
 //! Use cases stay transport-free; only the `http` and `graphql` modules may name `axum`, `utoipa`
 //! or `async_graphql`.
+
+pub mod graphql;
+pub mod http;

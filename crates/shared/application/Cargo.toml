@@ -23,7 +23,7 @@ http-body-util.workspace = true
 rstest.workspace = true
 serde_json.workspace = true
 test-support.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
 tower.workspace = true
 
 [lints]
