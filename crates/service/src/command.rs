@@ -1,0 +1,61 @@
+//! The commands of the service binary and the dispatch from the parsed command line to them.
+//!
+//! This module and its children are the only code of the crate that writes to standard output or
+//! standard error.
+
+use std::io::Write;
+use std::process::ExitCode;
+
+use crate::cli::Command;
+
+pub mod check_config;
+
+/// Exit status of a command that failed while running.
+const FAILURE: u8 = 1;
+
+/// Exit status of a command that was rejected: an invalid configuration or a usage error.
+pub(crate) const REJECTED: u8 = 2;
+
+/// Runs the parsed command and returns its exit status.
+pub fn run(command: Command, stdout: &mut dyn Write, stderr: &mut dyn Write) -> ExitCode {
+    match command {
+        Command::CheckConfig(args) => check_config::run(args, stdout, stderr),
+        Command::Serve(_) => unavailable("serve", stderr),
+        Command::Migrate(_) => unavailable("migrate", stderr),
+        Command::OpenapiExport(_) => unavailable("openapi-export", stderr),
+        Command::GraphqlExport(_) => unavailable("graphql-export", stderr),
+        Command::Healthcheck(_) => unavailable("healthcheck", stderr),
+    }
+}
+
+/// Prints what clap reports for an unparsable command line and returns its exit status.
+///
+/// Help and version requests are not failures: clap prints them to standard output and the status
+/// is 0. Everything else goes to standard error with status 2.
+pub fn usage_error(
+    error: &clap::Error,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> ExitCode {
+    let rendered = error.render();
+    let written = if error.use_stderr() {
+        write!(stderr, "{rendered}")
+    } else {
+        write!(stdout, "{rendered}")
+    };
+    written.map_or_else(
+        |write_error| failure(&write_error, stderr),
+        |()| ExitCode::from(u8::try_from(error.exit_code()).unwrap_or(REJECTED)),
+    )
+}
+
+/// Reports a failure of a command as one line `error: <message>` on standard error.
+pub(crate) fn failure(error: &dyn std::error::Error, stderr: &mut dyn Write) -> ExitCode {
+    let _written = writeln!(stderr, "error: {error}");
+    ExitCode::from(FAILURE)
+}
+
+fn unavailable(name: &str, stderr: &mut dyn Write) -> ExitCode {
+    let _written = writeln!(stderr, "error: {name} is not available yet");
+    ExitCode::from(FAILURE)
+}
