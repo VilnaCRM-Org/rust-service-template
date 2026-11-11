@@ -18,8 +18,8 @@ date: '2026-11-10'
 lastStep: 8
 status: 'complete'
 completedAt: '2026-11-10'
-revisedAt: '2026-11-10'
-revision: 'aligned with the final PRD (FR1 to FR126, NFR1 to NFR47, G1 to G31, PD-1 to PD-31) after the validation round of three reviewers'
+revisedAt: '2026-11-11'
+revision: 'aligned with the final PRD (FR1 to FR126, NFR1 to NFR47, G1 to G31, PD-1 to PD-31) after the validation round of three reviewers; the deviation entries of the implementation were applied'
 companionDocument: '_bmad-output/planning-artifacts/architecture-delivery.md'
 ---
 
@@ -313,7 +313,7 @@ Crates and features considered and not adopted, with the reason: `async-graphql-
 
 ### AD-07 Configuration model
 
-- **Decision.** `clap` derive defines the CLI and binds every setting to an environment variable. Every setting is declared `#[arg(long, env = "NAME", hide_env_values = true)]`, so `--help` names each variable and never prints a value, and every setting is an `Option<String>`, so clap never rejects a value. `Config::from_args(ServeArgs) -> Result<Config, ConfigErrors>` parses and validates all fields, including cross-field rules, and collects every error; each error names the *environment variable* and never echoes a value. `serve` and `check-config` call this function; `migrate` validates its own subset (the database variables and `DATABASE_WAIT_TIMEOUT`) with the same collector. A configuration error exits with status 2 and is reported in the output format of the command (NFR31):
+- **Decision.** `clap` derive defines the CLI and binds every setting to an environment variable. Every setting is declared `#[arg(long, env = "NAME", hide_env_values = true)]`, so `--help` names each variable and never prints a value, and every setting is an `Option<String>`, so clap never rejects a value. `Config::from_args(ServeArgs) -> Result<Config, ConfigErrors>` parses and validates all fields, including cross-field rules, and collects every error; each error names the *environment variable* and never echoes a value. `serve` and `check-config` call this function; `migrate` validates its own subset (the database variables and `DATABASE_WAIT_TIMEOUT`) with the same collector, in `MigrateSettings::from_args` of `config.rs` (the collector is private to that file). A configuration error exits with status 2 and is reported in the output format of the command (NFR31):
   - `check-config` and `migrate` print one line `<VARIABLE>: <reason>` per problem on stderr;
   - `serve` writes one JSON log entry `invalid configuration` at ERROR per problem, with the fields `variable` and `reason`, on stdout. For this the JSON subscriber is installed exactly once, after `Config::from_args` has returned: with `LOG_LEVEL` when the configuration is valid, with `info` when it is not.
 
@@ -490,7 +490,7 @@ Crates and features considered and not adopted, with the reason: `async-graphql-
 - **Decision.**
   - *Coverage.* `cargo llvm-cov` measures the unit and integration suites in one nextest run and gates `--fail-under-lines 100 --fail-under-functions 100`; regions are reported only. The end-to-end suite is not instrumented and does not count (PD-28, FR58(a), NFR19). No `--ignore-filename-regex`, no `--exclude`. Absent from the report without any flag, and therefore excluded by construction (verified with cargo-llvm-cov 0.9.1): files named `tests.rs`, everything under a directory named `tests` (`crates/*/tests/`, `xtask/tests/`, `tests/support/`, `tests/e2e/`) and `build.rs`. Everything else counts, including `main.rs` of both binaries (executed by subprocess tests) and `xtask`.
   - *Coverage exclusion record (NFR19).* The record is the `COVERAGE_*` command group in the protected fragment `make/gates.mk` of the delivery document: an exclusion is an `--ignore-filename-regex` alternative added to those commands with a comment that gives the reason. The first release has none.
-  - *Mutation.* `cargo mutants --workspace` with `.cargo/mutants.toml`, which is the mutation scope record of FR59(b). Scope: every production source file of every workspace crate including `xtask`; excluded by glob, each with its reason in the file: `**/main.rs`, `**/build.rs`, `**/tests.rs`, `**/tests/**`. Each mutant is judged by the unit *and* integration tests of the crate that contains it (cargo-mutants tests the mutated package), run with nextest profile `mutants`. The exit code is the gate: 0 pass, 2 a mutant survived, 3 a mutant timed out; a timed-out mutant counts as surviving (FR59(c)); a mutant that does not compile is not counted. Pull requests and `make ci` run the changed-code mode (`--in-diff` with the diff against the merge base of the base ref); the full run happens on `main` and on the schedule, sharded with `--shard k/n`.
+  - *Mutation.* `cargo mutants --workspace` with `.cargo/mutants.toml`, which is the mutation scope record of FR59(b). Scope: every production source file of every workspace crate including `xtask`; excluded by glob, each with its reason in the file: `**/main.rs`, `**/build.rs`, `**/tests.rs`, `**/tests/**`. Each mutant is judged by the unit *and* integration tests of the crate that contains it (cargo-mutants tests the mutated package), run with nextest profile `mutants`. The exit code is the gate: 0 pass, 2 a mutant survived, 3 a mutant timed out; a timed-out mutant counts as surviving (FR59(c)); a mutant that does not compile is not counted. Pull requests and `make ci` run the changed-code mode (`--in-diff` with the diff against the merge base of the base ref); the full run happens on `main` and on the schedule, sharded with `--shard k/n`, where k counts from 0 to n-1 (cargo-mutants rejects k = n) and the delivery document sizes n as one shard per 150 mutants, at most 8 (DD-09).
 - **Rationale.** Scope 8.5 and 8.11, NFR19, NFR20. Refinement of the research configuration: the research judged mutants with unit tests only, which leaves every SQL adapter and probe unjudged because their behaviour can only be observed against PostgreSQL or LocalStack. Including the package's integration tests makes "0 surviving mutants over all production source" achievable without excluding adapters (verified: mutants in `some-module-infrastructure/src/persistence.rs` were caught by the crate's integration tests against PostgreSQL).
 - **Alternatives rejected.** Excluding adapter files from mutation (weakens the gate). Running the whole workspace test suite per mutant (slow; cross-crate tests would mask missing tests in the mutated crate). Counting the end-to-end run towards the floor (in the first version of this document; contradicts PD-28 and runs the scenarios twice). Terminating a hanging test from the nextest profile so that the mutant counts as caught (in the first version of this document; contradicts FR59(c)).
 - **Consequences.**
@@ -500,7 +500,7 @@ Crates and features considered and not adopted, with the reason: `async-graphql-
   - Code that only the end-to-end suite would exercise does not exist: `Adapters::connect` runs in every spawned `serve` process and in `service/tests/integration/bootstrap.rs`; `Adapters::with_probe` and the event-bus replacement have unit tests in `bootstrap/tests.rs` ("Coverage and mutation").
   - Two blind spots of the tools shape the code rules. Inside the body of an `#[async_trait]` method llvm-cov records only the signature and the closing brace, and clippy reports no complexity finding (an `#[async_trait]` method with 39 nested `if`s produced none; the same body in a plain function scored 79 against the limit of 8); rule 21 moves the logic into an inherent `async fn`. A tracing event written over several lines leaves its field lines at count 0 even when it is emitted; rule 17a keeps each event on one line.
   - A function whose only effect is a log line yields the mutant "replace with ()", which survives unless a test observes the log; `test_support::log::LogRecorder` exists for that (rule 6a). Verified: with one assertion through the recorder `replace log_failure with ()` goes from MISSED to caught.
-  - Measured on the skeleton (4 vCPU, no debug information): 354 mutants in 60 files; a shard of four (89 mutants) takes 9 min 0 s, mean 5.2 s per mutant (service 6.5 s, shared-application 1.9 s, domain 1.4 s, adapter crates about 3 s); the baseline is 92 s of build plus 2 s of tests. The complete code base (full `xtask`, about 800 to 1000 mutants) extrapolates to 60 to 80 min unsharded and about 20 min per shard of four, inside the 45 min limit of the changed-code check on the bootstrap pull request, whose diff is the whole repository (scope 8.11).
+  - Measured on the skeleton (4 vCPU, no debug information): 354 mutants in 60 files; a shard of four (89 mutants) takes 9 min 0 s, mean 5.2 s per mutant (service 6.5 s, shared-application 1.9 s, domain 1.4 s, adapter crates about 3 s); the baseline is 92 s of build plus 2 s of tests. The complete code base (full `xtask`, about 800 to 1000 mutants) extrapolates to 60 to 80 min unsharded; CI runs one shard per 150 mutants, at most 8 (delivery DD-09), about 15 min per shard, inside the 45 min limit of the changed-code check on the bootstrap pull request, whose diff is the whole repository (scope 8.11).
 
 ### AD-25 Protected configuration and guard semantics
 
@@ -510,6 +510,7 @@ Crates and features considered and not adopted, with the reason: `async-graphql-
   - the `[workspace.lints]` table of the root `Cargo.toml` is compared as a parsed TOML value, and the budgets of the shipped load scenarios in `tests/Load/config.json.dist` are compared as parsed JSON values at listed JSON pointers; the rest of both files is not protected; a missing file, table or pointer is a modification;
   - once the base ref holds at least one protected item, a new file that would override a protected configuration file for part of the tree (a nested `clippy.toml`, `rustfmt.toml`, `rust-toolchain.toml`, `.cargo/config.toml` and the other names of `override_names`) is a violation (FR44(c));
   - a missing required directory is always a violation;
+  - the list itself is read from `protected-config.toml` on the base ref when the base holds that file, and from the working tree only when it does not, so a change to the list takes effect once it is merged; a required directory that a change removes from the list and from the tree is still reported as missing until the base no longer lists it;
   - an unresolvable base ref is exit status 2.
 
   Modifications and overrides are waived, and listed as approved, when `CONFIG_CHANGE_APPROVED=true`, which CI sets only when the pull request carries the label `approved-config-change`. Without the approval the guard prints the name of that label (FR44(f)).
@@ -522,7 +523,7 @@ Crates and features considered and not adopted, with the reason: `async-graphql-
 - **Decision.** `cargo xtask new-context <group> <context>` creates `crates/<group>/<context>/{domain,application,infrastructure}`, each with a manifest that inherits `[workspace.package]` fields and `[lints] workspace = true`, no dependencies, and a `src/lib.rs` that contains only crate-level documentation describing what belongs in that layer. It adds the three paths to `[workspace].members` of the root `Cargo.toml` with `toml_edit` (formatting preserved), then runs `cargo update --workspace --offline`, which adds the three crates to `Cargo.lock` without network access, and prints the next steps, among them adding the module's components to `workspace.dsl` (FR39(e)). If the lock-file step fails the command exits with status 2. Both names must match `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`; the context must not exist; reserved context names are `shared`, `service`, `xtask`, `test-support` and `e2e-tests`. Exit status: 0 created, 1 refused (invalid or existing name), 2 could not run.
 - **Rationale.** FR39: the result compiles and passes the architecture gate and the crate-isolation gate without an edit to a protected file. Crates without dependencies also pass the unused-dependency and workspace-dependency gates, which a pre-wired skeleton would fail. The lock-file step is required: after three members are added without it, `cargo metadata --locked` and `cargo check --locked` exit 101 (`cannot update the lock file ... because --locked was passed`), which would break every gate and the `xtask` alias itself; `cargo update --workspace --offline` adds the three packages with exit status 0 and no network access, after which `--locked` passes again (verified on cargo 1.99.1).
 - **Alternatives rejected.** `cargo generate` (another tool to install and pin). Generating a copy of the example slice (dead code in every new context). Leaving the lock-file refresh to the Make recipe (a direct `cargo xtask new-context` would leave the workspace unusable).
-- **Consequences.** The developer adds `[workspace.dependencies]` entries and wiring in `service` when the first code arrives; the guide "create a service from the template" lists these steps. An integration test runs the command in a copy of a fixture workspace, checks that `cargo metadata --locked` succeeds, runs the architecture gate on the result and checks each of the three new packages alone with `cargo check --locked --offline --package <name>`, which is what the crate-isolation gate does per crate (FR39(b), NFR18); it also asserts that no path of `protected-config.toml` was touched.
+- **Consequences.** The developer adds `[workspace.dependencies]` entries and wiring in `service` when the first code arrives; the guide "create a service from the template" lists these steps. An integration test runs the command in a copy of a fixture workspace, checks that `cargo metadata --locked` succeeds, runs the architecture gate on the result and checks each of the three new packages alone with `cargo check --locked --offline --package <name>`, which is what the crate-isolation gate does per crate (FR39(b), NFR18); it also asserts that no path of `protected-config.toml` was touched. The tests of `xtask` that run against the real workspace assert at least 13 crates, never an exact count: `xtask/tests/` is protected, so a service that has run `new-context` could not adjust a pinned count without the approval label.
 
 ### AD-27 Lint policy on the pinned toolchain
 
@@ -689,7 +690,7 @@ crates/service/                               crate service (library + binary `s
   src/main.rs                      `fn main() -> ExitCode { service::run() }`
   src/lib.rs                       `run`: load `.env`, parse CLI, dispatch to a command, map the outcome to an exit status
   src/cli.rs (+tests)              `Cli`, `Command`, `MigrateAction`, `ServeArgs`, `DatabaseArgs`, `MigrateArgs`, `ExportArgs`, `HealthcheckArgs`
-  src/config.rs (+tests)           `Config`, `AppEnv`, `ConfigErrors`, `ConfigProblem`
+  src/config.rs (+tests)           `Config`, `MigrateSettings`, `AppEnv`, `ConfigErrors`, `ConfigProblem`
   src/bootstrap.rs (+tests)        `Adapters`, `BootstrapError`, `event_bus`, `router`
   src/telemetry.rs                 `init` (JSON subscriber on a given writer, level filter), panic hook; covered by `tests/integration/{serve,panic}.rs`
   src/openapi.rs (+tests)          `ApiDoc`, `API_VERSION`, `ExportError`, `api_router`, `document`, `yaml`
@@ -705,7 +706,7 @@ crates/service/                               crate service (library + binary `s
   src/http/request_id.rs (+tests)  `REQUEST_ID_HEADER`, `sanitize_request_id`
   src/http/security_headers.rs (+tests)   header names, default values, `layer`
   src/http/trace.rs (+tests)       request span and access-log callbacks
-  src/command.rs                   module declarations for the five files below
+  src/command.rs                   module declarations for the five files below; `run` (one dispatch arm per subcommand), `usage_error`, `failure`
   src/command/serve.rs             `run` (bind, serve, drain, forced shutdown) and `reject` (JSON report of an invalid configuration)
   src/command/migrate.rs           bounded database wait; apply, revert; plain-text output
   src/command/check_config.rs      print `configuration OK`
@@ -783,7 +784,7 @@ xtask/                                        crate xtask (binary `xtask`, run a
   templates/infrastructure/Cargo.toml.tmpl, templates/infrastructure/lib.rs.tmpl
   tests/integration/main.rs        module declarations
   tests/integration/support.rs     run the binary with the cleared environment and the forwarded profile variable; temporary git repositories
-  tests/integration/arch.rs        binary against the real workspace (exit 0) and against the fixture (exit 1, 2)
+  tests/integration/arch.rs        binary against the real workspace (exit 0, at least 13 crates, no exact count) and against the fixture (exit 1, 2)
   tests/integration/config_guard.rs   binary in a temporary git repository: new file, modified file, deleted file, lint table, deleted
                                    table, JSON value, missing pointer, nested override, exempt fixture path, approval, label name
                                    in the failure output, missing base, `--list`
@@ -804,8 +805,8 @@ Layer crates take every third-party version from `[workspace.dependencies]` (`<n
 | Crate | Path | Kind | Layer | Context | Workspace dependencies | Third-party dependencies | Dev |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `shared-domain` | `crates/shared/domain` | lib | domain | shared | none | `async-trait`, `thiserror`, `uuid` | `proptest`, `rstest`, `tokio` |
-| `shared-application` | `crates/shared/application` | lib | application | shared | `shared-domain` | `async-graphql`, `axum`, `serde`, `tokio`, `tracing`, `utoipa`, `validator` | `test-support`, `http-body-util`, `rstest`, `serde_json`, `tokio`, `tower` |
-| `shared-infrastructure` | `crates/shared/infrastructure` | lib | infrastructure | shared | `shared-domain` | `async-trait`, `aws-config`, `aws-sdk-sqs`, `moka`, `sqlx`, `thiserror`, `uuid` (+`v7`) | `rstest`, `tokio` |
+| `shared-application` | `crates/shared/application` | lib | application | shared | `shared-domain` | `async-graphql`, `axum`, `serde`, `tokio`, `tracing`, `utoipa`, `validator` | `test-support`, `http-body-util`, `rstest`, `serde_json`, `tokio` (+`test-util`), `tower` |
+| `shared-infrastructure` | `crates/shared/infrastructure` | lib | infrastructure | shared | `shared-domain` | `async-trait`, `aws-config`, `aws-sdk-sqs`, `moka`, `sqlx`, `thiserror`, `uuid` (+`v7`) | `tokio` |
 | `health-check-domain` | `crates/internal/health-check/domain` | lib | domain | health-check | `shared-domain` | `async-trait`, `thiserror` | `rstest` |
 | `health-check-application` | `crates/internal/health-check/application` | lib | application | health-check | `shared-application`, `health-check-domain` | `axum`, `futures-util`, `tokio`, `tracing`, `utoipa`, `utoipa-axum` | `test-support`, `http-body-util`, `rstest`, `serde_json`, `tokio` (+`test-util`), `tower` |
 | `health-check-infrastructure` | `crates/internal/health-check/infrastructure` | lib | infrastructure | health-check | `shared-domain`, `health-check-domain` | `async-trait`, `aws-sdk-sqs`, `sqlx` | `shared-infrastructure`, `test-support`, `aws-sdk-sqs` (+`test-util`), `aws-smithy-mocks`, `tokio` |
@@ -852,8 +853,19 @@ directory = "application"
 depends_on = ["domain", "application"]
 dev_depends_on = ["test-support"]
 external = [
-    "async-graphql", "async-trait", "axum", "futures-util", "humantime", "serde", "thiserror",
-    "tokio", "tracing", "utoipa", "utoipa-axum", "uuid", "validator",
+    "async-graphql",
+    "async-trait",
+    "axum",
+    "futures-util",
+    "humantime",
+    "serde",
+    "thiserror",
+    "tokio",
+    "tracing",
+    "utoipa",
+    "utoipa-axum",
+    "uuid",
+    "validator",
 ]
 dev_external = ["http-body-util", "proptest", "rstest", "serde_json", "tokio", "tower"]
 forbidden_transitive = ["aws-config", "aws-sdk-sqs", "moka", "sqlx"]
@@ -864,7 +876,16 @@ crates = ["*-infrastructure"]
 directory = "infrastructure"
 depends_on = ["domain", "infrastructure"]
 dev_depends_on = ["test-support"]
-external = ["async-trait", "aws-config", "aws-sdk-sqs", "moka", "sqlx", "thiserror", "tracing", "uuid"]
+external = [
+    "async-trait",
+    "aws-config",
+    "aws-sdk-sqs",
+    "moka",
+    "sqlx",
+    "thiserror",
+    "tracing",
+    "uuid",
+]
 dev_external = ["aws-smithy-mocks", "rstest", "tokio"]
 forbidden_transitive = ["async-graphql", "axum", "utoipa"]
 
@@ -946,8 +967,14 @@ test-support = { path = "tests/support" }
 # Runtime
 async-graphql = { version = "7.2.1", default-features = false, features = ["uuid"] }
 async-trait = "0.1.92"
-aws-config = { version = "1.13.1", default-features = false, features = ["rt-tokio", "default-https-client"] }
-aws-sdk-sqs = { version = "1.120.0", default-features = false, features = ["rt-tokio", "default-https-client"] }
+aws-config = { version = "1.13.1", default-features = false, features = [
+    "rt-tokio",
+    "default-https-client",
+] }
+aws-sdk-sqs = { version = "1.120.0", default-features = false, features = [
+    "rt-tokio",
+    "default-https-client",
+] }
 axum = { version = "0.8.9", features = ["macros"] }
 clap = { version = "4.6.7", features = ["derive", "env"] }
 dotenvy = "0.15.7"
@@ -957,10 +984,22 @@ moka = { version = "0.12.16", features = ["future"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 sqlx = { version = "0.9.0", default-features = false, features = [
-    "runtime-tokio", "tls-rustls-aws-lc-rs", "postgres", "macros", "migrate", "uuid",
+    "runtime-tokio",
+    "tls-rustls-aws-lc-rs",
+    "postgres",
+    "macros",
+    "migrate",
+    "uuid",
 ] }
 thiserror = "2.0.21"
-tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "net", "signal", "time", "sync"] }
+tokio = { version = "1.54.1", features = [
+    "macros",
+    "rt-multi-thread",
+    "net",
+    "signal",
+    "time",
+    "sync",
+] }
 tower = { version = "0.5.3", features = ["util"] }
 tower-http = { version = "0.7.1", features = ["trace", "request-id", "catch-panic", "set-header"] }
 tracing = "0.1.44"
@@ -1041,7 +1080,7 @@ nursery = { level = "warn", priority = -1 }
 cargo = { level = "warn", priority = -1 }
 # Group opt-outs, each with a recorded reason.
 multiple_crate_versions = "allow" # owned by cargo-deny `bans.multiple-versions`
-redundant_pub_crate = "allow" # contradicts rustc `unreachable_pub`, which wins
+redundant_pub_crate = "allow"     # contradicts rustc `unreachable_pub`, which wins
 # Restriction lints: cherry-picked, never the whole group.
 # -- no panicking paths in production code
 unwrap_used = "warn"
@@ -1685,9 +1724,10 @@ impl From<ExampleApiResourceView> for ExampleApiResourceResponse {}
 pub struct CreateExampleApiResourceRequest { pub name: String, pub description: String }   // attributes: "API Contract"
 
 #[derive(Debug, Clone, Copy, Deserialize, IntoParams, Validate)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 #[into_params(parameter_in = Query)]
-pub struct ListExampleApiResourcesParams { pub page: i32, pub items_per_page: i32 }   // signed (AD-22); serde defaults 1 and 30
+pub struct ListExampleApiResourcesParams { pub page: i32, pub items_per_page: i32 }   // signed (AD-22)
+impl Default for ListExampleApiResourcesParams { fn default() -> Self; }   // page 1, items_per_page 30: the value of a missing parameter
 impl ListExampleApiResourcesParams {
     pub const fn into_query(self) -> ListExampleApiResources;   // `unsigned_abs()` of both fields; called after validation
 }
@@ -1736,6 +1776,9 @@ pub struct Config {
     pub max_body_bytes: usize, pub shutdown_grace_period: Duration,
 }
 impl Config { pub fn from_args(args: ServeArgs) -> Result<Self, ConfigErrors>; }   // AD-07; the only constructor
+#[derive(Debug, Clone)]
+pub struct MigrateSettings { pub database: PostgresSettings, pub wait_timeout: Duration }
+impl MigrateSettings { pub fn from_args(args: &MigrateArgs) -> Result<Self, ConfigErrors>; }   // AD-07: the subset of `migrate`
 
 // http.rs
 #[derive(Debug, Clone, FromRef)]
@@ -1784,7 +1827,7 @@ pub const API_VERSION: &str = "1.0.0";
 #[derive(Debug, thiserror::Error)]
 #[error("the OpenAPI document could not be serialised")]
 pub struct ExportError(#[source] BoxError);
-pub fn api_router() -> OpenApiRouter<AppState>;    // ApiDoc + nest("/api", health_check_application::http::router())
+pub fn api_router() -> OpenApiRouter<AppState>;    // ApiDoc + nest("/api", health_check_application::router())
                                                   //         + nest("/api", some_module_application::http::router())
 pub fn document() -> utoipa::openapi::OpenApi;     // api_router().into_openapi()
 pub fn yaml() -> Result<String, ExportError>;
@@ -1810,7 +1853,7 @@ pub async fn explorer() -> Response;   // Html(include_str!("explorer.html")) wi
 pub fn make_span(request: &axum::extract::Request) -> tracing::Span;   // span `http.request` of AD-13
 pub fn on_response<B>(response: &axum::http::Response<B>, latency: Duration, span: &tracing::Span);
 // generic over the body: with a concrete body type the middleware stack does not compile (`FromFn<..>: Service<_>` unsatisfied).
-// The event is one line: tracing::info!(http.response.status_code = status, duration_ms, "request completed");
+// The event is one line, in the private fn log_request_completed(status: u16, duration_ms: u64): tracing::info!(target: module_path!(), { http.response.status_code = status, duration_ms }, "request completed");
 
 // http/router.rs
 pub fn assemble(state: AppState, schema: ApiSchema, config: &Config) -> Router;
@@ -1956,16 +1999,15 @@ pub struct CreateExampleApiResourceRequest {
     pub description: String,
 }
 
+#[serde(rename_all = "camelCase", default)]   // a missing parameter takes its value from `impl Default`: page 1, items_per_page 30
 pub struct ListExampleApiResourcesParams {
     /// Page number, starting at 1.
     #[param(minimum = 1, default = 1)]
     #[validate(range(min = 1, message = "This value must be 1 or greater."))]
-    #[serde(default = "default_page")]
     pub page: i32,
     /// Number of items per page.
     #[param(minimum = 1, maximum = 100, default = 30)]
     #[validate(range(min = 1, max = 100, message = "This value must be between 1 and 100."))]
-    #[serde(default = "default_items_per_page")]
     pub items_per_page: i32,
 }
 ```
@@ -2301,7 +2343,7 @@ Example of an access-log line and of an audit line (wrapped here; each is one li
 - **Log level.** `LOG_LEVEL` takes `tracing_subscriber::EnvFilter` directives: a level (`debug`) or per-target levels (`info,sqlx=warn,audit=info`). An invalid directive is a configuration error. Request and response bodies, request headers other than the request id, and `DATABASE_URL` are never logged.
 - **Request id.** Header `x-request-id`; accepted pattern and generation as in AD-13; present on every response and in the `span` of every log line of the request.
 - **Access log.** Exactly one `request completed` line per request, including `/ping`, 404 and 405.
-- **Panics.** The panic hook installed by `telemetry::init` writes the `panic` line inside the request span, so it carries the request id; `CatchPanicLayer` answers with the 500 problem; the process keeps running. Verified in this revision with the production telemetry on a captured writer: a panicking probe yields exactly two lines, `panic` and `request completed`, both JSON and both with the request id.
+- **Panics.** The panic hook installed by `telemetry::init` writes the `panic` line inside the request span, so it carries the request id; `CatchPanicLayer` answers with the 500 problem; the process keeps running. With the production telemetry on a captured writer a panicking probe yields three lines, `panic`, `request failed` (ERROR, written by `Problem::internal` for every 5xx) and `request completed`, all JSON and all with the request id (`tests/integration/panic.rs`).
 - **Shutdown sequence.** t = 0: SIGTERM or SIGINT, line `shutdown signal received`; the listener is closed and new connections are refused (measured: within 10 ms of that line). In-flight requests continue. When the last one completes: line `stopped`, exit 0 (an idle service exits within 2 s). At t = `SHUTDOWN_GRACE_PERIOD` (default 10 s): line `grace period elapsed, forcing shutdown`, the remaining connections are dropped, exit 1 within 2 s (measured: 0.25 s after the period ended). A container orchestrator must allow at least 15 s before SIGKILL. An exit status 1 after a deploy therefore means that a request was cut.
 - **Container healthcheck.** Exec form `["/app/service", "healthcheck"]` (the image has no shell); interval 10 s, timeout 3 s, retries 3, start period 10 s. It probes liveness (`/ping`), so a dependency outage never restarts a healthy process. Readiness for load balancers is `GET /api/health`.
 - **Start-up.** `serve` does not wait for dependencies: the pool is lazy and `/api/health` reports their state. `migrate` is a separate step that waits for the database (`DATABASE_WAIT_TIMEOUT`, one attempt per second, at most 30 attempts by default, below the ceiling of 60).
@@ -2361,11 +2403,11 @@ Rules are numbered so a review can cite them. "Must" rules are checked by a gate
 ### Logging
 
 17. Log through `tracing` macros with a fixed message and structured fields. No string interpolation in the message.
-17a. A tracing event macro (`trace!` to `error!`) is the only statement of a private function `fn log_<event>(..)`, with no branch, no `.await` and no second event, and the macro call is written on one source line: `fn log_failure(failure: &ProbeFailure) { tracing::warn!(dependency = failure.dependency.identifier(), cause = %failure.cause, "health probe failed"); }`. Long values are bound to locals or passed as parameters. Reasons, both measured: with tracing's `log` feature active one event costs 7 of the 8 points of cognitive complexity, and a multi-line event leaves its field lines at coverage count 0 even when it is emitted. A line that carries `%` or `?` sigils is left alone by rustfmt and may exceed 100 columns (a 112-column line passed `cargo fmt --check`); an argument list rustfmt can parse must stay within 100 columns or rustfmt wraps it. Span macros are not affected.
+17a. A tracing event macro (`trace!` to `error!`) is the only statement of a private function `fn log_<event>(..)`, with no branch, no `.await` and no second event, and the macro call is written on one source line: `fn log_failure(failure: &ProbeFailure) { tracing::warn!(dependency = failure.dependency.identifier(), cause = %failure.cause, "health probe failed"); }`. Long values are bound to locals or passed as parameters. Reasons, both measured: with tracing's `log` feature active one event costs 7 of the 8 points of cognitive complexity, and a multi-line event leaves its field lines at coverage count 0 even when it is emitted. A line that carries `%` or `?` sigils is left alone by rustfmt and may exceed 100 columns (a 112-column line passed `cargo fmt --check`); rustfmt wraps an argument list it can parse as soon as the list is longer than its `fn_call_width` (60 characters), even when the line stays within 100 columns; an event with dotted field names keeps one line through an explicit `target:` and a braced field list, which rustfmt leaves alone, for example `tracing::info!(target: module_path!(), { http.response.status_code = status, duration_ms }, "request completed");` (a plain `target:` followed by a dotted field does not compile). Span macros are not affected.
 18. `println!`, `eprintln!` and `dbg!` are forbidden in production code (gate: clippy `print_stdout`, `print_stderr`, `dbg_macro`). Command output is written with `writeln!` on a `stdout`/`stderr` handle, and only in `service::command`, `xtask::cli` and `test_support::seed` (the seed line). The build script of `shared-infrastructure` prints its `cargo:` directive with `println!`; the two print lints do not apply to build scripts (verified).
 19. Domain crates do not log, and neither does the event bus. An error is logged once, where it is converted to a response or swallowed: `Problem::internal` for a 5xx, the command handler for a failed event publication.
 20. Banned APIs (gate: clippy `disallowed_methods`, list in `clippy.toml`). Each of these items carries one item-level `#[expect(clippy::disallowed_methods, reason = ..)]` and no other code may:
-    - the process environment is read only by clap (`#[arg(env = ..)]`) in `service::cli` and `xtask::cli`, by `test_support::seed::TestRng::from_env`, and by one helper function in the `support.rs` of each test target that needs the test stack (`reason = "the test stack is described by the environment"`);
+    - the process environment is read only by clap (`#[arg(env = ..)]`) in `service::cli` and `xtask::cli`, by `test_support::seed::TestRng::from_env` (through its private helper `read_seed`, which carries the `expect`), and by one helper function in the `support.rs` of each test target that needs the test stack (`reason = "the test stack is described by the environment"`);
     - the wall clock is read only by `SystemClock::now`;
     - UUIDs are generated only by `UuidV7Generator::generate`;
     - sockets are opened only by `service::command::serve::bind`, by `service::command::healthcheck::probe` and by the socket helpers of `service/tests/integration/support.rs`.
@@ -2385,7 +2427,7 @@ Rules are numbered so a review can cite them. "Must" rules are checked by a gate
 
 **Add a GraphQL field.** (1) Add the method to the context's `…Query` or `…Mutation` in `graphql.rs`, calling the same command or query as REST and converting errors with `problem_to_error`. (2) A new context adds its root structs to the tuple of `Query`/`Mutation` in `service/src/graphql/schema.rs` and its state with `.data(..)` in `bootstrap.rs`. (3) Regenerate `.github/graphql-spec/spec` in the same change.
 
-**Add a command.** (1) `command/<name>.rs`: the command struct, `impl Command` with `Error` = the context's application error and `NAME` = the type name, the handler struct with its ports as `Arc<dyn Port>`, `new` and an inherent `async fn` with the logic; the `CommandHandler` impl only delegates (rule 21). (2) The handler loads or creates one aggregate, saves it, then publishes `pull_domain_events()`; a publication failure is logged per failing subscriber and never fails the command (PD-18). (3) Register it in `service::bootstrap::router` with `.register(..)?`. (4) Extend the wiring test in `service/src/bootstrap/tests.rs`.
+**Add a command.** (1) `command/<name>.rs`: the command struct, `impl Command` with `Error` = the context's application error and `NAME` = the type name, the handler struct with its ports as `Arc<dyn Port>`, `new` and an inherent `async fn` with the logic; the `CommandHandler` impl only delegates (rule 21). (2) The handler loads or creates one aggregate, saves it, then publishes `pull_domain_events()`; a publication failure is logged per failing subscriber and never fails the command (PD-18). (3) Register it with `.register(..)?` in the private `service::bootstrap::register_commands` (a query: `register_queries`), which `service::bootstrap::router` calls. (4) Extend the wiring test in `service/src/bootstrap/tests.rs`.
 
 **Add a query.** Same as a command, in `query/<name>.rs`, with `Output` set to a view struct or a collection of views. A query handler never mutates state and returns views, not aggregates.
 
@@ -2439,7 +2481,7 @@ The delivery document wraps each row in a Make target; the command lines are fix
 | QG-14 | Integration tests | cargo-nextest 0.9.151 | `.config/nextest.toml`, `.env`, `.env.test` | `cargo nextest run --locked --workspace --test integration` | any test fails | about 2 min cold; the `service` suite runs in 3 s (measured) | `integration-tests` | G12 |
 | QG-15 | End-to-end tests | cucumber 0.23.0 through `cargo test` | `features/`, `.env`, `.env.test` | `cargo test --locked -p e2e-tests --test e2e` | a step fails, is undefined or is skipped | 2 min 07 s cold, 5 s warm (measured) | `behat` | G13 |
 | QG-16 | Coverage floor | cargo-llvm-cov 0.9.1 | flags below | sequence below | lines or functions below 100% | 1 min 23 s cold for the run (measured) | `tests-with-coverage` | G14 |
-| QG-17 | Mutation testing, full | cargo-mutants 27.1.0 | `.cargo/mutants.toml` | `env -u CARGO_TARGET_DIR -u CARGO_BUILD_WARNINGS cargo mutants --workspace --cargo-arg=--locked` (CI shards add `--shard <k>/<n>`) | exit 2 (a mutant survived) or 3 (a mutant timed out) | 60 to 80 min unsharded; about 20 min per shard of four (extrapolated from 9 min for 89 mutants) | `infection` | G15 |
+| QG-17 | Mutation testing, full | cargo-mutants 27.1.0 | `.cargo/mutants.toml` | `env -u CARGO_TARGET_DIR -u CARGO_BUILD_WARNINGS cargo mutants --workspace --cargo-arg=--locked` (CI shards add `--shard <k>/<n>`, k from 0 to n-1) | exit 2 (a mutant survived) or 3 (a mutant timed out) | 60 to 80 min unsharded; about 15 min per shard of at most 150 mutants (delivery DD-09; 5.2 s per mutant, measured on 89 mutants) | `infection` | G15 |
 | QG-18 | Mutation testing, changed code | cargo-mutants 27.1.0 | same | `git diff --no-ext-diff "$(git merge-base origin/main HEAD)" -- '*.rs' > target/mutants.diff`, then the command of QG-17 with `--in-diff target/mutants.diff` | as QG-17; exit 2 when the base ref cannot be resolved | 5.2 s per mutant in the diff (measured mean) | none | G15 |
 | QG-19 | Contract snapshots are current | `service` | none | `cargo run --locked --quiet -p service -- openapi-export --output .github/openapi-spec/spec.yaml`, `cargo run --locked --quiet -p service -- graphql-export --output .github/graphql-spec/spec`, then `test -z "$(git status --porcelain -- .github/openapi-spec .github/graphql-spec)"` | a committed snapshot differs from the generated one, or a snapshot is not tracked | seconds after the build | `generate-openapi-spec`, `generate-graphql-spec` | G17 |
 | QG-20 | Complexity limits | clippy (toolchain 1.99.1) | `clippy.toml` | `cargo clippy --locked --workspace --lib --bins --all-features -- -A warnings -D clippy::cognitive_complexity -D clippy::too_many_lines -D clippy::excessive_nesting -D clippy::too_many_arguments` | a production function over a limit | seconds after QG-02 | `phpmd`, `phpinsights` complexity | G3 |
@@ -2460,11 +2502,11 @@ Coverage sequence (QG-16); reports go to `target/coverage/`, which is git-ignore
 cargo llvm-cov clean --workspace
 cargo llvm-cov --no-report nextest --locked --workspace --lib --bins --test integration --profile ci
 cargo llvm-cov report --lcov --output-path target/coverage/lcov.info
-cargo llvm-cov report --html --output-dir target/coverage/html
+cargo llvm-cov report --html --output-dir target/coverage
 cargo llvm-cov report --fail-under-lines 100 --fail-under-functions 100
 ```
 
-Further report command (`coverage-xml` of the delivery document): `cargo llvm-cov report --cobertura --output-path target/coverage/coverage.xml`. The end-to-end suite is not part of the sequence (PD-28). Verified with cargo-llvm-cov 0.9.1 and nextest 0.9.151: `--profile ci` is taken as the nextest profile and the JUnit file lands at `target/nextest/ci/junit.xml`; the floor command exits 1 on an uncovered function; the lcov, cobertura and html reports are written; the run needs the `e2e` test target to exist in the workspace, because the default filter names it (`no binary names matched`, exit status 96, when it does not). This one run is also the execution from which G11, G12 and G14 are reported (FR66(a), NFR41); documentation tests are run by QG-13 and are not instrumented.
+Further report command (`coverage-xml` of the delivery document): `cargo llvm-cov report --cobertura --output-path target/coverage/coverage.xml`. The end-to-end suite is not part of the sequence (PD-28). Verified with cargo-llvm-cov 0.9.1 and nextest 0.9.151: `--profile ci` is taken as the nextest profile and the JUnit file lands at `target/nextest/ci/junit.xml`; the floor command exits 1 on an uncovered function; the lcov, cobertura and html reports are written (cargo-llvm-cov appends `html/` to `--output-dir`, so the HTML report is `target/coverage/html/index.html`); the run needs the `e2e` test target to exist in the workspace, because the default filter names it (`no binary names matched`, exit status 96, when it does not). This one run is also the execution from which G11, G12 and G14 are reported (FR66(a), NFR41); documentation tests are run by QG-13 and are not instrumented.
 
 Fix commands (not gates): `cargo fmt --all`; `cargo clippy --fix --allow-dirty --allow-staged --locked --workspace --all-targets --all-features -- -D warnings` followed by `cargo fmt --all`; `cargo sqlx prepare --workspace -- --all-targets --all-features`; `cargo shear --fix`.
 
@@ -2732,14 +2774,43 @@ json_values = [
 # Files that would override a protected configuration file for part of the tree. A bare name matches a file
 # of that name in any directory; an entry with `/` matches a path that ends with it.
 override_names = [
-    ".cargo/config", ".cargo/config.toml", ".cargo/deny.toml", ".cargo/mutants.toml", ".config/nextest.toml",
-    ".clippy.toml", "clippy.toml", ".rustfmt.toml", "rustfmt.toml", "rust-toolchain", "rust-toolchain.toml",
-    ".deny.toml", "deny.toml", ".taplo.toml", "taplo.toml", ".typos.toml", "_typos.toml", "typos.toml",
-    ".spectral.js", ".spectral.json", ".spectral.yaml", ".spectral.yml",
-    ".hadolint.yaml", ".hadolint.yml", ".yamllint", ".yamllint.yaml", ".yamllint.yml",
-    ".markdownlint.json", ".markdownlint.jsonc", ".markdownlint.yaml", ".markdownlint.yml",
-    ".markdownlint-cli2.jsonc", ".markdownlint-cli2.yaml",
-    ".prettierrc", ".prettierrc.json", ".prettierrc.yaml", ".prettierrc.yml",
+    ".cargo/config",
+    ".cargo/config.toml",
+    ".cargo/deny.toml",
+    ".cargo/mutants.toml",
+    ".config/nextest.toml",
+    ".clippy.toml",
+    "clippy.toml",
+    ".rustfmt.toml",
+    "rustfmt.toml",
+    "rust-toolchain",
+    "rust-toolchain.toml",
+    ".deny.toml",
+    "deny.toml",
+    ".taplo.toml",
+    "taplo.toml",
+    ".typos.toml",
+    "_typos.toml",
+    "typos.toml",
+    ".spectral.js",
+    ".spectral.json",
+    ".spectral.yaml",
+    ".spectral.yml",
+    ".hadolint.yaml",
+    ".hadolint.yml",
+    ".yamllint",
+    ".yamllint.yaml",
+    ".yamllint.yml",
+    ".markdownlint.json",
+    ".markdownlint.jsonc",
+    ".markdownlint.yaml",
+    ".markdownlint.yml",
+    ".markdownlint-cli2.jsonc",
+    ".markdownlint-cli2.yaml",
+    ".prettierrc",
+    ".prettierrc.json",
+    ".prettierrc.yaml",
+    ".prettierrc.yml",
 ]
 # Fixture trees may contain such files.
 override_exempt = ["tests/CLI/bats/fixtures/", "xtask/tests/fixtures/"]
@@ -2863,7 +2934,7 @@ Each line names the file that holds the test; all are unit tests unless the path
 | FR22, PD-1 | `some-module-application/src/http/handler/tests.rs`, `http/dto/tests.rs` | `page=0`, `page=-1`, `itemsPerPage=0`, `itemsPerPage=101` are 422 with a `range` violation; `page=abc`, `page=1.5`, `page=4294967296` are 400; a page beyond the last is 200 with `[]` |
 | FR24(e) | `some-module-application/src/graphql/tests.rs` | `page: -1`, `page: 0`, `itemsPerPage: 101` and an `id` that is not a UUID return `VALIDATION_FAILED` with violations; a storage failure returns `INTERNAL_SERVER_ERROR` without detail |
 | FR9 | `service/src/graphql/handler/tests.rs` | bodies `{}`, `[]`, `{"foo":1}` and `{"query":5}` are the 422 problem; a valid body is 200 |
-| FR9, NFR13, PD-27 | `service/src/graphql/handler/tests.rs` | the explorer page: every `src` and `href` starts with `https://unpkg.com/` and contains `@<major>.<minor>.<patch>/`, has an `integrity` attribute; the policy header names exactly that origin; the page is absent (405) outside `dev` |
+| FR9, NFR13, PD-27 | `service/src/graphql/handler/tests.rs`; `service/src/http/router/tests.rs` (the absence outside `dev`) | the explorer page: every `src` and `href` starts with `https://unpkg.com/` and contains `@<major>.<minor>.<patch>/`, has an `integrity` attribute; the policy header names exactly that origin; the page is absent (405) outside `dev` |
 | FR24(d) | `service/src/graphql/schema/tests.rs` | the SDL has exactly the three operations and no node field, connection type, update or delete mutation or subscription |
 | PD-21, NFR5 | `service/tests/integration/serve.rs` | idle exit 0 within 2 s; a request in flight completes and the exit status is 0; a connection attempted after SIGTERM is refused; a connection still open when a 1 s grace period ends gives exit status 1 within grace period + 2 s |
 | NFR31 | `service/tests/integration/serve.rs`, `panic.rs` | every line of a request sequence is JSON and carries the request id, stderr is empty; an invalid variable yields only JSON lines and exit status 2; the forced panic (in process, production telemetry) |
@@ -3453,7 +3524,7 @@ PRD amendment made in this round (smallest change, ids stable): FR125(b) and NFR
 
 | Risk | Effect | Mitigation |
 | --- | --- | --- |
-| The full mutation run was extrapolated from one shard (5.2 s per mutant) | 60 to 80 min unsharded; the bootstrap pull request mutates the whole repository | Four shards of about 20 min in CI; diff-scoped runs afterwards; a timeout is a failure, never raised silently (`minimum_test_timeout` is in a protected file) |
+| The full mutation run was extrapolated from one shard (5.2 s per mutant) | 60 to 80 min unsharded; the bootstrap pull request mutates the whole repository | One shard per 150 mutants, at most 8, of about 15 min each in CI (delivery DD-09); diff-scoped runs afterwards; a timeout is a failure, never raised silently (`minimum_test_timeout` is in a protected file) |
 | 100% lines under the tool blind spots (`#[async_trait]` bodies, multi-line events, `)?);` lines, unreachable error branches) | A design that is correct but cannot reach the floor, or reaches it vacuously | Rules 17a, 21 and 23; the Bats plants for G3 and G14 sit in plain functions |
 | Coverage of the binaries depends on forwarding `LLVM_PROFILE_FILE` and on ending every child through its normal exit path | Coverage of `main.rs` and the commands drops to 0% | One `support.rs` helper per crate does both; rule in "Test Architecture" |
 | The explorer page was assembled from package contents, not opened in a browser | A directive of its policy is missing or unneeded | Development-only page; the implementation opens it once and corrects constant and document together; the pin test stays |

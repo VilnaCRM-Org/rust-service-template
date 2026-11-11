@@ -731,7 +731,7 @@ So that Domain code stays framework-free and contexts stay isolated without a ru
 Track: B.
 Depends on: 2.1.
 Owns: `xtask/tests/fixtures/arch/vendor/`.
-Touches: `xtask/src/arch/rules.rs` and `xtask/src/arch/rules/tests.rs` (four more rules), `xtask/src/arch/load.rs` and its tests (third-party and transitive facts), `xtask/tests/fixtures/arch/workspace/` (four more planted violations), `xtask/tests/integration/arch.rs` (assertions for the new rules).
+Touches: `xtask/src/arch/rules.rs` and `xtask/src/arch/rules/tests.rs` (four more rules), `xtask/src/arch/load.rs` and its tests (third-party and transitive facts), `xtask/src/arch/config.rs` and `xtask/src/arch/config/tests.rs` (the configuration fields of the new rules), `xtask/src/arch/model.rs` (the `reach` field of a crate), `xtask/src/arch/tests.rs`, `xtask/src/arch/report/tests.rs` and `xtask/src/cli/tests.rs` (literals and fixture counts that the new fields change), `xtask/tests/fixtures/arch/workspace/` (four more planted violations), `xtask/tests/integration/arch.rs` (assertions for the new rules).
 Implements: FR37, FR38, NFR18, NFR21, G4.
 Reference: architecture.md AD-03 (rule table: `arch::context`, `arch::external`, `arch::transitive`, `arch::path`), "Workspace and Project Structure" ("`architecture.toml`": `external`, `dev_external`, `forbidden_transitive`, `directory`, `[contexts].shared`), AD-02.
 Pitfalls: PF-09, PF-44.
@@ -773,7 +773,7 @@ So that nobody weakens a gate to obtain a pass.
 Track: B.
 Depends on: 2.2.
 Owns: `xtask/src/config_guard.rs`, `xtask/src/config_guard/`, `xtask/tests/integration/config_guard.rs`.
-Touches: `xtask/src/cli.rs` and `xtask/src/cli/tests.rs` (subcommand `config-guard` with `--base`, `--list` and the approval variable), `xtask/tests/integration/main.rs` (module declaration), `xtask/tests/integration/support.rs` (temporary git repositories).
+Touches: `xtask/src/main.rs` (module declaration `mod config_guard;`), `xtask/src/cli.rs` and `xtask/src/cli/tests.rs` (subcommand `config-guard` with `--base`, `--list` and the approval variable), `xtask/tests/integration/main.rs` (module declaration), `xtask/tests/integration/support.rs` (temporary git repositories).
 Implements: FR44, NFR21, NFR26, G25.
 Reference: architecture.md AD-25, "Quality Gates" ("Protected configuration": the list format and the nine decision steps), "Test Architecture" ("Required test cases added by the alignment with the PRD": row FR44); architecture-delivery.md DD-16.
 Pitfalls: PF-43, PF-44.
@@ -819,7 +819,7 @@ So that I start a context that compiles and passes the architecture and crate-is
 Track: B.
 Depends on: 2.3.
 Owns: `xtask/src/scaffold.rs`, `xtask/src/scaffold/`, `xtask/templates/`, `xtask/tests/integration/scaffold.rs`, `xtask/tests/fixtures/scaffold/`.
-Touches: `xtask/src/cli.rs` and `xtask/src/cli/tests.rs` (subcommand `new-context`), `xtask/tests/integration/main.rs` (module declaration).
+Touches: `xtask/src/main.rs` (module declaration `mod scaffold;`), `xtask/src/cli.rs` and `xtask/src/cli/tests.rs` (subcommand `new-context`), `xtask/tests/integration/main.rs` (module declaration), `xtask/tests/integration/arch.rs` (the crate count of the real workspace is asserted as at least 13, so the tests pass after `new-context`), `xtask/tests/integration/support.rs` (`collect` and a new `forward` become `pub(crate)`, so the integration target keeps one environment helper).
 Implements: FR39, NFR18.
 Reference: architecture.md AD-26, "Workspace and Project Structure" (the `xtask/` part of the tree: `scaffold*`, `templates/`), "Implementation Patterns and Consistency Rules" ("Recipes": "Add a bounded context"), "Test Architecture" (required-test row FR39(b)); architecture-delivery.md "Command Surface" (target `new-context`: the command refreshes `Cargo.lock` itself).
 Pitfalls: PF-07, PF-09.
@@ -1038,11 +1038,11 @@ Verify: `make start-deps`; `make aws-load-tests LOCAL_MODE_ENV=true`; `make aws-
 
 **Given** that dry run has finished
 **When** `make aws-load-tests-cleanup LOCAL_MODE_ENV=true` is run, and then run a second time
-**Then** both exit 0, the first removes every resource named in `aws-run.env` and the file itself, and the second skips resources that no longer exist
+**Then** both exit 0, the first removes every resource named in `aws-run.env` and the file itself, skipping a named resource that no longer exists, and the second finds no `aws-run.env` and prints `Nothing to clean up: tests/Load/aws-run.env not found.`
 
 **Given** the scripts
 **When** they are read
-**Then** every wait loop has a numeric limit with a comment that explains it (bucket policy: 53 attempts, 5 s apart; result wait: 45 minutes, every 30 s); the repository URL comes from `git remote get-url origin` and the branch from `git rev-parse --abbrev-ref HEAD`; the AMI is resolved from the SSM public parameter of the chosen region; `s3-access-policy.json` is rendered with `sed` into the temporary directory mounted at `/work`; every AWS call runs through `AWS_CLI` (`docker run ... "$AWS_CLI_IMAGE"`), so neither `aws`, `uuidgen` nor `envsubst` is required on the host; the run id is 8 hexadecimal characters from `/dev/urandom`; no file contains the literal repository name
+**Then** every wait loop has a numeric limit with a comment that explains it (bucket policy: 53 attempts, 5 s apart; result wait: 45 minutes, every 30 s); the repository URL comes from `git remote get-url origin` and the branch from `git rev-parse --abbrev-ref HEAD`; the AMI is resolved from the SSM public parameter of the chosen region; `s3-access-policy.json` is rendered with `sed` into the temporary directory mounted at `/work`; every AWS call runs through the shell function `AWS_CLI` of `config.sh` (`docker run ... "$AWS_CLI_IMAGE"`), so neither `aws`, `uuidgen` nor `envsubst` is required on the host; the run id is 8 hexadecimal characters from `/dev/urandom`; no file contains the literal repository name
 **And** `user-data.sh` installs an `EXIT` trap that uploads the results, writes `DONE` or `FAILED` and shuts the instance down, so the instance terminates on success and on failure
 
 **Given** the Make parameters
@@ -1223,7 +1223,7 @@ So that I can handle validation failures, unknown routes, wrong methods, oversiz
 Track: A.
 Depends on: 2.2, 4.2.
 Owns: `crates/shared/application/src/http.rs`, `crates/shared/application/src/http/`, `crates/shared/application/src/graphql.rs`, `crates/shared/application/src/graphql/`.
-Touches: `crates/shared/application/src/lib.rs` (module declarations).
+Touches: `crates/shared/application/src/lib.rs` (module declarations), `crates/shared/application/Cargo.toml` (the dev-dependency `tokio` gains the feature `test-util`, for tokio's paused clock).
 Implements: FR6, FR7, FR13, NFR15.
 Reference: architecture.md AD-06 (the status table is normative), AD-15, AD-22, "Domain and Application Design" ("HTTP layer": `problem.rs`, `extract.rs`, `fallback.rs`, `middleware.rs`, `graphql.rs`), "API Contract" ("Schemas and validation rules": `Problem`, `Violation`, `DependencyFailure`; "Problem examples"), "Implementation Patterns and Consistency Rules" ("Error handling" rules 9 to 13).
 Pitfalls: PF-12, PF-14, PF-19.
@@ -1686,7 +1686,7 @@ So that the service never migrates implicitly and a failed release can be rolled
 Track: A.
 Depends on: 7.1.
 Owns: `crates/service/src/command/migrate.rs`, `crates/service/tests/integration/migrate.rs`.
-Touches: `crates/service/src/lib.rs` (dispatch arm), `crates/service/src/command.rs` and `crates/service/tests/integration/main.rs` (module declarations), `crates/service/tests/integration/support.rs` (`database_url`: the URL of a fresh test database).
+Touches: `crates/service/src/command.rs` (dispatch arm and module declaration), `crates/service/src/config.rs` (`MigrateSettings` with `MigrateSettings::from_args`: the database variables and `DATABASE_WAIT_TIMEOUT`, validated with the private collector), `crates/service/tests/integration/main.rs` (module declaration), `crates/service/tests/integration/support.rs` (`database_url`: the URL of a fresh test database), `crates/service/tests/integration/check_config.rs` (the cases `migrate` and `migrate revert` leave the test of the commands that are not available yet).
 Implements: FR2, FR32, FR33, NFR32, NFR33.
 Reference: architecture.md AD-20, "Configuration" ("Binary `service`: subcommands and exit statuses": rows `service migrate` and `service migrate revert`; `DATABASE_WAIT_TIMEOUT`), "Observability and Operations" ("Operations": start-up), "Workspace and Project Structure" (tree: `command/migrate.rs`, `tests/integration/migrate.rs`); architecture-delivery.md "Command Surface" (targets `migrate`, `migrate-rollback`).
 Pitfalls: PF-29, PF-36.
@@ -1764,7 +1764,7 @@ So that every contract change is visible as a snapshot diff in the same pull req
 Track: A.
 Depends on: 3.2, 5.1, 6.3, 7.2, 7.3.
 Owns: `crates/service/src/openapi.rs`, `crates/service/src/openapi/`, `crates/service/src/http/docs.rs`, `crates/service/src/http/docs/`, `crates/service/src/http/docs.html`, `crates/service/src/graphql.rs`, `crates/service/src/graphql/`, `crates/service/src/command/export.rs`, `crates/service/src/command/export/`, `crates/service/tests/integration/export.rs`, `.github/openapi-spec/spec.yaml`, `.github/graphql-spec/spec`.
-Touches: `crates/service/src/http.rs` (`AppState` with `FromRef`, module `docs`), `crates/service/src/lib.rs` (module declarations and the two export arms), `crates/service/src/command.rs` and `crates/service/tests/integration/main.rs` (module declarations).
+Touches: `crates/service/src/http.rs` (`AppState` with `FromRef`, module `docs`), `crates/service/src/lib.rs` (module declarations), `crates/service/src/command.rs` (the two export arms and module declaration), `crates/service/tests/integration/main.rs` (module declaration), `crates/service/tests/integration/check_config.rs` (the cases `openapi-export` and `graphql-export` leave the test of the commands that are not available yet).
 Implements: FR2, FR8, FR9, FR11, FR18, FR24, FR71, FR72, FR73, FR74, NFR7, NFR13, NFR24, NFR47, G17.
 Reference: architecture.md AD-16, AD-17, AD-18, AD-19, AD-14 (page-specific policies), "Domain and Application Design" ("Composition root: `service`": `http.rs`, `openapi.rs`, `graphql/schema.rs`, `graphql/handler.rs`), "API Contract" (all subsections), "Quality Gates" ("Gate commands": QG-19), "Test Architecture" (required-test rows FR9, FR9/NFR13/PD-27 and FR24(d)); architecture-delivery.md DD-10, "Command Surface" (targets `generate-openapi-spec`, `generate-graphql-spec`, `validate-contract-snapshots`, `validate-openapi-spec`).
 Pitfalls: PF-01, PF-13, PF-14, PF-15, PF-16, PF-17.
@@ -1860,11 +1860,11 @@ So that deployments, restarts and outages behave predictably and are observable.
 Track: A.
 Depends on: 7.5.
 Owns: `crates/service/src/command/serve.rs`, `crates/service/src/command/healthcheck.rs`, `crates/service/src/telemetry.rs`, `crates/service/tests/integration/serve.rs`, `crates/service/tests/integration/panic.rs`, `crates/service/tests/integration/healthcheck.rs`.
-Touches: `crates/service/src/lib.rs` (the last two dispatch arms and module declaration), `crates/service/src/command.rs` and `crates/service/tests/integration/main.rs` (module declarations), `crates/service/tests/integration/support.rs` (log-line reader, SIGTERM, socket and timing helpers); `.github/openapi-spec/spec.yaml` and files under `crates/` (only where the early Schemathesis run of this story exposes a difference between the document and the behaviour).
+Touches: `crates/service/src/lib.rs` (module declaration `telemetry`), `crates/service/src/command.rs` (the last two dispatch arms and module declarations), `crates/service/tests/integration/main.rs` (module declarations), `crates/service/tests/integration/check_config.rs` (the test of the commands that are not available yet is removed, since no such command remains), `crates/service/tests/integration/support.rs` (log-line reader, SIGTERM, socket and timing helpers); `.github/openapi-spec/spec.yaml` and files under `crates/` (only where the early Schemathesis run of this story exposes a difference between the document and the behaviour).
 Implements: FR1, FR2, FR10, FR12, FR87, FR126, NFR2, NFR3, NFR5, NFR31.
 Reference: architecture.md AD-12, AD-13, AD-15 (a forced end of the grace period exits non-zero), "Configuration" ("Binary `service`: subcommands and exit statuses": rows `serve`, `healthcheck`), "Observability and Operations" ("Log line schema", "Operations": shutdown sequence, panics, start-up), "Workspace and Project Structure" (tree: the case lists of `tests/integration/serve.rs`, `panic.rs` and `healthcheck.rs`), "Test Architecture" (required-test rows PD-21/NFR5, NFR31 and FR126/NFR2/NFR3), "Implementation Patterns and Consistency Rules" (rule 23), "Architecture Validation Results" ("Risks": Schemathesis ran against the first form of the page parameters); architecture-delivery.md "Command Surface" (target `schemathesis-validate` with a caller-set `SCHEMATHESIS_URL`).
 Pitfalls: PF-10, PF-12, PF-19, PF-20, PF-22, PF-23, PF-36, PF-50.
-Verify: `make setup-test-db`; `make integration-tests`; `make unit-tests`; `make format-check`; `make lint-code`; `make lint-rustdoc`; `make complexity`; `make architecture`; `grep -c "is not available yet" crates/service/src/lib.rs` (expected output `0`); `scripts/with-env.sh .env .env.test -- cargo llvm-cov nextest --locked -p service --profile ci --summary-only`; `scripts/with-env.sh .env .env.test -- env -u CARGO_TARGET_DIR -u CARGO_BUILD_WARNINGS cargo mutants --cargo-arg=--locked -p service -f crates/service/src/lib.rs -f crates/service/src/command/serve.rs -f crates/service/src/command/healthcheck.rs -f crates/service/src/telemetry.rs`; `mkdir -p target/reports && APP_PORT=18082 scripts/with-env.sh .env .env.test -- cargo run --locked --quiet -p service -- serve > target/reports/early-serve.log & pid=$!; for i in $(seq 1 120); do curl -fsS http://127.0.0.1:18082/ping > /dev/null && break; sleep 1; done; make schemathesis-validate SCHEMATHESIS_URL=http://127.0.0.1:18082; status=$?; kill -TERM "$pid"; wait "$pid"; test "$status" -eq 0`.
+Verify: `make setup-test-db`; `make integration-tests`; `make unit-tests`; `make format-check`; `make lint-code`; `make lint-rustdoc`; `make complexity`; `make architecture`; `grep -c "is not available yet" crates/service/src/lib.rs` (expected output `0`); `scripts/with-env.sh .env .env.test -- cargo llvm-cov nextest --locked -p service --profile ci --summary-only`; `scripts/with-env.sh .env .env.test -- env -u CARGO_TARGET_DIR -u CARGO_BUILD_WARNINGS cargo mutants --cargo-arg=--locked -p service -f crates/service/src/lib.rs -f crates/service/src/command/serve.rs -f crates/service/src/command/healthcheck.rs -f crates/service/src/telemetry.rs`; `mkdir -p target/reports && cargo build --locked --quiet -p service; APP_PORT=18082 scripts/with-env.sh .env .env.test -- target/debug/service serve > target/reports/early-serve.log & pid=$!; for i in $(seq 1 120); do curl -fsS http://127.0.0.1:18082/ping > /dev/null && break; sleep 1; done; make schemathesis-validate SCHEMATHESIS_URL=http://127.0.0.1:18082; status=$?; kill -TERM "$pid"; wait "$pid"; serve_status=$?; test "$status" -eq 0 && test "$serve_status" -eq 0` (the built binary is started through `scripts/with-env.sh`, which replaces itself with it, so `$pid` is the service and its exit status after SIGTERM is checked).
 
 **Acceptance Criteria:**
 
@@ -2220,7 +2220,7 @@ Depends on: 1.4.
 Owns: `specs/rust-service-template-bootstrap/` (the directory already exists with earlier copies; this story adds the parity matrix and the bundle index and copies the sources again).
 Touches: none.
 Implements: FR112, NFR27.
-Reference: architecture-delivery.md "AI Guidance and Documentation" ("`.claude/commands` and bmalph": `specs/` layout), "Repository File Manifest" (`tests/Load/` and `specs/` table: the eleven bundle files); scope-decisions.md section 8.10; PRD "Traceability" (catalog ids to requirements, audit problems P1 to P28); `research/capability-catalog.md`.
+Reference: architecture-delivery.md "AI Guidance and Documentation" ("`.claude/commands` and bmalph": `specs/` layout), "Repository File Manifest" (`tests/Load/` and `specs/` table: the eleven bundle files of the layout and `scope-decisions.md`); scope-decisions.md section 8.10; PRD "Traceability" (catalog ids to requirements, audit problems P1 to P28); `research/capability-catalog.md`.
 Verify: `for f in README research capability-catalog product-brief prd architecture architecture-delivery epics implementation-readiness parity-matrix run-summary; do test -s specs/rust-service-template-bootstrap/$f.md || echo "missing $f"; done` (expected: no output); `for f in prd architecture architecture-delivery epics product-brief research; do cmp _bmad-output/planning-artifacts/$f.md specs/rust-service-template-bootstrap/$f.md; done`.
 
 **Acceptance Criteria:**
@@ -2243,7 +2243,7 @@ Verify: `for f in README research capability-catalog product-brief prd architect
 
 **Given** `README.md` of the bundle
 **When** it is read
-**Then** it lists the eleven files with one line each and states that the raw research reports stay local under `_bmad-output/`
+**Then** it lists the eleven files of the layout and `scope-decisions.md` with one line each and states that the raw research reports stay local under `_bmad-output/`
 
 ## Epic 9: Every Gate Proven Locally
 
@@ -2341,7 +2341,7 @@ Touches: test files under `crates/` and `xtask/` (assertions added to kill survi
 Implements: FR59, NFR20, G15.
 Reference: architecture.md AD-24 ("Mutation"), "Quality Gates" ("Gate commands": QG-17 and its note; "`.cargo/mutants.toml`"; "`.config/nextest.toml`": profile `mutants`), "Test Architecture" ("Coverage and mutation"); architecture-delivery.md DD-09, "Command Surface" (target `mutation-tests`; variable `MUTANTS_SHARD`; "`make/gates.mk`": `MUTANTS_CMD`).
 Pitfalls: PF-11, PF-32, PF-41.
-Verify: `make setup-test-db`; `for k in 1 2 3 4 5 6 7 8; do make mutation-tests MUTANTS_SHARD=$k/8 || exit 1; done`; `make tests-with-coverage`; `git status --porcelain`.
+Verify: `make setup-test-db`; `for k in 0 1 2 3 4 5 6 7; do make mutation-tests MUTANTS_SHARD=$k/8 || exit 1; done`; `make tests-with-coverage`; `git status --porcelain`.
 
 **Acceptance Criteria:**
 
@@ -2494,7 +2494,7 @@ Verify: `make bats BATS_PATH="tests/CLI/bats/make_tests.bats tests/CLI/bats/make
 
 **Given** a committed tree
 **When** `make new-context group=bats-group context=bats-context` runs in `make_scaffolding.bats`
-**Then** three crates are created, and `validate-manifest`, `architecture`, `check-crate-isolation` and `unused-dependencies` pass with no path of `cargo xtask config-guard --list` modified; missing parameters fail with the usage line and an existing context name is refused
+**Then** three crates are created, `validate-manifest`, `architecture` and `check-crate-isolation` pass with no path of `cargo xtask config-guard --list` modified, and `unused-dependencies` gives the same status and output as on the tree before the scaffolding (it passes when it passed there; the new crates add no finding); missing parameters fail with the usage line and an existing context name is refused
 **And** `teardown` removes the crates and restores `Cargo.toml` and `Cargo.lock` (registered with `plant_replace` and `plant_keep`), so the output of `git status --porcelain` is the same before and after the file
 
 **Given** the run of the first command of the Verify line
@@ -2690,7 +2690,7 @@ Verify: `make bats BATS_PATH="tests/CLI/bats/make_execution_mode.bats tests/CLI/
 
 **Given** the lifecycle tests
 **When** they run
-**Then** `make start` returns with `GET /ping` answering `pong` and `GET /api/health` answering 204 after the `migrate` step succeeded; no mount of the `app` container lies below `/app`, and `make start` creates no new entry at the top of the checkout (the form of "no entry belongs to another user" that also holds when the suite runs as root); `make start-deps` on a running environment recreates no container; `timeout 5 make logs` exits 124 and shows `"message":"listening"`; `make new-logs` with a concurrent ping shows `request completed` and `/ping`; a second project (`PROJECT_NAME=bats-alt DB_PORT=<free> LOCALSTACK_PORT=<free> make start-deps`) creates containers whose names start with `bats-alt` and is removed with `docker compose -p bats-alt down --volumes`; `make stop` and `make down` succeed
+**Then** `make start` returns with `GET /ping` answering `pong` and `GET /api/health` answering 204 after the `migrate` step succeeded; no mount of the `app` container lies below `/app`, and `make start` creates no new entry at the top of the checkout (the form of "no entry belongs to another user" that also holds when the suite runs as root); `make start-deps` on a running environment recreates no container; `timeout 5 make logs` exits 124 and shows `"message":"listening"`; `make new-logs` with a concurrent ping shows `request completed` and `/ping`; a second project (`PROJECT_NAME=bats-alt-<pid>-<random> DB_PORT=<free> LOCALSTACK_PORT=<free> make start-deps`) creates containers whose names start with that name and is removed with `docker compose -p <that name> down --volumes`; `make stop` and `make down` succeed
 **And** `make start-deps` with `DB_PORT` set to an occupied port exits non-zero
 
 **Given** the running development environment
@@ -2737,7 +2737,7 @@ Verify: `make lint-actions`; `make lint-yaml`; `make lint-prettier`; `make lint-
 
 **Given** `scripts/ci/mutation-plan.sh`
 **When** it runs with `EVENT_NAME` and `BASE_REF` for a pull request and for a push, in a temporary git repository that holds a small crate
-**Then** it prints `count=<n>` and `shards=<JSON>` with one `{index, shard}` object per 150 mutants, at least 1 and at most 8 (`shards=[]` for 0 mutants; exit status 2 for a base that cannot be resolved); in `tests.yml` the shard job is skipped when `count` is `0`, has a 45-minute timeout and uploads `mutants-${{ matrix.index }}`, and the aggregator `mutation-tests` fails unless every shard succeeded or was skipped
+**Then** it prints `count=<n>` and `shards=<JSON>` with one `{index, shard}` object per 150 mutants (`index` from 1 to n, `shard` the 0-based value `<index-1>/<n>` that `cargo mutants --shard` takes), at least 1 and at most 8 (`shards=[]` for 0 mutants; exit status 2 for a base that cannot be resolved); in `tests.yml` the shard job is skipped when `count` is `0`, has a 45-minute timeout and uploads `mutants-${{ matrix.index }}`, and the aggregator `mutation-tests` fails unless every shard succeeded or was skipped
 
 **Given** `scripts/ci/detect-changes.sh` in a temporary git repository
 **When** it is run with `BASE_SHA` and `HEAD_SHA` for a change that touches only `docs/x.md` and `README.md`, and for a change that also touches `crates/service/src/lib.rs`

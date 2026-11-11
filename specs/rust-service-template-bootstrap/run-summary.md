@@ -134,10 +134,11 @@ Records the readiness review asked for:
   means the two seeds; NFR23 counts files that an external reader consumes.
 - The core revision lists 8 findings applied in adapted form; its summary
   counted 9.
-- The core document still says "four shards" in places where the delivery
-  document and the stories use one shard per 150 mutants, up to 8. The
-  delivery document and the stories are right; the core text is corrected
-  with the deviation entries before the last story.
+- The core document said "four shards" in places where the delivery
+  document and the stories use one shard per 150 mutants, up to 8. The core
+  text (AD-24, QG-17 and the first row of its risk table) was corrected
+  together with the deviation entries before the last story; every document
+  now counts the shard `k` of `--shard k/n` from 0 to n-1.
 
 Blockers: none.
 
