@@ -1,0 +1,4 @@
+
+fn planted_raw_value(raw: &serde_json::value::RawValue) -> usize {
+    raw.get().len()
+}
