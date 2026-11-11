@@ -49,4 +49,4 @@ description: Use when running the repository checks or fixing a failing gate bef
 make ci-list
 ```
 
-Pick the skill named above for the failing stage; `quality-standards` lists every gate.
+Pick the skill named above for the failing gate; `quality-standards` lists every gate.
