@@ -6,8 +6,9 @@
 #
 # Steps: `gitleaks git` over the full history; then `gitleaks dir` over a temporary copy of the
 # files that `git ls-files --cached --others --exclude-standard` lists (tracked files and untracked
-# files that are not ignored). Findings are redacted. The configuration is .gitleaks.toml and the
-# accepted findings are the fingerprints of .gitleaksignore.
+# files that are not ignored), run from inside the copy so that fingerprints are relative to the
+# repository. Findings are printed with rule, file and fingerprint, and the secret redacted.
+# The configuration is .gitleaks.toml and the accepted findings are the fingerprints of .gitleaksignore.
 # Environment: GITLEAKS_IMAGE (exported by the Makefile from make/tool-versions.mk), DOCKER (default docker).
 # Exit status: 0 no leak found; 1 a leak was found; 2 usage error or a tool that could not run.
 set -euo pipefail
@@ -60,17 +61,20 @@ status=0
 
 echo "secrets-scan: scanning the git history"
 if ! "${run_scanner[@]}" "${mounts[@]}" -w "${root}" "${GITLEAKS_IMAGE}" \
-  git --config .gitleaks.toml --gitleaks-ignore-path .gitleaksignore --redact --no-banner "${root}"; then
+  git --config .gitleaks.toml --gitleaks-ignore-path .gitleaksignore --redact --verbose --no-banner "${root}"; then
   status=1
 fi
 
 echo "secrets-scan: scanning the working files"
-git ls-files -z --cached --others --exclude-standard --deduplicate \
-  | tar --null --files-from=- --ignore-failed-read -cf - 2> /dev/null \
-  | tar -xf - -C "${copy_dir}" || true
+if ! git ls-files -z --cached --others --exclude-standard --deduplicate \
+  | tar --null --files-from=- --ignore-failed-read -cf - \
+  | tar -xf - -C "${copy_dir}"; then
+  echo "secrets-scan: could not copy the working files" >&2
+  exit 2
+fi
 if ! "${run_scanner[@]}" -v "${copy_dir}:/scan:ro" -v "${root}/.gitleaks.toml:/config/.gitleaks.toml:ro" \
-  -v "${root}/.gitleaksignore:/config/.gitleaksignore:ro" "${GITLEAKS_IMAGE}" \
-  dir --config /config/.gitleaks.toml --gitleaks-ignore-path /config/.gitleaksignore --redact --no-banner /scan; then
+  -v "${root}/.gitleaksignore:/config/.gitleaksignore:ro" -w /scan "${GITLEAKS_IMAGE}" \
+  dir --config /config/.gitleaks.toml --gitleaks-ignore-path /config/.gitleaksignore --redact --verbose --no-banner .; then
   status=1
 fi
 
