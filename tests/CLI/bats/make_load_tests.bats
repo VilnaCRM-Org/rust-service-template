@@ -207,3 +207,11 @@ STUB
   assert_output --partial 'no-console'
   assert_output --partial 'eqeqeq'
 }
+
+@test "G24: a prettier key in the package manifest of the load tests does not replace the root configuration" {
+  require_docker
+  jq '. + {prettier: {semi: false}}' tests/Load/package.json >"${BATS_TEST_TMPDIR}/package.json"
+  plant_replace tests/Load/package.json "${BATS_TEST_TMPDIR}/package.json"
+  run make --no-print-directory lint-load-tests
+  assert_success
+}

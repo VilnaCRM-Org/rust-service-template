@@ -1891,7 +1891,7 @@ Verify: `make setup-test-db`; `make integration-tests`; `make unit-tests`; `make
 
 **Given** `service healthcheck`
 **When** it is run with `APP_PORT` of a running service and with a port on which nothing listens
-**Then** it exits 0 and 1 respectively, using a plain TCP request with a 2 s timeout and no dependency access to `127.0.0.1` when `APP_HOST` is unset and to the address of `APP_HOST` otherwise (the loopback address of the same family for `0.0.0.0` and `::`), so a service bound to `127.0.0.2` is probed there
+**Then** it exits 0 and 1 respectively, using a plain TCP request with a 2 s timeout and no dependency access; the request goes to `127.0.0.1` when `APP_HOST` is unset and to the address of `APP_HOST` otherwise (the loopback address of the same family for `0.0.0.0` and `::`), so a service bound to `127.0.0.2` is probed there
 **And** `grep -rl "MIGRATOR" crates/service/src` prints only `crates/service/src/command/migrate.rs`: start-up never migrates
 
 **Given** the development services, a prepared test database and the service started on the host by the last command of the Verify line (`APP_PORT=18082`, the variables of `.env` and `.env.test`)

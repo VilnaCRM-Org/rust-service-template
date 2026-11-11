@@ -577,7 +577,7 @@ features/
 crates/shared/domain/                         crate shared-domain
   Cargo.toml
   src/lib.rs                       crate docs, module declarations, re-exports of the public items
-  src/error.rs                     `BoxError` type alias, `error_chain`
+  src/error.rs (+tests)            `BoxError` type alias, `error_chain`
   src/aggregate.rs (+tests)        `AggregateRoot`, `RecordedEvents`
   src/event.rs                     `DomainEvent`, `DomainEventSubscriber`
   src/bus.rs                       module declarations for the four files below

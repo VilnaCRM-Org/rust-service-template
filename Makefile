@@ -206,7 +206,7 @@ format-repo: ## Format TOML, YAML, JSON and the load-test JavaScript
 	$(REQUIRE_DOCKER)
 	$(EXEC) taplo fmt
 	$(NODE_RUN) sh -c '$(PNPM_INSTALL) && corepack pnpm exec prettier --write $(PRETTIER_REPO_ARGS)'
-	$(NODE_RUN) sh -c '$(PNPM_INSTALL) && corepack pnpm exec prettier --write . "!results/**" "!pnpm-lock.yaml"'
+	$(NODE_RUN) sh -c '$(PNPM_INSTALL) && corepack pnpm exec prettier --write --config /repo/.prettierrc.yml . "!results/**" "!pnpm-lock.yaml"'
 
 lint-code: ## Lint production code, then all targets with tests relaxed
 	$(EXEC) $(LINT_PROD_CMD)
@@ -384,7 +384,7 @@ aws-load-tests-cleanup: ## Remove everything aws-load-tests created
 
 lint-load-tests: ## Lint and format-check the load-test JavaScript
 	$(REQUIRE_DOCKER)
-	$(NODE_RUN) sh -c '$(PNPM_INSTALL) && corepack pnpm exec eslint . && corepack pnpm exec prettier --check . "!results/**" "!pnpm-lock.yaml"'
+	$(NODE_RUN) sh -c '$(PNPM_INSTALL) && corepack pnpm exec eslint . && corepack pnpm exec prettier --check --config /repo/.prettierrc.yml . "!results/**" "!pnpm-lock.yaml"'
 
 # ---------------------------------------------------------------------------------------------------------------
 # Database
