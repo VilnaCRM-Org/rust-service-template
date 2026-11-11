@@ -14,6 +14,9 @@ A clear and concise description of the bug.
 
 The request, Make target or command that triggers it:
 
+- Endpoint (method and path):
+- Request (headers and body, secrets removed):
+
 1. ...
 2. ...
 
