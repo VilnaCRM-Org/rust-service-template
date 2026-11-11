@@ -17,9 +17,6 @@ pub const API_VERSION: &str = "1.0.0";
 #[derive(Debug, OpenApi)]
 #[openapi(
     info(
-        title = "placeholder",
-        description = "placeholder",
-        version = "0.0.0",
         contact(name = "VilnaCRM Support", email = "support@vilnacrm.com"),
         license(name = "CC0-1.0", url = "https://creativecommons.org/publicdomain/zero/1.0/"),
     ),

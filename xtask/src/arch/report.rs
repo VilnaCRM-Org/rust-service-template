@@ -58,10 +58,25 @@ fn block(violation: &Violation, github: bool) -> String {
     let (manifest, message, hint) = (&violation.manifest, &violation.message, &violation.hint);
     let diagnostic = format!("error[arch::{rule}]: {message}\n  --> {manifest}\n   = help: {hint}");
     if github {
-        format!("{diagnostic}\n::error file={manifest},title=Architecture ({rule})::{message}")
+        let file = escape_property(manifest);
+        let title = escape_property(&format!("Architecture ({rule})"));
+        let data = escape_data(message);
+        format!("{diagnostic}\n::error file={file},title={title}::{data}")
     } else {
         diagnostic
     }
+}
+
+/// The message of a workflow command: `%`, CR and LF are escaped (`%` first).
+fn escape_data(text: &str) -> String {
+    text.replace('%', "%25")
+        .replace('\r', "%0D")
+        .replace('\n', "%0A")
+}
+
+/// A property value of a workflow command: the message escapes plus `:` and `,`.
+fn escape_property(text: &str) -> String {
+    escape_data(text).replace(':', "%3A").replace(',', "%2C")
 }
 
 #[cfg(test)]

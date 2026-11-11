@@ -46,6 +46,10 @@ for tool in docker git; do
   command -v "${tool}" >/dev/null 2>&1 || config_fail "${tool} is required and was not found on PATH."
 done
 
+# The options are the only input of these variables: clear them, so that a variable of the same name in
+# the caller's environment cannot take the place of an option that was not given.
+REGION="" AMI_ID="" INSTANCE_TYPE="" INSTANCE_TAG="" ROLE_NAME="" BRANCH_NAME="" SECURITY_GROUP_NAME="" LOAD_TARGET=""
+
 OPTIND=1
 while getopts "r:a:t:i:o:b:s:l:" opt; do
   case ${opt} in

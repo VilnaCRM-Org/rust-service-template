@@ -130,7 +130,13 @@ fn an_approval_that_is_not_true_approves_nothing() {
     );
     assert_eq!(off.code, Some(1), "{}{}", off.stdout, off.stderr);
     assert!(off.stdout.ends_with(FAILED), "{}", off.stdout);
-    for value in ["0", "", "maybe"] {
+    let empty = repo.run(
+        &["config-guard", "--base", "HEAD"],
+        &[("CONFIG_CHANGE_APPROVED", "")],
+    );
+    assert_eq!(empty.code, Some(1), "{}{}", empty.stdout, empty.stderr);
+    assert!(empty.stdout.ends_with(FAILED), "{}", empty.stdout);
+    for value in ["0", "maybe"] {
         let run = repo.run(
             &["config-guard", "--base", "HEAD"],
             &[("CONFIG_CHANGE_APPROVED", value)],

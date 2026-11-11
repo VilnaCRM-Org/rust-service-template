@@ -1,7 +1,5 @@
 //! The GraphQL transport: `POST /api/graphql` and the development explorer (AD-18).
 
-use std::future::{Ready, ready};
-
 use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -46,17 +44,12 @@ fn to_request(body: Map<String, Value>) -> Option<async_graphql::Request> {
 }
 
 /// The development explorer page with its own content security policy.
-///
-/// A plain function returning a ready future: the handler awaits nothing, and `unused_async`
-/// rejects an `async fn` that does not.
-pub fn explorer() -> Ready<Response> {
-    ready(
-        (
-            [(CONTENT_SECURITY_POLICY, EXPLORER_CONTENT_SECURITY_POLICY)],
-            Html(EXPLORER_PAGE),
-        )
-            .into_response(),
+pub async fn explorer() -> Response {
+    (
+        [(CONTENT_SECURITY_POLICY, EXPLORER_CONTENT_SECURITY_POLICY)],
+        Html(EXPLORER_PAGE),
     )
+        .into_response()
 }
 
 #[cfg(test)]

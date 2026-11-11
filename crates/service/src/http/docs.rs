@@ -1,6 +1,5 @@
 //! The documentation page, the `OpenAPI` document as JSON and the Swagger UI assets (AD-19).
 
-use std::future::{Ready, ready};
 use std::sync::Arc;
 
 use axum::Json;
@@ -22,35 +21,30 @@ const DOCUMENT_URL: &str = "/api/docs/openapi.json";
 const DOCS_PAGE: &str = include_str!("docs.html");
 
 /// `GET /api/docs`: the page, answered directly with no redirect.
-///
-/// The handlers of this module are plain functions returning ready futures: they await nothing,
-/// and `unused_async` rejects an `async fn` that does not.
-pub fn docs_page() -> Ready<Response> {
-    ready(
-        (
-            [(CONTENT_SECURITY_POLICY, DOCS_CONTENT_SECURITY_POLICY)],
-            Html(DOCS_PAGE),
-        )
-            .into_response(),
+pub async fn docs_page() -> Response {
+    (
+        [(CONTENT_SECURITY_POLICY, DOCS_CONTENT_SECURITY_POLICY)],
+        Html(DOCS_PAGE),
     )
+        .into_response()
 }
 
 /// `GET /api/docs/openapi.json`: the `OpenAPI` document.
-pub fn openapi_json() -> Ready<Json<OpenApi>> {
-    ready(Json(openapi::document()))
+pub async fn openapi_json() -> Json<OpenApi> {
+    Json(openapi::document())
 }
 
 /// `GET /api/docs/{*file}`: an embedded Swagger UI file, or the 404 problem.
-pub fn docs_asset(Path(file): Path<String>) -> Ready<Response> {
+pub async fn docs_asset(Path(file): Path<String>) -> Response {
     let config = Arc::new(utoipa_swagger_ui::Config::from(DOCUMENT_URL));
-    ready(match utoipa_swagger_ui::serve(&file, config) {
+    match utoipa_swagger_ui::serve(&file, config) {
         Ok(Some(asset)) => (
             [(CONTENT_TYPE, asset.content_type)],
             asset.bytes.into_owned(),
         )
             .into_response(),
         Ok(None) | Err(_) => Problem::new(StatusCode::NOT_FOUND).into_response(),
-    })
+    }
 }
 
 #[cfg(test)]

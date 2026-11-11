@@ -3383,7 +3383,6 @@ dependencies = [
  "aws-config",
  "aws-sdk-sqs",
  "moka",
- "rstest",
  "shared-domain",
  "sqlx",
  "thiserror",

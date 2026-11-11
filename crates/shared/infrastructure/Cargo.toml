@@ -19,7 +19,6 @@ thiserror.workspace = true
 uuid = { workspace = true, features = ["v7"] }
 
 [dev-dependencies]
-rstest.workspace = true
 tokio.workspace = true
 
 [lints]

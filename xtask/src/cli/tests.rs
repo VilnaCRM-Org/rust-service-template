@@ -342,3 +342,49 @@ fn the_help_names_the_command_and_its_two_names() {
     assert!(help.stdout.contains("<CONTEXT>"), "{}", help.stdout);
     assert!(run(&["xtask", "--help"]).stdout.contains("new-context"));
 }
+
+#[test]
+fn the_approval_is_true_false_or_empty_and_nothing_else() {
+    use super::approval;
+
+    assert_eq!(approval("true"), Ok(true));
+    assert_eq!(approval("false"), Ok(false));
+    assert_eq!(approval(""), Ok(false));
+    for other in ["0", "1", "maybe", "TRUE", " true"] {
+        assert_eq!(
+            approval(other),
+            Err(format!("`{other}` is not `true` or `false`"))
+        );
+    }
+}
+
+#[test]
+fn the_approval_flag_parses_bare_and_with_a_value_and_defaults_to_not_approved() {
+    use clap::Parser as _;
+
+    use super::{Cli, Command};
+
+    let approved = |extra: &[&str]| -> Result<Option<bool>, clap::Error> {
+        let args = ["xtask", "config-guard"].iter().chain(extra);
+        Cli::try_parse_from(args).map(|cli| match cli.command {
+            Command::ConfigGuard(guard) => Some(guard.approved),
+            Command::Arch(_) | Command::NewContext(_) => None,
+        })
+    };
+
+    assert_eq!(approved(&[]).ok(), Some(Some(false)));
+    for (flag, expected) in [
+        ("--config-change-approved", true),
+        ("--config-change-approved=true", true),
+        ("--config-change-approved=false", false),
+        ("--config-change-approved=", false),
+    ] {
+        assert_eq!(approved(&[flag]).ok(), Some(Some(expected)), "{flag}");
+    }
+    assert!(approved(&["--config-change-approved=maybe"]).is_err());
+    assert_eq!(
+        approved(&["--config-change-approved", "--list"]).ok(),
+        Some(Some(true)),
+        "the bare flag does not swallow the next option"
+    );
+}

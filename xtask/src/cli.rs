@@ -56,8 +56,25 @@ struct GuardArgs {
     #[arg(long)]
     list: bool,
     /// Waive modifications and overrides (CI sets it when the pull request has the approval label)
-    #[arg(long = "config-change-approved", env = "CONFIG_CHANGE_APPROVED")]
+    #[arg(
+        long = "config-change-approved",
+        env = "CONFIG_CHANGE_APPROVED",
+        value_parser = approval,
+        num_args = 0..=1,
+        default_missing_value = "true",
+        default_value = "false",
+    )]
     approved: bool,
+}
+
+/// Reads the approval: `true` waives, `false` and the empty string (an unset CI variable) do not,
+/// anything else is a usage error.
+fn approval(value: &str) -> Result<bool, String> {
+    match value {
+        "true" => Ok(true),
+        "" | "false" => Ok(false),
+        other => Err(format!("`{other}` is not `true` or `false`")),
+    }
 }
 
 #[derive(Debug, Args)]

@@ -90,3 +90,74 @@ fn github_mode_adds_one_annotation_per_violation() {
 fn github_mode_adds_nothing_to_a_clean_report() {
     assert_eq!(rendered(&[], true), rendered(&[], false));
 }
+
+fn annotation_of(manifest: &str, message: &str) -> String {
+    let text = rendered(
+        &[Violation {
+            rule: Rule::Layer,
+            manifest: manifest.to_owned(),
+            message: message.to_owned(),
+            hint: "invert it".to_owned(),
+        }],
+        true,
+    );
+    text.lines()
+        .find(|line| line.starts_with("::error "))
+        .unwrap()
+        .to_owned()
+}
+
+#[test]
+fn a_message_with_a_percent_sign_and_line_breaks_is_escaped_in_the_annotation() {
+    let text = rendered(
+        &[Violation {
+            rule: Rule::Layer,
+            manifest: "crates/a/Cargo.toml".to_owned(),
+            message: "100% of\r\nthe: lines, here\nand there".to_owned(),
+            hint: "invert it".to_owned(),
+        }],
+        true,
+    );
+
+    assert!(
+        text.contains(
+            "\n::error file=crates/a/Cargo.toml,title=Architecture (layer)::\
+             100%25 of%0D%0Athe: lines, here%0Aand there\n"
+        ),
+        "{text}"
+    );
+}
+
+#[test]
+fn the_plain_report_does_not_escape_anything() {
+    let text = rendered(
+        &[Violation {
+            rule: Rule::Layer,
+            manifest: "dir:one,two/Cargo.toml".to_owned(),
+            message: "100% of\nthe lines".to_owned(),
+            hint: "invert it".to_owned(),
+        }],
+        false,
+    );
+
+    assert!(
+        text.starts_with("error[arch::layer]: 100% of\nthe lines\n  --> dir:one,two/Cargo.toml\n")
+    );
+    assert!(!text.contains("%25") && !text.contains("%0A"));
+}
+
+#[test]
+fn a_property_value_with_a_comma_a_colon_a_percent_sign_or_a_line_break_is_escaped() {
+    assert_eq!(
+        annotation_of("dir:one,two%\r\n/Cargo.toml", "m"),
+        "::error file=dir%3Aone%2Ctwo%25%0D%0A/Cargo.toml,title=Architecture (layer)::m"
+    );
+}
+
+#[test]
+fn a_message_keeps_its_colons_and_commas() {
+    assert_eq!(
+        annotation_of("Cargo.toml", "a: b, c"),
+        "::error file=Cargo.toml,title=Architecture (layer)::a: b, c"
+    );
+}
