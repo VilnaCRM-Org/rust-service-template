@@ -42,7 +42,9 @@ register_rewritten_files() {
   local baseline_status="${status}" baseline_output="${output}"
   register_rewritten_files
   before="$(tree_status)"
-  mapfile -t protected < <(cargo xtask config-guard --list)
+  # Whole files only: an entry with `#` is a section or pointer item of a file that the scaffolding legitimately
+  # rewrites (`Cargo.toml`); the guard below covers those.
+  mapfile -t protected < <(cargo xtask config-guard --list | grep -v '#')
   protected_before="$(git status --porcelain -- "${protected[@]}")"
 
   run make --no-print-directory new-context group=bats-group context=bats-context
@@ -63,13 +65,21 @@ register_rewritten_files() {
   run make --no-print-directory check-crate-isolation
   assert_success
   run make --no-print-directory unused-dependencies
-  [[ "${status}" -eq "${baseline_status}" ]]
-  [[ "${output}" == "${baseline_output}" ]]
+  if [[ "${baseline_status}" -eq 0 ]]; then
+    assert_success
+  else
+    [[ "${status}" -eq "${baseline_status}" ]]
+    [[ "${output}" == "${baseline_output}" ]]
+  fi
 
   # No path of the protected-file list is modified: its status is what it was before the target ran.
-  mapfile -t protected < <(cargo xtask config-guard --list)
+  mapfile -t protected < <(cargo xtask config-guard --list | grep -v '#')
   [[ "${#protected[@]}" -gt 0 ]]
   [[ "${protected_before}" == "$(git status --porcelain -- "${protected[@]}")" ]]
+  # The guard itself compares the working tree with the committed tree, section items included
+  # (`Cargo.toml#workspace.lints`), which a pathspec cannot do.
+  run cargo xtask config-guard --base HEAD
+  assert_success
   [[ "${before}" != "$(tree_status)" ]]
 }
 
