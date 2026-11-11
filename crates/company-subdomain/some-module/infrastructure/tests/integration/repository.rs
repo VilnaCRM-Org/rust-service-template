@@ -39,7 +39,9 @@ async fn a_saved_resource_is_found_by_its_id(pool: PgPool) {
 #[sqlx::test(migrator = "shared_infrastructure::persistence::MIGRATOR")]
 async fn an_unknown_id_is_not_found(pool: PgPool) {
     let repository = PgExampleApiResourceRepository::new(pool);
-    let unknown = resources(1).remove(0).id();
+    let mut stored = resources(2);
+    let unknown = stored.remove(1).id();
+    repository.save(&stored[0]).await.unwrap();
 
     let found = repository.find_by_id(unknown).await.unwrap();
 
@@ -133,16 +135,21 @@ async fn an_unreachable_database_is_unavailable_within_the_acquire_timeout() {
     .unwrap();
     let repository = PgExampleApiResourceRepository::new(pool);
     let resource = resources(1).remove(0);
-    let started = Instant::now();
+    let bound = acquire_timeout + Duration::from_secs(1);
 
+    let started = Instant::now();
     let saved = repository.save(&resource).await.unwrap_err();
+    assert!(started.elapsed() < bound);
+    let started = Instant::now();
     let found = repository.find_by_id(resource.id()).await.unwrap_err();
+    assert!(started.elapsed() < bound);
+    let started = Instant::now();
     let paged = repository
         .find_page(PageRequest::new(1, 1).unwrap())
         .await
         .unwrap_err();
+    assert!(started.elapsed() < bound);
 
-    assert!(started.elapsed() < (acquire_timeout + Duration::from_secs(1)) * 3);
     for error in [saved, found, paged] {
         assert!(matches!(error, RepositoryError::Unavailable(_)));
         let text = format!("{error} {error:?}").to_lowercase();
