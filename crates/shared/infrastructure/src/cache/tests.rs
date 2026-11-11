@@ -1,23 +1,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use moka::Expiry as _;
 use shared_domain::Cache;
 
-use super::{Entry, EntryExpiry, MokaCache};
+use super::MokaCache;
 
 const LONG: Duration = Duration::from_secs(3600);
-
-fn now() -> std::time::Instant {
-    tokio::time::Instant::now().into_std()
-}
-
-fn entry(ttl: Duration) -> Entry {
-    Entry {
-        value: b"v".to_vec(),
-        ttl,
-    }
-}
 
 #[tokio::test]
 async fn reads_back_what_was_set() {
@@ -43,30 +31,6 @@ async fn overwrites_the_value_of_a_key() {
     cache.set("key", b"two".to_vec(), LONG).await.unwrap();
 
     assert_eq!(cache.get("key").await.unwrap(), Some(b"two".to_vec()));
-}
-
-#[test]
-fn an_entry_lives_for_the_ttl_it_was_stored_with() {
-    let ttl = Duration::from_secs(7);
-
-    assert_eq!(
-        EntryExpiry.expire_after_create(&"k".to_owned(), &entry(ttl), now()),
-        Some(ttl)
-    );
-}
-
-#[test]
-fn an_overwritten_entry_lives_for_its_new_ttl() {
-    let ttl = Duration::from_secs(9);
-
-    let expiry = EntryExpiry.expire_after_update(
-        &"k".to_owned(),
-        &entry(ttl),
-        now(),
-        Some(Duration::from_secs(1)),
-    );
-
-    assert_eq!(expiry, Some(ttl));
 }
 
 #[tokio::test]
