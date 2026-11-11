@@ -32,8 +32,8 @@ jobs:
           fetch-depth: 0
       - id: detect
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: scripts/ci/detect-changes.sh >> "$GITHUB_OUTPUT"
 
   title:
@@ -51,6 +51,7 @@ jobs:
 
   validate-configuration:
     name: Protected configuration
+    if: ${{ github.event_name == 'pull_request' || github.event.before != '0000000000000000000000000000000000000000' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -70,7 +71,7 @@ jobs:
   openapi-diff:
     name: OpenAPI breaking changes
     needs: changes
-    if: ${{ needs.changes.outputs.code == 'true' }}
+    if: ${{ needs.changes.outputs.code == 'true' && (github.event_name == 'pull_request' || github.event.before != '0000000000000000000000000000000000000000') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -86,7 +87,7 @@ jobs:
   graphql-diff:
     name: GraphQL breaking changes
     needs: changes
-    if: ${{ needs.changes.outputs.code == 'true' }}
+    if: ${{ needs.changes.outputs.code == 'true' && (github.event_name == 'pull_request' || github.event.before != '0000000000000000000000000000000000000000') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
