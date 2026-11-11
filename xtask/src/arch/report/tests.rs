@@ -23,6 +23,7 @@ fn rendered(violations: &[Violation], github: bool) -> String {
     };
     let workspace = Workspace {
         crates: vec![member("a"), member("b"), member("c")],
+        ..Workspace::default()
     };
     render(&Summary::new(&config, &workspace, violations), github)
 }

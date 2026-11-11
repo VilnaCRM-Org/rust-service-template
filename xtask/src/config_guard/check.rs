@@ -7,7 +7,7 @@ use serde_json::Value as Json;
 use toml::Value as Toml;
 
 use super::Failure;
-use super::base::BaseTree;
+use super::base::{BaseTree, Mode};
 use super::list::{self, JsonValues, List, ManifestTable};
 
 /// What one protected item turned out to be.
@@ -77,24 +77,55 @@ fn files(list: &List, tree: &dyn BaseTree) -> Result<Vec<Verdict>, Failure> {
         .map(|path| list::directory(path))
         .collect();
     let mut paths: BTreeSet<String> = list.files.iter().cloned().collect();
-    paths.extend(tree.base_paths()?.into_iter().filter(|path| {
-        prefixes
-            .iter()
-            .any(|prefix| path.starts_with(prefix.as_str()))
-    }));
-    paths.iter().map(|path| file(tree, path)).collect()
+    let base = tree.base_paths()?;
+    paths.extend(
+        base.iter()
+            .filter(|path| {
+                prefixes.iter().any(|prefix| {
+                    path.starts_with(prefix.as_str()) || is_directory_entry(path, prefix)
+                })
+            })
+            .cloned(),
+    );
+    let mut verdicts: Vec<Verdict> = prefixes
+        .iter()
+        .filter(|prefix| base.iter().any(|path| path.starts_with(prefix.as_str())))
+        .map(|prefix| directory(tree, prefix.trim_end_matches('/')))
+        .collect();
+    for path in &paths {
+        verdicts.push(file(tree, path)?);
+    }
+    Ok(verdicts)
+}
+
+/// Whether a base path is the protected directory itself, recorded as a link or a file.
+fn is_directory_entry(path: &str, prefix: &str) -> bool {
+    path == prefix.trim_end_matches('/')
+}
+
+/// A protected directory that has files at the base ref must still be a directory: a link or a
+/// file in its place would hide every file below it from the comparison.
+fn directory(tree: &dyn BaseTree, path: &str) -> Verdict {
+    match tree.work_mode(path) {
+        Some(Mode::Link | Mode::Plain | Mode::Executable) => Verdict::Modified(modified(path)),
+        Some(Mode::Directory) | None => Verdict::Unchanged,
+    }
+}
+
+fn modified(path: &str) -> String {
+    format!("Modification of locked configuration file is not allowed: {path}")
 }
 
 fn file(tree: &dyn BaseTree, path: &str) -> Result<Verdict, Failure> {
     let Some(base) = tree.base_file(path)? else {
         return Ok(Verdict::New);
     };
-    Ok(if tree.work_file(path).as_ref() == Some(&base) {
+    let same = tree.work_file(path).as_ref() == Some(&base)
+        && tree.work_mode(path) == tree.base_mode(path)?;
+    Ok(if same {
         Verdict::Unchanged
     } else {
-        Verdict::Modified(format!(
-            "Modification of locked configuration file is not allowed: {path}"
-        ))
+        Verdict::Modified(modified(path))
     })
 }
 

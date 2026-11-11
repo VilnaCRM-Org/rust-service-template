@@ -1,6 +1,7 @@
 //! Unit tests of the parent module, against the in-memory tree.
 
 use super::super::Failure;
+use super::super::base::Mode;
 use super::super::list::{self, List};
 use super::super::memory::Memory;
 use super::{Findings, check};
@@ -388,4 +389,88 @@ fn findings_come_in_the_order_files_overrides_tables_values() {
             value_line("budgets.json", "/endpoints/health/stress/threshold"),
         ]
     );
+}
+
+#[test]
+fn a_changed_executable_bit_is_a_modification_even_with_equal_bytes() {
+    let tree = Memory::default()
+        .same("kept", "a")
+        .same("lost", "a")
+        .base_as("lost", Mode::Executable)
+        .same("gained", "a")
+        .work_as("gained", Mode::Executable)
+        .same("still", "a")
+        .base_as("still", Mode::Executable)
+        .work_as("still", Mode::Executable);
+    let text = "files = [\"kept\", \"lost\", \"gained\", \"still\"]";
+
+    assert_eq!(lines(&tree, text), [file_line("gained"), file_line("lost")]);
+}
+
+#[test]
+fn a_link_in_place_of_a_file_is_a_modification_and_an_unchanged_link_is_not() {
+    let tree = Memory::default()
+        .same("file", "a")
+        .work_as("file", Mode::Link)
+        .same("link", "target")
+        .base_as("link", Mode::Link)
+        .work_as("link", Mode::Link)
+        .on_base("retargeted", "one")
+        .base_as("retargeted", Mode::Link)
+        .in_work("retargeted", "two")
+        .work_as("retargeted", Mode::Link);
+    let text = "files = [\"file\", \"link\", \"retargeted\"]";
+
+    assert_eq!(
+        lines(&tree, text),
+        [file_line("file"), file_line("retargeted")]
+    );
+}
+
+#[test]
+fn a_protected_directory_that_is_a_link_or_a_file_is_a_modification_of_the_directory() {
+    let text = "directories = [\"guarded/\"]";
+    for mode in [Mode::Link, Mode::Plain, Mode::Executable] {
+        let tree = Memory::default()
+            .on_base("guarded/one.txt", "1")
+            .in_work("guarded", "x")
+            .work_as("guarded", mode);
+
+        assert_eq!(
+            lines(&tree, text),
+            [file_line("guarded"), file_line("guarded/one.txt")],
+            "{mode:?}"
+        );
+    }
+}
+
+#[test]
+fn a_protected_directory_that_is_a_directory_or_is_gone_adds_no_line_of_its_own() {
+    let text = "directories = [\"guarded/\"]";
+    let kept = Memory::default()
+        .same("guarded/one.txt", "1")
+        .directory("guarded");
+    let gone = Memory::default().on_base("guarded/one.txt", "1");
+
+    assert_eq!(lines(&kept, text), Vec::<String>::new());
+    assert_eq!(lines(&gone, text), [file_line("guarded/one.txt")]);
+}
+
+#[test]
+fn a_protected_directory_that_the_base_ref_holds_as_a_link_is_protected_as_that_link() {
+    let text = "directories = [\"guarded/\"]";
+    let same = Memory::default()
+        .same("guarded", "elsewhere")
+        .base_as("guarded", Mode::Link)
+        .work_as("guarded", Mode::Link);
+    let retargeted = Memory::default()
+        .on_base("guarded", "elsewhere")
+        .base_as("guarded", Mode::Link)
+        .in_work("guarded", "somewhere")
+        .work_as("guarded", Mode::Link);
+    let other = Memory::default().same("guarded-two/file", "x");
+
+    assert_eq!(lines(&same, text), Vec::<String>::new());
+    assert_eq!(lines(&retargeted, text), [file_line("guarded")]);
+    assert_eq!(lines(&other, text), Vec::<String>::new());
 }

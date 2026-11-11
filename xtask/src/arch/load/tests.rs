@@ -7,7 +7,7 @@ use serde_json::json;
 
 use super::super::Failure;
 use super::super::model::Crate;
-use super::super::model::Reach;
+use super::super::model::{Outside, Reach};
 use super::{Edges, config, inherits_lints, is_internal, reach_from, workspace};
 
 const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/arch");
@@ -331,4 +331,21 @@ fn a_package_without_edges_reaches_nothing_and_a_cycle_terminates() {
 
     assert_eq!(reach_from("lonely", &graph), []);
     assert_eq!(reach_from("a", &graph), [reach("b", &["b"])]);
+}
+
+#[test]
+fn a_local_crate_that_is_not_a_member_is_listed_and_a_vendored_one_outside_the_root_is_not() {
+    let outside = workspace(&fixture("outside/Cargo.toml")).unwrap().outside;
+
+    assert_eq!(
+        outside,
+        ["audit-core", "billing-core"].map(|name| Outside {
+            name: name.to_owned(),
+            manifest: format!("crates/{name}/Cargo.toml"),
+        })
+    );
+    // The stand-ins of third-party crates sit next to the workspace, not below its root.
+    let fixture_workspace = workspace(&fixture("workspace/Cargo.toml")).unwrap();
+    assert_eq!(fixture_workspace.outside, []);
+    assert!(!fixture_workspace.crates.is_empty());
 }

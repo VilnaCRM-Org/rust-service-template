@@ -5,7 +5,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use super::{Failure, Fault, Refusal, create, existing, relative, report, write};
+use super::{
+    Failure, Fault, Refusal, create, existing, listed, package_name, relative, report, write,
+};
 
 /// A temporary directory that is removed when it is dropped.
 struct Scratch(PathBuf);
@@ -316,4 +318,88 @@ fn the_report_lists_the_crates_and_the_remaining_steps() {
          \x20    a state field in `AppState`, its router in `openapi::api_router` and its GraphQL roots in `graphql::schema`.\n\
          \x20 4. Add its three components to workspace.dsl; until then the architecture model check fails."
     );
+}
+
+#[test]
+fn a_context_directly_below_crates_is_found() {
+    let scratch = Scratch::new();
+    scratch.file("crates/alpha/domain/Cargo.toml", "x");
+
+    assert_eq!(
+        existing(scratch.path(), "alpha"),
+        Some(scratch.path().join("crates/alpha"))
+    );
+    assert_eq!(existing(scratch.path(), "gamma"), None);
+}
+
+#[test]
+fn a_context_without_a_group_is_refused_and_changes_nothing() {
+    let scratch = Scratch::new();
+    let manifest = "[workspace]\nmembers = [\"crates/billing/domain\"]\n";
+    scratch.file("Cargo.toml", manifest);
+    scratch.file("crates/billing/domain/Cargo.toml", "x");
+    let before = scratch.files();
+
+    let failure = create(scratch.path(), "sales", "billing").unwrap_err();
+
+    assert_eq!(
+        failure.to_string(),
+        "the bounded context `billing` already exists at crates/billing"
+    );
+    assert_eq!(scratch.files(), before);
+    assert_eq!(scratch.read("Cargo.toml"), manifest);
+}
+
+#[test]
+fn a_member_that_names_or_places_the_context_is_listed_wherever_it_lies() {
+    let scratch = Scratch::new();
+    scratch.file(
+        "libs/core/Cargo.toml",
+        "[package]\nname = \"billing-infrastructure\"\n",
+    );
+    scratch.file("libs/other/Cargo.toml", "[package]\nname = \"other\"\n");
+    let members =
+        |paths: &[&str]| -> Vec<String> { paths.iter().map(|path| (*path).to_owned()).collect() };
+
+    assert_eq!(
+        listed(
+            scratch.path(),
+            "billing",
+            &members(&["libs/other", "libs/core"])
+        ),
+        Some(scratch.path().join("libs/core"))
+    );
+    assert_eq!(
+        listed(
+            scratch.path(),
+            "billing",
+            &members(&["libs/other", "x/billing/domain"])
+        ),
+        Some(scratch.path().join("x/billing"))
+    );
+    assert_eq!(
+        listed(
+            scratch.path(),
+            "billing",
+            &members(&["libs/other", "tests/billing", "xtask"])
+        ),
+        None
+    );
+    assert_eq!(listed(scratch.path(), "billing", &[]), None);
+}
+
+#[test]
+fn the_package_name_needs_a_readable_manifest_with_a_name() {
+    let scratch = Scratch::new();
+    scratch.file("named/Cargo.toml", "[package]\nname = \"named\"\n");
+    scratch.file("unnamed/Cargo.toml", "[package]\nversion = \"1\"\n");
+    scratch.file("broken/Cargo.toml", "[package\n");
+
+    assert_eq!(
+        package_name(&scratch.path().join("named")),
+        Some("named".to_owned())
+    );
+    assert_eq!(package_name(&scratch.path().join("unnamed")), None);
+    assert_eq!(package_name(&scratch.path().join("broken")), None);
+    assert_eq!(package_name(&scratch.path().join("missing")), None);
 }

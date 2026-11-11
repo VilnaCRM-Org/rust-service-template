@@ -12,6 +12,7 @@ mod workspace;
 
 use std::fs;
 use std::io;
+use std::iter;
 use std::path::{Path, PathBuf};
 
 use thiserror::Error;
@@ -89,7 +90,9 @@ fn create(root: &Path, group: &str, context: &str) -> Result<Vec<String>, Failur
         source,
     })?;
     let registered = workspace::add_members(&text, &members)?;
-    if let Some(existing) = existing(root, context) {
+    let found =
+        existing(root, context).or_else(|| listed(root, context, &workspace::members(&text)));
+    if let Some(existing) = found {
         return Err(Refusal::Exists {
             context: context.to_owned(),
             path: relative(root, &existing),
@@ -106,15 +109,53 @@ fn create(root: &Path, group: &str, context: &str) -> Result<Vec<String>, Failur
     Ok(members)
 }
 
-/// The directory of a context of this name in any group, if there is one: a context directory name
-/// is unique in the workspace, whatever its group. A missing or unreadable `crates` has none.
+/// The directory of a context of this name directly below `crates/` or in any group, if there is
+/// one: a context directory name is unique in the workspace, whatever its group. A missing or
+/// unreadable `crates` has none.
 fn existing(root: &Path, context: &str) -> Option<PathBuf> {
-    fs::read_dir(root.join(CRATES))
+    let crates = root.join(CRATES);
+    let direct = crates.join(context);
+    let grouped = fs::read_dir(&crates)
         .into_iter()
         .flatten()
         .flatten()
-        .map(|group| group.path().join(context))
+        .map(|group| group.path().join(context));
+    iter::once(direct)
+        .chain(grouped)
         .find(|candidate| candidate.is_dir())
+}
+
+/// The directory of a registered member that belongs to a context of this name wherever it lies:
+/// a member whose package is named `<context>-<layer>`, or a layer directory inside a directory
+/// named like the context. Names and paths are both checked, because the same package name in two
+/// members breaks Cargo.
+fn listed(root: &Path, context: &str, members: &[String]) -> Option<PathBuf> {
+    let crate_names: Vec<String> = Layer::ALL
+        .iter()
+        .map(|layer| format!("{context}-{}", layer.directory()))
+        .collect();
+    members.iter().find_map(|member| {
+        let directory = root.join(member);
+        let named = package_name(&directory).is_some_and(|name| crate_names.contains(&name));
+        let placed = Layer::ALL
+            .iter()
+            .any(|layer| Path::new(member).ends_with(Path::new(context).join(layer.directory())));
+        if named {
+            Some(directory)
+        } else if placed {
+            directory.parent().map(Path::to_owned)
+        } else {
+            None
+        }
+    })
+}
+
+/// The package name of the crate in `directory`, when its manifest can be read.
+fn package_name(directory: &Path) -> Option<String> {
+    let text = fs::read_to_string(directory.join(MANIFEST)).ok()?;
+    let document = text.parse::<toml_edit::DocumentMut>().ok()?;
+    let name = document.get("package")?.get("name")?.as_str()?;
+    Some(name.to_owned())
 }
 
 fn relative(root: &Path, path: &Path) -> String {

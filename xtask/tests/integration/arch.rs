@@ -314,3 +314,28 @@ fn the_vendor_stand_ins_and_the_fixture_workspace_are_not_members_of_the_real_wo
         "{manifests:?}"
     );
 }
+
+#[test]
+fn a_local_crate_outside_the_workspace_members_is_not_assigned_to_a_layer() {
+    let (model, workspace) = (fixture("outside.toml"), fixture("outside/Cargo.toml"));
+
+    let run = run(&fixture_arguments(&model, &workspace), &[]);
+
+    assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
+    assert_eq!(run.stderr, "");
+    let block = |name: &str| {
+        format!(
+            "error[arch::uncovered]: `{name}` is not assigned to any layer: it is a local crate that is not a member of the workspace\n  \
+             --> crates/{name}/Cargo.toml\n   \
+             = help: add the crate to `members` of the workspace and name it `<context>-<layer>`, or add its name to the `crates` of a [[layer]]\n\n"
+        )
+    };
+    assert_eq!(
+        run.stdout,
+        format!(
+            "{}{}architecture: FAILED. 2 violation(s) in 1 crate(s), 1 layer(s) checked\n",
+            block("audit-core"),
+            block("billing-core")
+        )
+    );
+}

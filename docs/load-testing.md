@@ -32,7 +32,7 @@ The budgets of the `health` scenario (`GET /api/health`, checked for status 204)
 
 Each health request makes one `SELECT 1` and one `ListQueues` call to LocalStack, and that was not measured under load. Until a measurement exists, a value below the ceiling would be a guess and a source of flaky pull requests, so the ceilings stand.
 
-The four budget values are protected configuration: changing one needs the label `approved-config-change` on the pull request. The rest of the file changes freely.
+The four budget values are protected configuration: changing one needs the label `approved-config-change` on the pull request. The rest of the file changes freely. The success-rate threshold of the checks (above 99%) lives in `tests/Load/utils/thresholdsBuilder.js`, which is a protected file in its entirety.
 
 ### The budget rule
 
@@ -90,7 +90,7 @@ A scenario is one script and one configuration entry; no runner needs an edit.
 5. Run `make lint-load-tests`. The JavaScript runs in K6, not in Node: only the K6 globals (`__ENV`, `__VU`, `__ITER`, `open`) exist, and `console` is forbidden.
 6. Add the measurement to the table above.
 
-Only the four budget values of the shipped configuration are protected: run `make validate-configuration` when you change `config.json.dist`.
+Only the four budget values of the shipped configuration are protected in `config.json.dist`, and `utils/thresholdsBuilder.js` is protected as a file: run `make validate-configuration` when you change either.
 
 The assistant skill `load-testing` shows the same steps with the example resource as its illustration.
 

@@ -1,7 +1,7 @@
 //! The rules: pure functions from the model and the workspace facts to violations.
 
 use super::config::{Config, Layer};
-use super::model::{Crate, Dependency, Reach, Workspace};
+use super::model::{Crate, Dependency, Outside, Reach, Workspace};
 
 /// Which rule a violation breaks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,7 +48,22 @@ pub(crate) fn check(config: &Config, workspace: &Workspace) -> Vec<Violation> {
         .crates
         .iter()
         .flat_map(|member| check_crate(config, member))
+        .chain(workspace.outside.iter().map(outside))
         .collect()
+}
+
+/// A local crate that the workspace uses but that is not a member is never assigned to a layer.
+fn outside(crate_: &Outside) -> Violation {
+    Violation {
+        rule: Rule::Uncovered,
+        manifest: crate_.manifest.clone(),
+        message: format!(
+            "`{}` is not assigned to any layer: it is a local crate that is not a member of the workspace",
+            crate_.name
+        ),
+        hint: "add the crate to `members` of the workspace and name it `<context>-<layer>`, or add its name to the `crates` of a [[layer]]"
+            .to_owned(),
+    }
 }
 
 fn check_crate(config: &Config, member: &Crate) -> Vec<Violation> {

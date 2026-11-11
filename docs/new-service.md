@@ -37,7 +37,7 @@ The template ships one example bounded context under the directory crates/compan
 make new-context group=<group> context=<context>
 ```
 
-The command creates `crates/<group>/<context>/{domain,application,infrastructure}`, registers the three crates in the workspace, refreshes `Cargo.lock` and prints the next steps. Both names must be lower-case words separated by hyphens; the names `shared`, `service`, `xtask`, `test-support` and `e2e-tests` are reserved. The new crates pass the architecture and crate-isolation gates without an edit to a protected file.
+The command creates `crates/<group>/<context>/{domain,application,infrastructure}`, registers the three crates in the workspace, refreshes `Cargo.lock` and prints the next steps. Both names must be lower-case words separated by hyphens; the names `shared`, `service`, `xtask`, `test-support` and `e2e-tests` are reserved. The command refuses, before it writes anything, a context name that already exists: as a directory directly below `crates/` or in any group, as a registered member whose package is named `<context>-<layer>`, or as a layer directory inside a directory of that name. The new crates pass the architecture and crate-isolation gates without an edit to a protected file.
 
 Then wire the context into the service:
 

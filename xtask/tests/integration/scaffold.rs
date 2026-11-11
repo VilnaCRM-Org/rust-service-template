@@ -93,7 +93,9 @@ impl Copy {
     }
 
     fn write(&self, path: &str, text: &str) {
-        fs::write(self.directory.join(path), text).unwrap();
+        let target = self.directory.join(path);
+        fs::create_dir_all(target.parent().unwrap()).unwrap();
+        fs::write(target, text).unwrap();
     }
 
     /// Every file of the copy except the build output and git's own data, with its bytes.
@@ -450,5 +452,64 @@ fn the_make_target_without_both_names_exits_with_status_two_and_prints_the_usage
             run.stderr
         );
         assert_eq!(run.stdout, "", "{arguments:?}");
+    }
+}
+
+#[test]
+fn a_context_without_a_group_directory_is_refused_before_anything_is_written() {
+    let copy = Copy::new();
+    let manifest = copy.read("Cargo.toml").replace(
+        "    \"crates/retail/shop/domain\",\n",
+        "    \"crates/ledger/domain\",\n    \"crates/retail/shop/domain\",\n",
+    );
+    copy.write("Cargo.toml", &manifest);
+    copy.write(
+        "crates/ledger/domain/Cargo.toml",
+        "[package]\nname = \"ledger-domain\"\nversion = \"0.0.0\"\n",
+    );
+    let before = copy.snapshot();
+
+    let run = copy.xtask(&["new-context", "billing", "ledger"]);
+
+    assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
+    assert_eq!(run.stdout, "");
+    assert_eq!(
+        run.stderr,
+        "new-context refused: the bounded context `ledger` already exists at crates/ledger\n"
+    );
+    assert_eq!(copy.snapshot(), before);
+}
+
+#[test]
+fn a_context_that_a_member_names_or_places_is_refused_wherever_the_crates_are() {
+    for (member, package, reason) in [
+        (
+            "libs/core",
+            "ledger-application",
+            "already exists at libs/core",
+        ),
+        (
+            "libs/ledger/domain",
+            "other",
+            "already exists at libs/ledger",
+        ),
+    ] {
+        let copy = Copy::new();
+        let manifest = copy.read("Cargo.toml").replace(
+            "    \"crates/retail/shop/domain\",\n",
+            &format!("    \"crates/retail/shop/domain\",\n    \"{member}\",\n"),
+        );
+        copy.write("Cargo.toml", &manifest);
+        copy.write(
+            &format!("{member}/Cargo.toml"),
+            &format!("[package]\nname = \"{package}\"\nversion = \"0.0.0\"\n"),
+        );
+        let before = copy.snapshot();
+
+        let run = copy.xtask(&["new-context", "billing", "ledger"]);
+
+        assert_eq!(run.code, Some(1), "{member}: {}{}", run.stdout, run.stderr);
+        assert!(run.stderr.contains(reason), "{member}: {}", run.stderr);
+        assert_eq!(copy.snapshot(), before, "{member}");
     }
 }

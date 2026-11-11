@@ -9,7 +9,7 @@ use toml::Table;
 
 use super::Failure;
 use super::config::{self, Config};
-use super::model::{Crate, Dependency, Reach, Workspace};
+use super::model::{Crate, Dependency, Outside, Reach, Workspace};
 
 /// Reads and validates the configuration file.
 pub(crate) fn config(path: &Path) -> Result<Config, Failure> {
@@ -48,7 +48,37 @@ pub(crate) fn workspace(manifest: &Path) -> Result<Workspace, Failure> {
         .map(|package| member(&metadata, &members, &edges, package))
         .collect();
     crates.sort_by(|left, right| left.name.cmp(&right.name));
-    Ok(Workspace { crates })
+    Ok(Workspace {
+        crates,
+        outside: outside(&metadata),
+    })
+}
+
+/// The packages without a registry or git source that sit below the workspace root and are not
+/// members, sorted by name. A path dependency on a crate outside the root directory is a
+/// third-party crate for the rules.
+fn outside(metadata: &Metadata) -> Vec<Outside> {
+    let mut found: Vec<Outside> = metadata
+        .packages
+        .iter()
+        .filter(|package| package.source.is_none())
+        .filter(|package| !metadata.workspace_members.contains(&package.id))
+        .filter(|package| package.manifest_path.starts_with(&metadata.workspace_root))
+        .map(|package| Outside {
+            name: package.name.to_string(),
+            manifest: relative(metadata, package),
+        })
+        .collect();
+    found.sort_by(|left, right| left.name.cmp(&right.name));
+    found
+}
+
+fn relative(metadata: &Metadata, package: &Package) -> String {
+    package
+        .manifest_path
+        .strip_prefix(&metadata.workspace_root)
+        .unwrap_or(&package.manifest_path)
+        .to_string()
 }
 
 fn member(
@@ -57,13 +87,9 @@ fn member(
     edges: &Edges,
     package: &Package,
 ) -> Crate {
-    let relative = package
-        .manifest_path
-        .strip_prefix(&metadata.workspace_root)
-        .unwrap_or(&package.manifest_path);
     Crate {
         name: package.name.to_string(),
-        manifest: relative.to_string(),
+        manifest: relative(metadata, package),
         inherits_lints: inherits_lints(package.manifest_path.as_std_path()),
         dependencies: package
             .dependencies

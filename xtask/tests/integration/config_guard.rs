@@ -479,3 +479,209 @@ fn listing_without_a_list_is_a_failure_to_run() {
         run.stderr
     );
 }
+
+/// A repository with the list and the required directories, and nothing else committed yet.
+fn bare_repository() -> Repo {
+    let repo = Repo::new();
+    repo.write("protected-config.toml", LIST);
+    repo.write("crates/keep.txt", "x");
+    repo.write("tests/Load/keep.txt", "x");
+    repo
+}
+
+/// What the guard prints when only the given lines are reported.
+fn failure_with(lines: &[String]) -> String {
+    format!("Configuration Validation\n{}\n{FAILED}", lines.join("\n"))
+}
+
+fn guard(repo: &Repo) -> super::support::Run {
+    repo.run(&["config-guard", "--base", "HEAD"], &[])
+}
+
+#[test]
+fn a_protected_directory_replaced_by_a_link_to_a_copy_is_a_modification() {
+    let repo = repository();
+    repo.rename("guarded", "moved");
+    repo.link("guarded", "moved");
+
+    let run = guard(&repo);
+
+    assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
+    assert_eq!(
+        run.stdout,
+        failure_with(&[format!("{FILE} guarded"), format!("{FILE} guarded/one.txt")])
+    );
+}
+
+#[test]
+fn a_link_below_a_protected_directory_is_a_modification() {
+    let repo = bare_repository();
+    repo.write("guarded/inner/two.txt", "2");
+    repo.commit("base");
+    repo.rename("guarded/inner", "elsewhere");
+    repo.link("guarded/inner", "../elsewhere");
+
+    let run = guard(&repo);
+
+    assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
+    assert_eq!(
+        run.stdout,
+        failure_with(&[format!("{FILE} guarded/inner/two.txt")])
+    );
+}
+
+#[test]
+fn a_protected_file_replaced_by_a_link_with_the_same_bytes_is_a_modification() {
+    let repo = repository();
+    repo.write("copy.toml", "too-many-lines-threshold = 50\n");
+    repo.link("clippy.toml", "copy.toml");
+
+    let run = guard(&repo);
+
+    assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
+    assert_eq!(run.stdout, failure_with(&[format!("{FILE} clippy.toml")]));
+}
+
+#[test]
+fn a_protected_file_replaced_by_a_directory_is_a_modification() {
+    let repo = repository();
+    repo.remove("deny.toml");
+    repo.write("deny.toml/inner.txt", "x");
+
+    let run = guard(&repo);
+
+    assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
+    assert_eq!(run.stdout, failure_with(&[format!("{FILE} deny.toml")]));
+}
+
+#[test]
+fn a_link_that_the_base_ref_already_holds_is_unchanged_until_it_is_retargeted() {
+    let repo = bare_repository();
+    repo.write("clippy.toml", "a = 1\n");
+    repo.write("other.toml", "b = 2\n");
+    repo.link("deny.toml", "clippy.toml");
+    repo.link("guarded", "elsewhere");
+    repo.commit("base");
+
+    let run = guard(&repo);
+    assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
+    assert_eq!(run.stdout, OK);
+
+    repo.link("deny.toml", "other.toml");
+    let run = guard(&repo);
+    assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
+    assert_eq!(run.stdout, failure_with(&[format!("{FILE} deny.toml")]));
+}
+
+#[test]
+fn a_directory_that_the_base_ref_holds_as_a_link_is_protected_as_that_link() {
+    let repo = bare_repository();
+    repo.write("elsewhere/one.txt", "1");
+    repo.link("guarded", "elsewhere");
+    repo.commit("base");
+    repo.link("guarded", "somewhere-else");
+
+    let run = guard(&repo);
+
+    assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
+    assert_eq!(run.stdout, failure_with(&[format!("{FILE} guarded")]));
+}
+
+#[test]
+fn losing_or_gaining_the_executable_bit_of_a_protected_file_is_a_modification() {
+    let repo = bare_repository();
+    repo.write("clippy.toml", "a = 1\n");
+    repo.write("deny.toml", "b = 2\n");
+    repo.write("guarded/hook.sh", "#!/bin/sh\n");
+    repo.executable("deny.toml", true);
+    repo.executable("guarded/hook.sh", true);
+    repo.commit("base");
+    assert_eq!(guard(&repo).code, Some(0));
+
+    repo.executable("deny.toml", false);
+    repo.executable("guarded/hook.sh", false);
+    repo.executable("clippy.toml", true);
+    let run = guard(&repo);
+
+    assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
+    assert_eq!(
+        run.stdout,
+        failure_with(&[
+            format!("{FILE} clippy.toml"),
+            format!("{FILE} deny.toml"),
+            format!("{FILE} guarded/hook.sh"),
+        ])
+    );
+    let approved = repo.run(
+        &["config-guard", "--base", "HEAD"],
+        &[("CONFIG_CHANGE_APPROVED", "true")],
+    );
+    assert_eq!(approved.code, Some(0), "{}", approved.stdout);
+}
+
+/// A repository that holds the list of the real repository and every directory the list requires.
+fn real_list_repository() -> Repo {
+    let real = fs::read_to_string(workspace_root().join("protected-config.toml")).unwrap();
+    let list: toml::Table = real.parse().unwrap();
+    let repo = Repo::new();
+    repo.write("protected-config.toml", &real);
+    for directory in list["required_directories"].as_array().unwrap() {
+        repo.write(&format!("{}/keep.txt", directory.as_str().unwrap()), "x");
+    }
+    repo
+}
+
+#[test]
+fn the_real_list_reports_the_configuration_names_of_the_pinned_lint_tools() {
+    let repo = real_list_repository();
+    repo.write("clippy.toml", "a = 1\n");
+    repo.commit("base");
+    let names = [
+        "tests/Load/scripts/eslint.config.mjs",
+        "tests/Load/scripts/eslint.config.cts",
+        "tests/Load/.prettierrc.json5",
+        "tests/Load/.prettierrc.toml",
+        "tests/Load/prettier.config.mjs",
+        "tests/Load/prettier.config.ts",
+        "docs/.markdownlint.cjs",
+        "docs/.markdownlint-cli2.mjs",
+    ];
+    for name in names {
+        repo.write(name, "x");
+    }
+
+    let run = guard(&repo);
+
+    assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
+    for name in names {
+        assert!(
+            run.stdout.contains(&format!("{OVERRIDE} {name}\n")),
+            "{name}: {}",
+            run.stdout
+        );
+    }
+}
+
+#[test]
+fn the_real_list_protects_the_entry_point_of_the_guard_and_the_load_thresholds() {
+    let repo = real_list_repository();
+    let items = [
+        "tests/Load/utils/thresholdsBuilder.js",
+        "xtask/src/cli.rs",
+        "xtask/src/main.rs",
+    ];
+    for item in items {
+        repo.write(item, "base\n");
+    }
+    repo.commit("base");
+    assert_eq!(guard(&repo).code, Some(0));
+    for item in items {
+        repo.write(item, "changed\n");
+    }
+
+    let run = guard(&repo);
+
+    assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
+    let expected: Vec<String> = items.iter().map(|item| format!("{FILE} {item}")).collect();
+    assert_eq!(run.stdout, failure_with(&expected));
+}

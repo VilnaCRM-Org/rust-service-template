@@ -1,7 +1,7 @@
 //! Unit tests of the parent module.
 
 use super::super::Fault;
-use super::add_members;
+use super::{add_members, members};
 
 fn add(manifest: &str, paths: &[&str]) -> String {
     let paths: Vec<String> = paths.iter().map(|path| (*path).to_owned()).collect();
@@ -148,4 +148,15 @@ fn an_entry_equal_to_a_listed_one_goes_behind_it_and_the_comment_stays_with_the_
         ),
         "[workspace]\nmembers = [\n    # the first\n    \"a\",\n    \"a\",\n    \"b\",\n]\n"
     );
+}
+
+#[test]
+fn the_members_are_listed_as_written_and_a_manifest_without_any_lists_none() {
+    assert_eq!(
+        members(BLOCK),
+        ["crates/shared/domain", "crates/shop/domain", "xtask"]
+    );
+    assert_eq!(members("[workspace]\nmembers = [1, \"a\"]\n"), ["a"]);
+    assert_eq!(members("[workspace]\n"), Vec::<String>::new());
+    assert_eq!(members("[workspace\n"), Vec::<String>::new());
 }

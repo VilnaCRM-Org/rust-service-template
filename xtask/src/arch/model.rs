@@ -1,9 +1,20 @@
 //! Facts about the workspace, independent of where they were read from.
 
 /// Every workspace member.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(crate) struct Workspace {
     pub(crate) crates: Vec<Crate>,
+    /// Local crates below the workspace root that the dependency graph uses but that are not
+    /// members (for example listed in `[workspace] exclude`), so no layer or lint rule sees them.
+    pub(crate) outside: Vec<Outside>,
+}
+
+/// A local crate that the workspace depends on without it being a member.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Outside {
+    pub(crate) name: String,
+    /// Manifest path relative to the workspace root.
+    pub(crate) manifest: String,
 }
 
 /// One workspace member.

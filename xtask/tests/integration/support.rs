@@ -3,6 +3,7 @@
 
 use std::ffi::OsString;
 use std::fs;
+use std::os::unix::fs::{PermissionsExt as _, symlink};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -105,11 +106,35 @@ impl Repo {
     /// Deletes a file or a directory with everything in it.
     pub(crate) fn remove(&self, path: &str) {
         let target = self.directory.join(path);
-        if target.is_dir() {
+        if fs::symlink_metadata(&target).unwrap().is_dir() {
             fs::remove_dir_all(target).unwrap();
         } else {
             fs::remove_file(target).unwrap();
         }
+    }
+
+    /// Replaces whatever is at `path` with a symbolic link to `target`.
+    pub(crate) fn link(&self, path: &str, target: &str) {
+        let link = self.directory.join(path);
+        if fs::symlink_metadata(&link).is_ok() {
+            self.remove(path);
+        }
+        fs::create_dir_all(link.parent().unwrap()).unwrap();
+        symlink(target, link).unwrap();
+    }
+
+    /// Moves a file or a directory inside the repository.
+    pub(crate) fn rename(&self, from: &str, to: &str) {
+        let target = self.directory.join(to);
+        fs::create_dir_all(target.parent().unwrap()).unwrap();
+        fs::rename(self.directory.join(from), target).unwrap();
+    }
+
+    /// Sets or clears the executable bits of a file.
+    pub(crate) fn executable(&self, path: &str, executable: bool) {
+        let target = self.directory.join(path);
+        let mode = if executable { 0o755 } else { 0o644 };
+        fs::set_permissions(target, fs::Permissions::from_mode(mode)).unwrap();
     }
 
     /// Commits every change of the working tree.

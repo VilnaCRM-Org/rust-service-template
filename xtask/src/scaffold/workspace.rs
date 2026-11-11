@@ -20,6 +20,25 @@ pub(crate) fn add_members(manifest: &str, paths: &[String]) -> Result<String, Fa
     Ok(document.to_string())
 }
 
+/// The entries of `[workspace].members`, as written. A manifest that does not parse or has no
+/// array lists none; `add_members` reports that case.
+pub(crate) fn members(manifest: &str) -> Vec<String> {
+    manifest
+        .parse::<DocumentMut>()
+        .ok()
+        .and_then(|document| {
+            let members = document.get("workspace")?.get("members")?.as_array()?;
+            Some(
+                members
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect(),
+            )
+        })
+        .unwrap_or_default()
+}
+
 fn insert(members: &mut Array, path: &str) {
     let Some(last) = members.iter().last() else {
         members.push(path);

@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::Failure;
-use super::base::BaseTree;
+use super::base::{BaseTree, Mode};
 
 /// Files of the base ref, files of the working tree and the directories of the working tree.
 #[derive(Debug, Default)]
@@ -11,6 +11,8 @@ pub(crate) struct Memory {
     base: BTreeMap<String, Vec<u8>>,
     work: BTreeMap<String, Vec<u8>>,
     directories: BTreeSet<String>,
+    base_modes: BTreeMap<String, Mode>,
+    work_modes: BTreeMap<String, Mode>,
 }
 
 impl Memory {
@@ -31,6 +33,18 @@ impl Memory {
         self
     }
 
+    /// The kind of entry of a path at the base ref, when it is not a plain file.
+    pub(crate) fn base_as(mut self, path: &str, mode: Mode) -> Self {
+        self.base_modes.insert(path.to_owned(), mode);
+        self
+    }
+
+    /// The kind of entry of a path in the working tree, when it is not a plain file.
+    pub(crate) fn work_as(mut self, path: &str, mode: Mode) -> Self {
+        self.work_modes.insert(path.to_owned(), mode);
+        self
+    }
+
     /// A directory of the working tree.
     pub(crate) fn directory(mut self, path: &str) -> Self {
         self.directories.insert(path.to_owned());
@@ -47,8 +61,26 @@ impl BaseTree for Memory {
         Ok(self.base.keys().cloned().collect())
     }
 
+    fn base_mode(&self, path: &str) -> Result<Option<Mode>, Failure> {
+        Ok(self
+            .base
+            .contains_key(path)
+            .then(|| self.base_modes.get(path).copied().unwrap_or(Mode::Plain)))
+    }
+
     fn work_file(&self, path: &str) -> Option<Vec<u8>> {
         self.work.get(path).cloned()
+    }
+
+    fn work_mode(&self, path: &str) -> Option<Mode> {
+        if let Some(mode) = self.work_modes.get(path) {
+            return Some(*mode);
+        }
+        if self.work.contains_key(path) {
+            Some(Mode::Plain)
+        } else {
+            self.directories.contains(path).then_some(Mode::Directory)
+        }
     }
 
     fn work_paths(&self) -> Result<Vec<String>, Failure> {

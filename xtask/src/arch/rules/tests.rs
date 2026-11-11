@@ -1,7 +1,7 @@
 //! Unit tests of the parent module.
 
 use super::super::config::{Config, Contexts, Layer};
-use super::super::model::{Crate, Dependency, Reach, Workspace};
+use super::super::model::{Crate, Dependency, Outside, Reach, Workspace};
 use super::{Rule, Violation, check};
 
 fn owned(items: &[&str]) -> Vec<String> {
@@ -109,6 +109,7 @@ fn check_one(config: &Config, member: Crate) -> Vec<Violation> {
         config,
         &Workspace {
             crates: vec![member],
+            ..Workspace::default()
         },
     )
 }
@@ -141,6 +142,7 @@ fn a_workspace_that_follows_the_rules_is_clean() {
                 &[("shop-application", false, true), ("serde", false, false)],
             ),
         ],
+        ..Workspace::default()
     };
 
     assert_eq!(check(&config(), &workspace), []);
@@ -156,6 +158,7 @@ fn a_layer_may_depend_on_itself() {
                 &[("shared-application", false, true)],
             ),
         ],
+        ..Workspace::default()
     };
 
     assert_eq!(check(&config(), &workspace), []);
@@ -377,6 +380,7 @@ fn violations_of_every_crate_are_collected_in_workspace_order() {
             member("stray", &[]),
             member("shop-domain", &[("service", false, true)]),
         ],
+        ..Workspace::default()
     };
 
     let violations = check(&config(), &workspace);
@@ -416,6 +420,7 @@ fn a_context_may_depend_on_a_shared_context_and_on_itself() {
             member("shop-domain", &[("shared-domain", false, true)]),
             member("shop-application", &[("shop-domain", false, true)]),
         ],
+        ..Workspace::default()
     };
 
     assert_eq!(check(&config(), &workspace), []);
@@ -682,5 +687,26 @@ fn a_layer_with_a_directory_but_without_a_context_accepts_any_name_in_its_place(
     assert_eq!(
         violations[0].hint,
         "move the crate to `crates/[<group>/]<name>/tool`"
+    );
+}
+
+#[test]
+fn a_local_crate_outside_the_members_is_uncovered_whatever_its_name() {
+    let workspace = Workspace {
+        crates: vec![member("shop-domain", &[])],
+        outside: vec![Outside {
+            name: "shop-application".to_owned(),
+            manifest: "crates/hidden/Cargo.toml".to_owned(),
+        }],
+    };
+
+    assert_eq!(
+        check(&config(), &workspace),
+        [Violation {
+            rule: Rule::Uncovered,
+            manifest: "crates/hidden/Cargo.toml".to_owned(),
+            message: "`shop-application` is not assigned to any layer: it is a local crate that is not a member of the workspace".to_owned(),
+            hint: "add the crate to `members` of the workspace and name it `<context>-<layer>`, or add its name to the `crates` of a [[layer]]".to_owned(),
+        }]
     );
 }
