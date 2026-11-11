@@ -475,10 +475,13 @@ check_downloads() {
   for file in Dockerfile "${make_files[@]+"${make_files[@]}"}" "${workflows[@]+"${workflows[@]}"}" $(shell_scripts); do
     [[ -f "${file}" ]] || continue
     # A request whose only address is the loopback interface (a probe of the service under test, as the Bats
-    # files of the lifecycle targets send) fetches no file from elsewhere and is not a download.
+    # files of the lifecycle targets send) fetches no file from elsewhere and is not a download. A loopback URL
+    # is the host localhost, 127.0.0.1 or [::1], an optional port, an optional path without `@`, then a quote,
+    # white space or the end of the line (so `http://localhost@host/` names a remote host). A line is left out
+    # only when no other URL and no `$` expansion (an address in a variable) remains beside its loopback URLs.
     if grep -vE '^[[:space:]]*#' "${file}" \
-      | sed -E 's#[A-Za-z]+://(localhost|127\.0\.0\.1|\[::1\])([^A-Za-z0-9.-][^[:space:]]*|$)#LOOPBACK#g' \
-      | awk '!(/LOOPBACK/ && !/:\/\//)' \
+      | sed -E "s#[A-Za-z]+://(localhost|127\\.0\\.0\\.1|\\[::1\\])(:[^/?@[:space:]\"']*)?([/?][^@[:space:]\"']*)?([\"']|[[:space:]]|\$)#LOOPBACK\\4#g" \
+      | awk '!(/LOOPBACK/ && !/:\/\// && !/\$/)' \
       | grep -qE '\b(curl|wget)\b[^#]*(https?://|--output|--remote-name|[[:space:]]-[A-Za-z]*[oOL][A-Za-z]*[[:space:]]|--location|--fail)'; then
       if ! grep -qiE 'sha256|sha512|shasum|checksum' "${file}"; then
         report b "${file}: a file is downloaded by URL without a checksum"

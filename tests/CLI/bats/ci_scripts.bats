@@ -48,11 +48,21 @@ change() {
   git commit --quiet -m 'test(#1): change'
   BASE="$(git rev-parse base)"
   HEAD="$(git rev-parse HEAD)"
+  # Every path must be part of the change the script compares, or an empty change (which also gives code=true)
+  # would pass for a real one.
+  local listed
+  listed="$(git -c core.quotepath=off diff --name-only "${BASE}...${HEAD}")"
+  for path in "$@"; do
+    grep -qxF -- "${path}" <<<"${listed}" || {
+      printf 'the change does not list %s\n' "${path}"
+      return 1
+    }
+  done
 }
 
-# Prints the code= line for the change of the given paths.
+# Prints the code= line for the change of the given paths (or the reason the change was not made).
 code_for() {
-  change "$@"
+  change "$@" || return 1
   BASE_SHA="${BASE}" HEAD_SHA="${HEAD}" "${REPO_ROOT}/scripts/ci/detect-changes.sh" 2>/dev/null
 }
 
@@ -85,6 +95,8 @@ assert_code_for_each() {
   make_repository
   assert_code_for_each false LICENSE .github/ISSUE_TEMPLATE/x.md .github/pull_request_template.md \
     .claude/skills/x/SKILL.md specs/x/y.md docs/requests.http crates/service/README.md
+  # One file per directory pattern that `*.md` does not answer, so each pattern is needed on its own.
+  assert_code_for_each false .github/ISSUE_TEMPLATE/config.yml .claude/skills/x/run.sh specs/x/data.json
 }
 
 @test "detect-changes: near misses of the documentation patterns give code=true" {
@@ -97,6 +109,18 @@ assert_code_for_each() {
   make_repository
   git checkout --quiet -B case base
   git mv docs/guide.md crates/service/guide.rs
+  git commit --quiet -m 'test(#1): rename'
+  run env BASE_SHA="$(git rev-parse base)" HEAD_SHA="$(git rev-parse HEAD)" "${REPO_ROOT}/scripts/ci/detect-changes.sh"
+  assert_success
+  assert_output 'code=true'
+}
+
+@test "detect-changes: a file renamed from crates/ to docs/ gives code=true" {
+  make_repository
+  git checkout --quiet -B case base
+  # The content is unchanged, so without --no-renames git lists only the new path, docs/lib.md, and a change that
+  # removes a source file would count as documentation only.
+  git mv crates/service/src/lib.rs docs/lib.md
   git commit --quiet -m 'test(#1): rename'
   run env BASE_SHA="$(git rev-parse base)" HEAD_SHA="$(git rev-parse HEAD)" "${REPO_ROOT}/scripts/ci/detect-changes.sh"
   assert_success

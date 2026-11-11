@@ -12,7 +12,8 @@
 # from the export (a JSON query run in the Node image) and compare them with the crate list,
 # minus xtask, test-support and e2e-tests. Every missing and every extra component is printed.
 # Then the relationships: every workspace-internal entry of a `[dependencies]` table (also
-# `[target.<cfg>.dependencies]` and `[dependencies.<name>]`) of a crate manifest below the current
+# `[target.<cfg>.dependencies]` and `[dependencies.<name>]`; a key may be quoted, and a `package =`
+# rename names the crate) of a crate manifest below the current
 # directory (target, .git, node_modules, .tools and fixtures directories are skipped) whose crate and
 # dependency are both modelled components needs a relationship between the two components in the
 # model; every missing relationship is printed with both component names.
@@ -186,10 +187,10 @@ manifest_dependencies() {
         next
       }
       section == "package" && /^[[:space:]]*name[[:space:]]*=/ { name = quoted($0) }
-      section == "dependencies" && /^[[:space:]]*[A-Za-z0-9_-]+[[:space:]]*[.=]/ {
+      section == "dependencies" && /^[[:space:]]*("[A-Za-z0-9_-]+"|[A-Za-z0-9_-]+)[[:space:]]*[.=]/ {
         d = $0
         sub(/^[[:space:]]*/, "", d)
-        sub(/[[:space:]]*[.=].*$/, "", d)
+        if (d ~ /^"/) { d = quoted(d) } else { sub(/[[:space:]]*[.=].*$/, "", d) }
         if ($0 ~ /package[[:space:]]*=[[:space:]]*"/) { d = $0; sub(/^.*package[[:space:]]*=[[:space:]]*/, "", d); d = quoted(d) }
         deps[++n] = d
       }

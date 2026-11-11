@@ -122,6 +122,28 @@ check_model_in_ws() {
   refute_output --partial 'missing component'
 }
 
+@test "every form of a dependency entry between two modelled crates needs a relationship" {
+  write_manifests dependencies
+  sed '/alpha -> beta/d' "${fixture}" >"${tmp}/variant.dsl"
+  local form failures=''
+  # Each form names beta-crate once: a table of its own, a target table, a rename, a quoted key, a renamed target
+  # table and a quoted key with a dotted value.
+  for form in \
+    '[dependencies.beta-crate]\npath = "../beta"' \
+    "[target.'cfg(unix)'.dependencies]\nbeta-crate = { path = \"../beta\" }" \
+    '[dependencies]\nrenamed = { package = "beta-crate", path = "../beta" }' \
+    '[dependencies]\n"beta-crate" = { path = "../beta" }' \
+    "[target.'cfg(unix)'.dependencies.renamed]\npackage = \"beta-crate\"\npath = \"../beta\"" \
+    '[dependencies]\n"beta-crate".workspace = true'; do
+    printf '[package]\nname = "alpha-crate"\n\n%b\n' "${form}" >"${tmp}/ws/alpha/Cargo.toml"
+    check_model_in_ws "${tmp}/variant.dsl"
+    if [[ "${status}" -ne 1 || "${output}" != *'missing relationship: alpha-crate -> beta-crate'* ]]; then
+      failures+="${form}: status ${status}"$'\n'
+    fi
+  done
+  assert_equal "${failures}" ''
+}
+
 @test "a development dependency needs no relationship" {
   write_manifests dev-dependencies
   sed '/alpha -> beta/d' "${fixture}" >"${tmp}/variant.dsl"

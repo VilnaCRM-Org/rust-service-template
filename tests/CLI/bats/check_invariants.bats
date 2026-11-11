@@ -622,6 +622,34 @@ EOF
   assert_violation b 'tests/Load/fetch.sh: a file is downloaded by URL without a checksum'
 }
 
+@test "(b) a remote host behind a loopback user name is refused" {
+  put scripts/fetch.sh <<'EOF'
+#!/usr/bin/env bash
+curl --fail --output /tmp/x http://localhost@remote.example.org/x
+EOF
+  put scripts/fetch-port.sh <<'EOF'
+#!/usr/bin/env bash
+curl --fail --output /tmp/x http://127.0.0.1:80@remote.example.org/x
+EOF
+  check
+  assert_violation b 'scripts/fetch.sh: a file is downloaded by URL without a checksum'
+  assert_line '(b) scripts/fetch-port.sh: a file is downloaded by URL without a checksum'
+}
+
+@test "(b) a download through a loopback proxy from an address in a variable is refused" {
+  put scripts/fetch.sh <<'EOF'
+#!/usr/bin/env bash
+curl --proxy http://127.0.0.1:3128 --fail --location --output tool.tgz "${TOOL_URL}"
+EOF
+  put scripts/fetch-comment.sh <<'EOF'
+#!/usr/bin/env bash
+curl -fsSL -o tool.tgz "$TOOL_URL" # like http://localhost:1/
+EOF
+  check
+  assert_violation b 'scripts/fetch.sh: a file is downloaded by URL without a checksum'
+  assert_line '(b) scripts/fetch-comment.sh: a file is downloaded by URL without a checksum'
+}
+
 @test "(b) a downloaded file with a checksum passes" {
   put scripts/fetch.sh <<'EOF'
 #!/usr/bin/env bash
