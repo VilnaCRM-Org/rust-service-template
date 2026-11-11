@@ -445,7 +445,7 @@ docs-check: ## Check that commands, paths and lists cited in the documentation e
 	$(EXEC) cargo run --locked --quiet -p service -- healthcheck --help > target/reports/docs-check/healthcheck.txt
 	scripts/check-docs.sh --service-help target/reports/docs-check
 
-validate-architecture-model: ## Validate workspace.dsl, its three views and its components
+validate-architecture-model: ## Validate workspace.dsl, its three views, its components and a relationship for every dependency between them
 	$(REQUIRE_DOCKER)
 	$(EXEC) cargo tree --locked --workspace --depth 0 --prefix none | scripts/validate-architecture-model.sh workspace.dsl -
 

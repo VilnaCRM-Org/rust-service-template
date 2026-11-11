@@ -10,6 +10,7 @@ A service that adds pull-request workflows of its own lists their jobs in a seco
 - [Merging](#merging)
 - [Release identity](#release-identity)
 - [Private vulnerability reporting](#private-vulnerability-reporting)
+- [Review App](#review-app)
 - [Secrets and variables](#secrets-and-variables)
 - [Labels to create](#labels-to-create)
 - [Code scanning](#code-scanning)
@@ -125,6 +126,10 @@ Without the App and its secrets the release job succeeds with a notice and nothi
 ## Private vulnerability reporting
 
 `SECURITY.md` tells reporters to use GitHub private vulnerability reporting on the repository. Enable it under Settings, Code security, "Private vulnerability reporting". Without it the instruction in `SECURITY.md` leads nowhere. Advisories are published as GitHub security advisories.
+
+## Review App
+
+`.coderabbit.yaml` configures the CodeRabbit review bot with the request-changes workflow (`reviews.request_changes_workflow: true`: the bot approves the pull request only once its comments are resolved). The file takes effect only once the CodeRabbit GitHub App is installed on the repository or its organisation; without the App the file is inert, and no workflow or required check depends on it.
 
 ## Secrets and variables
 

@@ -324,3 +324,19 @@ EOF
   assert_output --partial 'potentially unused queries found in .sqlx'
   assert_output --partial 'check-sqlx-metadata.sh: .sqlx holds a query file that no current query generates'
 }
+
+# bats test_tags=slow
+@test "G30: check-sqlx-metadata.sh prints its usage, keeps a failing status and fails on the unused-query warning" {
+  run -2 scripts/check-sqlx-metadata.sh
+  assert_output 'usage: check-sqlx-metadata.sh <command>...'
+
+  run -7 scripts/check-sqlx-metadata.sh bash -c 'echo "query data is missing"; exit 7'
+  assert_output 'query data is missing'
+
+  run -1 scripts/check-sqlx-metadata.sh bash -c 'echo "warning: potentially unused queries found in .sqlx"'
+  assert_line 'warning: potentially unused queries found in .sqlx'
+  assert_line 'check-sqlx-metadata.sh: .sqlx holds a query file that no current query generates; remove it or run make sqlx-prepare'
+
+  run -0 scripts/check-sqlx-metadata.sh bash -c 'echo "query data is up to date"'
+  assert_output 'query data is up to date'
+}

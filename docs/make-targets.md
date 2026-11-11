@@ -116,7 +116,7 @@ The ordered list of gate targets is not repeated here. It lives in one place, th
 | `unused-dependencies-fix` | TOOL | none | no | Remove unused dependencies from the manifests |
 | `up` | HOST | none | no | Alias of start |
 | `update` | TOOL | none | no | Update Cargo.lock within the version requirements of the manifests |
-| `validate-architecture-model` | TOOL + HOST | none | yes (G27) | Validate workspace.dsl, its three views and its components |
+| `validate-architecture-model` | TOOL + HOST | none | yes (G27) | Validate workspace.dsl, its three views, its components and a relationship for every dependency between them |
 | `validate-configuration` | TOOL | none | yes (G25) | Check protected configuration files and required directories against base_ref |
 | `validate-contract-snapshots` | TOOL + HOST | none | yes (G17) | Fail when a committed contract snapshot differs from the generated one |
 | `validate-invariants` | HOST | none | yes (G31) | Check the repository invariants: pins, versions, gate set, repository name, licence, suppressions, execution switch |

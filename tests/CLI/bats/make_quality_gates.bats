@@ -137,8 +137,9 @@ FIXTURES="${BATS_TEST_DIRNAME}/fixtures"
   plant_replace Cargo.toml "${tmp}/Cargo.toml"
   run make --no-print-directory validate-manifest
   assert_failure
-  # cargo's own message: the echoed recipe line also contains `--locked`, so it must not decide the test.
-  assert_output --regexp 'cannot update the lock file [^ ]*Cargo\.lock because --locked was passed'
+  # cargo's own message: the echoed recipe line also contains `--locked`, so it must not decide the test. The path
+  # of the lock file may contain a space (a checkout path on a developer machine).
+  assert_output --regexp 'cannot update the lock file .*Cargo\.lock because --locked was passed'
 }
 
 @test "G6: check-requirements fails with status 2 and names DATABASE_URL" {

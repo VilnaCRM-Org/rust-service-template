@@ -15,20 +15,6 @@ load test_helper
 
 # bats file_tags=surface
 
-# A free TCP port on the loopback interface that is not in the list of ports already chosen.
-_free_port() {
-  local port
-  while :; do
-    port=$((20000 + RANDOM % 20000))
-    case " ${CHOSEN_PORTS:-} " in *" ${port} "*) continue ;; esac
-    if ! (exec 3<>"/dev/tcp/127.0.0.1/${port}") 2>/dev/null; then
-      CHOSEN_PORTS="${CHOSEN_PORTS:-} ${port}"
-      printf '%s' "${port}"
-      return 0
-    fi
-  done
-}
-
 # Name of the development image that the Makefile derives from the checkout directory.
 _default_dev_image() {
   printf '%s-app:dev' "$(basename "${REPO_ROOT}" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_\n-' '-')"
@@ -51,11 +37,12 @@ setup_file() {
   isolate_make_environment
   unset COMPOSE_PROJECT_NAME CI IN_DEV_CONTAINER RUN_IN_CONTAINER
   export PROJECT_NAME="bats-exec-${suffix}"
-  CHOSEN_PORTS=''
-  DB_PORT="$(_free_port)"
-  LOCALSTACK_PORT="$(_free_port)"
-  APP_PORT="$(_free_port)"
-  STRUCTURIZR_PORT="$(_free_port)"
+  # free_port of the helper (20000 to 32767, below the ephemeral ports) keeps the chosen ports in a file, so the
+  # four command substitutions cannot draw the same port twice.
+  DB_PORT="$(free_port)"
+  LOCALSTACK_PORT="$(free_port)"
+  APP_PORT="$(free_port)"
+  STRUCTURIZR_PORT="$(free_port)"
   export DB_PORT LOCALSTACK_PORT APP_PORT STRUCTURIZR_PORT
   # An image that an earlier `make start` of this checkout built is reused; otherwise `make start` builds it.
   if [[ -z "${DEV_IMAGE:-}" ]]; then

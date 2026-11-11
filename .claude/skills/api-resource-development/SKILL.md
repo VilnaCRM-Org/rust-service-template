@@ -31,6 +31,7 @@ description: Use when adding or changing a REST or GraphQL operation, a command,
 - A handler gets a unit test with `FakeCommandBus` or `FakeQueryBus`, and a scenario goes into a file under `features/`.
 - Register new handlers in `service::bootstrap::router` and new subscribers in `service::bootstrap::event_bus`.
 - Never edit a migration that has reached `main`; add a new one.
+- When `make check-requirements` fails (gate G6): it runs `service check-config`, which validates every variable of `serve` (from the environment, then `.env`) without opening a socket or contacting a dependency, and prints one line `<VARIABLE>: <reason>` per problem with status 2. Usual causes: a variable that `crates/service/src/config.rs` requires has no value in `.env`, or a value has the wrong form (a URL scheme, a duration without a unit, a number outside its range). Fix the value in `.env` or the rule in `crates/service/src/config.rs`, keep its row in `docs/environment.md` in step, and re-run `make check-requirements`.
 - Regenerate both contract snapshots in the same change as the code.
 
 ## Recipes

@@ -199,13 +199,20 @@ function cite_make(s, kind,    n, w, i, j, t) {
     }
   }
 }
-# `service <command> [<subcommand>]`; a `--` and option words after `service` (`cargo run -p service -- <command>`)
-# are skipped before the command is read.
+# `service <command> [<subcommand>]`; option words after `service` are skipped before the command is read. After
+# `-p`, `--package` or `--bin` (`cargo run -p service -- <command>`) `service` names the package, so the command is
+# read only after a `--` word (option words after it skipped), and nothing is checked without one
+# (`cargo test -p service --lib config`).
 function cite_service(s,    n, w, i, k, t, u) {
   n = split(s, w, /[[:space:]]+/)
   for (i = 1; i < n; i++) {
     if (w[i] != "service") continue
     k = i + 1
+    if (i > 1 && (w[i - 1] == "-p" || w[i - 1] == "--package" || w[i - 1] == "--bin")) {
+      while (k <= n && w[k] != "--") k++
+      if (k > n) continue
+      k++
+    }
     while (k <= n && w[k] ~ /^-/) k++
     if (k > n) continue
     t = w[k]
