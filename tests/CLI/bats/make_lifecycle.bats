@@ -6,6 +6,13 @@
 # volumes at the end, so it cannot collide with the stack of a developer (NFR38). The Makefile derives every
 # name from PROJECT_NAME, so exporting it (and no COMPOSE_PROJECT_NAME) addresses the private project. The
 # tests depend on each other in file order: the first starts the stack, the last two stop and remove it.
+#
+# Slow tests: `make start` on a fresh private project makes the containers compile the service, which takes
+# two minutes or more, so the start test is tagged `slow`. Every test that needs the stack it starts (the mount
+# check, `make start-deps` on a running environment, the two log tests, the occupied-port test, the rebuild
+# test, `make stop` and `make down`) is tagged `slow` too, so that `--filter-tags '!slow'` skips the whole
+# group and no test that stays untagged depends on another one. The only untagged test, the second project,
+# starts nothing but its own database and LocalStack and passes on its own. The rebuild test is slow by itself.
 
 bats_require_minimum_version 1.8.0
 load test_helper
@@ -131,6 +138,7 @@ listening_entries() {
 
 # --- start ---------------------------------------------------------------------------------------------------------
 
+# bats test_tags=slow
 @test "make start returns with /ping answering pong and /api/health answering 204 after the migrate step" {
   local before after
   before="$(top_entries)"
@@ -149,6 +157,7 @@ listening_entries() {
   assert_equal "${after}" "${before}"
 }
 
+# bats test_tags=slow
 @test "no mount of the app container lies below /app" {
   local id
   id="$(container_of app)"
@@ -163,6 +172,7 @@ listening_entries() {
   done
 }
 
+# bats test_tags=slow
 @test "make start-deps on a running environment recreates no container" {
   local before after
   before="$(docker inspect --format '{{.Id}} {{.State.StartedAt}}' "$(container_of database)" "$(container_of localstack)")"
@@ -174,6 +184,7 @@ listening_entries() {
 
 # --- logs --------------------------------------------------------------------------------------------------------
 
+# bats test_tags=slow
 @test "timeout 5 make logs exits 124 and shows the listening entry" {
   local status=0
   timeout 5 make --no-print-directory logs >"${tmp}/logs.txt" 2>&1 || status=$?
@@ -182,6 +193,7 @@ listening_entries() {
   assert_success
 }
 
+# bats test_tags=slow
 @test "make new-logs with a concurrent ping shows request completed and /ping" {
   timeout 60 make --no-print-directory new-logs >"${tmp}/new-logs.txt" 2>&1 &
   follower=$!
@@ -219,6 +231,7 @@ listening_entries() {
   assert_output ''
 }
 
+# bats test_tags=slow
 @test "make start-deps with DB_PORT set to an occupied port exits non-zero" {
   # The port of the running development database is occupied; the second project cannot publish it.
   PROJECT_NAME="${BUSY_PROJECT}" DB_PORT="${DB_PORT}" LOCALSTACK_PORT="${BUSY_LOCALSTACK_PORT}" \
@@ -249,6 +262,7 @@ listening_entries() {
 
 # --- stop and removal --------------------------------------------------------------------------------------------
 
+# bats test_tags=slow
 @test "make stop stops the development environment" {
   run make --no-print-directory stop
   assert_success
@@ -256,6 +270,7 @@ listening_entries() {
   assert_output ''
 }
 
+# bats test_tags=slow
 @test "make down removes the containers and keeps the volumes" {
   run make --no-print-directory down
   assert_success

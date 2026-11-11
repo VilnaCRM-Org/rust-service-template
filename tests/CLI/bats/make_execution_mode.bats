@@ -6,6 +6,9 @@
 # compose project, with a name and host ports of its own, and removes it with its volumes at the end, so it
 # cannot collide with the stack of a developer (NFR38). The Makefile derives every name from PROJECT_NAME, so
 # exporting it (and no COMPOSE_PROJECT_NAME) is all that addresses the private project.
+#
+# The `make start` of setup_file takes about two minutes and is not a test. The one test whose own body can exceed
+# a minute, `make lint-rustdoc` in the container (58 to 99 s measured), is tagged `slow`.
 
 bats_require_minimum_version 1.8.0
 load test_helper
@@ -159,6 +162,7 @@ probe_makefile() {
   assert_success
 }
 
+# bats test_tags=slow
 @test "RUN_IN_CONTAINER=1 make lint-rustdoc (the env form behind exec) succeeds in the running container" {
   RUN_IN_CONTAINER=1 run make --no-print-directory lint-rustdoc
   assert_success
