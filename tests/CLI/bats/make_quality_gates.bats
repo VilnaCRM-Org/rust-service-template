@@ -81,6 +81,7 @@ FIXTURES="${BATS_TEST_DIRNAME}/fixtures"
     ARCH_ARGS='--config xtask/tests/fixtures/arch/valid.toml --manifest-path xtask/tests/fixtures/arch/workspace/Cargo.toml'
   assert_failure
   assert_output --partial 'arch::layer'
+  assert_output --partial '] Error 1'
 }
 
 # --- G5, G6, G8: manifest, configuration, unused dependencies ----------------------------------------------
@@ -98,6 +99,8 @@ FIXTURES="${BATS_TEST_DIRNAME}/fixtures"
   run env DATABASE_URL=mysql://x scripts/with-env.sh .env -- make --no-print-directory check-requirements
   assert_failure 2
   assert_output --partial 'DATABASE_URL'
+  # Make's error line carries the status of the recipe, which is the status of the command itself.
+  assert_output --partial '] Error 2'
 }
 
 @test "G8: unused-dependencies names an unused dependency and leaves Cargo.lock as it found it" {
@@ -118,6 +121,10 @@ FIXTURES="${BATS_TEST_DIRNAME}/fixtures"
 # --- G7: one negative test per policy of cargo-deny --------------------------------------------------------
 
 @test "G7: check-security rejects every licence when the allow-list is empty" {
+  # The fixture is a copy of deny.toml with one policy changed: fail when deny.toml was edited since.
+  sed '/^\[licenses\]/,/^\[/ { /^allow = \[$/,/^\]$/c\
+allow = []
+}' deny.toml | diff - "${FIXTURES}/deny_no_licences.toml.txt"
   plant_replace deny.toml "${FIXTURES}/deny_no_licences.toml.txt"
   run make --no-print-directory check-security
   assert_failure
@@ -125,6 +132,8 @@ FIXTURES="${BATS_TEST_DIRNAME}/fixtures"
 }
 
 @test "G7: check-security rejects every registry when allow-registry is empty" {
+  # The fixture is a copy of deny.toml with one policy changed: fail when deny.toml was edited since.
+  sed '/^allow-registry = /s/=.*/= []/' deny.toml | diff - "${FIXTURES}/deny_no_registries.toml.txt"
   plant_replace deny.toml "${FIXTURES}/deny_no_registries.toml.txt"
   run make --no-print-directory check-security
   assert_failure
@@ -183,6 +192,8 @@ EOF
 @test "G25: validate-configuration exits 2 for a base ref that does not exist" {
   run env -u CONFIG_CHANGE_APPROVED make --no-print-directory validate-configuration base_ref=no-such-ref
   assert_failure 2
+  assert_output --partial 'base ref no-such-ref is not available'
+  assert_output --partial '] Error 2'
 }
 
 # --- the harness itself ------------------------------------------------------------------------------------
