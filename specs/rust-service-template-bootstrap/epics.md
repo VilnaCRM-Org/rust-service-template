@@ -653,7 +653,7 @@ Verify: `make install`; `make doctor`; `make ci CI_STAGES=help`; `make check-sec
 
 **Given** each configuration file
 **When** it is compared with its listing in "Repository Lint and Hygiene"
-**Then** the content matches, the generated snapshot directories, `.sqlx/`, `specs/`, lock files and `tests/CLI/bats/fixtures/` are excluded where the listing says so, and `.prettierrc.yml` is byte-identical to `/home/user/vilnacrm-org/php-service-template/.prettierrc.yml`
+**Then** the content matches, the generated snapshot directories, `.sqlx/`, `specs/`, lock files and `tests/CLI/bats/fixtures/` are excluded where the listing says so, and `.prettierrc.yml` is byte-identical to `${PHP_TEMPLATE_DIR}/.prettierrc.yml`
 
 **Given** `README.md` and `CLAUDE.md` after this story
 **When** `git diff HEAD~1 -- README.md CLAUDE.md` is read on the story's commit
@@ -913,7 +913,7 @@ Touches: none.
 Implements: FR74, FR75, NFR24, G18, G19, G20.
 Reference: architecture-delivery.md DD-10, DD-22, "Command Surface" (targets `validate-openapi-spec`, `openapi-diff`, `graphql-diff`; script rows `validate-openapi-spec.sh`, `openapi-diff.sh`, `graphql-diff.sh`; variables `base_ref`, `BREAKING_CHANGE_APPROVED`, `OPENAPI_DIFF_IMAGE`; "`make/gates.mk`": the exported `SPECTRAL_FLAGS` and `OASDIFF_FLAGS`), "Repository File Manifest" (Root: `.spectral.yaml`).
 Pitfalls: PF-15, PF-17.
-Verify: `cmp .spectral.yaml /home/user/vilnacrm-org/php-service-template/.spectral.yaml`; `make lint-shell`; `make lint-yaml`; the fixture runs of the acceptance criteria below (the real snapshots do not exist until Story 7.4).
+Verify: `cmp .spectral.yaml ${PHP_TEMPLATE_DIR}/.spectral.yaml`; `make lint-shell`; `make lint-yaml`; the fixture runs of the acceptance criteria below (the real snapshots do not exist until Story 7.4).
 
 **Acceptance Criteria:**
 
@@ -986,7 +986,7 @@ Depends on: 1.4.
 Owns: `tests/Load/config.json.dist`, `tests/Load/scripts/`, `tests/Load/utils/`, `tests/Load/get-load-test-scenarios.sh`, `tests/Load/execute-load-test.sh`, `tests/Load/run-smoke-load-tests.sh`, `tests/Load/run-average-load-tests.sh`, `tests/Load/run-stress-load-tests.sh`, `tests/Load/run-spike-load-tests.sh`, `tests/Load/run-load-tests.sh`, `tests/Load/results/.gitignore`.
 Touches: none.
 Implements: FR78, FR79, FR80, FR81, FR82, FR83, NFR1, NFR25, G24.
-Reference: architecture-delivery.md "Load Testing" ("Layout of `tests/Load`", "`config.json.dist`", "Results", "JavaScript lint"), DD-25, "Command Surface" (load-test targets; `scenario`, `runSmoke`, `runAverage`, `runStress`, `runSpike`). Source files to port: `/home/user/vilnacrm-org/php-service-template/tests/Load/`.
+Reference: architecture-delivery.md "Load Testing" ("Layout of `tests/Load`", "`config.json.dist`", "Results", "JavaScript lint"), DD-25, "Command Surface" (load-test targets; `scenario`, `runSmoke`, `runAverage`, `runStress`, `runSpike`). Source files to port: `${PHP_TEMPLATE_DIR}/tests/Load/`.
 Pitfalls: PF-66.
 Verify: `make lint-load-tests`; `make lint-shell`; `make lint-prettier`; `tests/Load/get-load-test-scenarios.sh`; `tests/Load/execute-load-test.sh ""` (expected exit status 2).
 
@@ -1027,7 +1027,7 @@ Depends on: 3.1, 3.4.
 Owns: `tests/Load/aws-execute-load-tests.sh`, `tests/Load/cleanup.sh`, `tests/Load/config.sh`, `tests/Load/user-data.sh`, `tests/Load/trust-policy.json`, `tests/Load/s3-bucket-policy.json`, `tests/Load/s3-access-policy.json`.
 Touches: none.
 Implements: FR85.
-Reference: architecture-delivery.md "Load Testing" ("AWS runner"), DD-25, "Command Surface" (targets `aws-load-tests`, `aws-load-tests-cleanup`; variables `LOCAL_MODE_ENV`, `region`, `ami`, `instance_type`, `instance_tag`, `role`, `branch`, `security_group`, `load_target`). Source files to port: `/home/user/vilnacrm-org/php-service-template/tests/Load/`.
+Reference: architecture-delivery.md "Load Testing" ("AWS runner"), DD-25, "Command Surface" (targets `aws-load-tests`, `aws-load-tests-cleanup`; variables `LOCAL_MODE_ENV`, `region`, `ami`, `instance_type`, `instance_tag`, `role`, `branch`, `security_group`, `load_target`). Source files to port: `${PHP_TEMPLATE_DIR}/tests/Load/`.
 Verify: `make start-deps`; `make aws-load-tests LOCAL_MODE_ENV=true`; `make aws-load-tests-cleanup LOCAL_MODE_ENV=true`; `make lint-shell`; `make lint-prettier`.
 
 **Acceptance Criteria:**
@@ -1915,7 +1915,7 @@ Touches: `tests/e2e/main.rs` (replaces the stub with the cucumber runner).
 Implements: FR55, FR56, FR57, NFR6, NFR30, G13.
 Reference: architecture.md AD-23, "Test Architecture" ("Gherkin features": the step vocabulary and the five feature listings; "Levels": end-to-end; "Test database strategy" under "Data Architecture"), "Workspace and Project Structure" (tree of `tests/e2e/` and `features/`), "Quality Gates" ("Gate commands": QG-15; "`.config/nextest.toml`": the default filter); architecture-delivery.md "Command Surface" (target `e2e-tests`).
 Pitfalls: PF-45, PF-46, PF-48.
-Verify: `cmp features/health_check.feature /home/user/vilnacrm-org/php-service-template/features/health_check.feature`; `make setup-test-db`; `make e2e-tests`; `make unit-tests`; `make format-check`; `make lint-code`; `make architecture`.
+Verify: `cmp features/health_check.feature ${PHP_TEMPLATE_DIR}/features/health_check.feature`; `make setup-test-db`; `make e2e-tests`; `make unit-tests`; `make format-check`; `make lint-code`; `make architecture`.
 
 **Acceptance Criteria:**
 
@@ -2039,7 +2039,7 @@ Depends on: 1.4.
 Owns: `bmalph/config.json` (existing file, kept), `.claude/commands/` (the 54 existing wrapper files, each given the preface paragraph), `scripts/install-bmalph.sh`, `.claude/skills/bmad-autonomous-planning/`.
 Touches: none.
 Implements: FR112.
-Reference: architecture-delivery.md "AI Guidance and Documentation" ("`.claude/commands` and bmalph"; skill table row `bmad-autonomous-planning`), "Command Surface" (targets `bmalph-install`, `bmalph-claude`, `bmalph-codex`, `bmalph-init`, `bmalph-setup`; script row `install-bmalph.sh`). Sources to adapt: `/home/user/vilnacrm-org/core-service/scripts/local-coder/install-bmalph.sh` and `/home/user/vilnacrm-org/core-service/.claude/skills/bmad-autonomous-planning/`.
+Reference: architecture-delivery.md "AI Guidance and Documentation" ("`.claude/commands` and bmalph"; skill table row `bmad-autonomous-planning`), "Command Surface" (targets `bmalph-install`, `bmalph-claude`, `bmalph-codex`, `bmalph-init`, `bmalph-setup`; script row `install-bmalph.sh`). Sources to adapt: `${CORE_SERVICE_DIR}/scripts/local-coder/install-bmalph.sh` and `${CORE_SERVICE_DIR}/.claude/skills/bmad-autonomous-planning/`.
 Verify: `make lint-shell`; `make lint-markdown`; `ls .claude/commands/*.md | wc -l` (expected `54`); `grep -L "requires local BMALPH assets" .claude/commands/*.md` (expected: no output); `git check-ignore _bmad _bmad-output .ralph bmalph/state`; with Node.js 20 and npm available: `make bmalph-init BMALPH_DRY_RUN=true` (expected: the output of `git status --porcelain` is the same before and after).
 
 **Acceptance Criteria:**
@@ -2076,7 +2076,7 @@ Owns: `README.md` (existing one-line file, replaced), `CONTRIBUTING.md`, `SECURI
 Touches: none.
 Implements: FR97, FR113, FR114, FR115, FR116, NFR46, NFR47.
 Reference: architecture-delivery.md "AI Guidance and Documentation" ("Human documentation": rows `README.md`, `CONTRIBUTING.md`, `SECURITY.md`; the badge and licence paragraphs), "CI/CD Workflows" ("Dependabot, review bot and templates": `.coderabbit.yaml` and the template table), "Git Hooks and Commit Convention", DD-23; PRD assumption A-8.
-Verify: `make lint-markdown`; `make lint-yaml`; `make lint-prettier`; `make lint-spelling`; `cmp .coderabbit.yaml /home/user/vilnacrm-org/php-service-template/.coderabbit.yaml`; `grep -n "TODO\|TBD\|example.com" SECURITY.md` (expected: no output).
+Verify: `make lint-markdown`; `make lint-yaml`; `make lint-prettier`; `make lint-spelling`; `cmp .coderabbit.yaml ${PHP_TEMPLATE_DIR}/.coderabbit.yaml`; `grep -n "TODO\|TBD\|example.com" SECURITY.md` (expected: no output).
 
 **Acceptance Criteria:**
 

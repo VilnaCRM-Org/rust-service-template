@@ -42,6 +42,9 @@ the orchestrating agent acting as the user's surrogate for decisions.
 6. [Architecture: delivery](architecture-delivery.md) — Make command surface,
    containers and compose, CI workflows, release, hooks, load testing, Bats,
    AI guidance and the repository file manifest.
+7. [Epics and stories](epics.md) — 10 epics and 57 stories with dependencies,
+   owned paths, verification commands and acceptance criteria, in the form
+   `bmalph implement` parses.
 
 ## Notes
 
@@ -49,5 +52,8 @@ the orchestrating agent acting as the user's surrogate for decisions.
   reports) and the spike sources are working material and are not tracked;
   the research digest stands in for them. References such as
   `research/php-*.md` and `research/rust-*.md` point to those local files.
+- In `epics.md`, `${PHP_TEMPLATE_DIR}` and `${CORE_SERVICE_DIR}` stand for
+  local checkouts of `php-service-template` and `core-service`, used by the
+  stories that reuse or adapt files from them.
 - The generated BMAD and Ralph assets (`_bmad/`, `.ralph/`, `_bmad-output/`)
   stay out of git; see `.gitignore`.
