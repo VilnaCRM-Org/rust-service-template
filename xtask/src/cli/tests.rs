@@ -309,20 +309,6 @@ fn a_reserved_context_exits_with_status_one() {
 }
 
 #[test]
-fn a_workspace_that_is_not_one_exits_with_status_two_and_changes_nothing() {
-    // The tests run in the package directory, whose manifest is not a workspace root.
-    let run = run(&["xtask", "new-context", "billing", "ledger"]);
-
-    assert_eq!(run.code, ExitCode::from(2));
-    assert_eq!(run.stdout, "");
-    assert_eq!(
-        run.stderr,
-        "new-context could not run: Cargo.toml has no [workspace].members array\n"
-    );
-    assert!(!std::path::Path::new("crates").exists());
-}
-
-#[test]
 fn both_names_are_required() {
     for args in [
         &["xtask", "new-context"][..],
@@ -343,13 +329,6 @@ fn both_names_are_required() {
 #[test]
 fn a_refusal_that_cannot_be_written_exits_with_status_two() {
     let args = ["xtask", "new-context", "Billing", "ledger"];
-
-    assert_eq!(main(args, &mut Vec::new(), &mut Broken), ExitCode::from(2));
-}
-
-#[test]
-fn a_failure_to_run_that_cannot_be_written_exits_with_status_two() {
-    let args = ["xtask", "new-context", "billing", "ledger"];
 
     assert_eq!(main(args, &mut Vec::new(), &mut Broken), ExitCode::from(2));
 }

@@ -40,11 +40,7 @@ pub(crate) fn xtask_in(
 ) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_xtask"));
     command.args(arguments).env_clear().current_dir(directory);
-    for name in FORWARDED {
-        if let Some(value) = from_environment(name) {
-            command.env(name, value);
-        }
-    }
+    forward(&mut command, &FORWARDED);
     command.envs(variables.iter().copied());
     command
 }
@@ -54,7 +50,8 @@ pub(crate) fn run(arguments: &[&str], variables: &[(&str, &str)]) -> Run {
     collect(&mut xtask(arguments, variables))
 }
 
-fn collect(command: &mut Command) -> Run {
+/// Runs the command and collects its exit code and output.
+pub(crate) fn collect(command: &mut Command) -> Run {
     let output = command.output().unwrap();
     Run {
         code: output.status.code(),
@@ -141,11 +138,7 @@ impl Repo {
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .current_dir(&self.directory);
-        for name in ["PATH", "HOME"] {
-            if let Some(value) = from_environment(name) {
-                command.env(name, value);
-            }
-        }
+        forward(&mut command, &["PATH", "HOME"]);
         let output = command.output().unwrap();
         assert!(
             output.status.success(),
@@ -158,6 +151,15 @@ impl Repo {
 impl Drop for Repo {
     fn drop(&mut self) {
         fs::remove_dir_all(&self.directory).unwrap_or_default();
+    }
+}
+
+/// Copies the named variables from the test process to the command, when the process has them.
+pub(crate) fn forward(command: &mut Command, names: &[&str]) {
+    for name in names {
+        if let Some(value) = from_environment(name) {
+            command.env(name, value);
+        }
     }
 }
 

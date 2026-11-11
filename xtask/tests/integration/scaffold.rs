@@ -4,16 +4,15 @@
 //! removed when its test ends.
 
 use std::collections::BTreeMap;
-use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use super::support::{Run, workspace_root, xtask_in};
+use super::support::{Run, collect, forward, workspace_root, xtask_in};
 
 /// Variables that `cargo` and `git` need to be found and to run; nothing else reaches them.
-const FORWARDED: [&str; 5] = [
+const STACK: [&str; 5] = [
     "PATH",
     "HOME",
     "CARGO_HOME",
@@ -71,7 +70,7 @@ impl Copy {
             .args(arguments)
             .env_clear()
             .current_dir(&self.directory);
-        forward(&mut command);
+        forward(&mut command, &STACK);
         collect(&mut command)
     }
 
@@ -83,7 +82,7 @@ impl Copy {
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .current_dir(&self.directory);
-        forward(&mut command);
+        forward(&mut command, &STACK);
         let run = collect(&mut command);
         assert_eq!(run.code, Some(0), "git {arguments:?}: {}", run.stderr);
         run.stdout
@@ -136,31 +135,6 @@ fn copy_tree(from: &Path, to: &Path) {
             fs::copy(&path, &target).unwrap();
         }
     }
-}
-
-fn collect(command: &mut Command) -> Run {
-    let output = command.output().unwrap();
-    Run {
-        code: output.status.code(),
-        stdout: String::from_utf8(output.stdout).unwrap(),
-        stderr: String::from_utf8(output.stderr).unwrap(),
-    }
-}
-
-fn forward(command: &mut Command) {
-    for name in FORWARDED {
-        if let Some(value) = from_environment(name) {
-            command.env(name, value);
-        }
-    }
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the test stack is described by the environment"
-)]
-fn from_environment(name: &str) -> Option<OsString> {
-    std::env::var_os(name)
 }
 
 const LAYERS: [&str; 3] = ["domain", "application", "infrastructure"];
@@ -464,7 +438,7 @@ fn the_make_target_without_both_names_exits_with_status_two_and_prints_the_usage
             .arg("new-context")
             .args(arguments)
             .env_clear();
-        forward(&mut command);
+        forward(&mut command, &STACK);
 
         let run = collect(&mut command);
 
