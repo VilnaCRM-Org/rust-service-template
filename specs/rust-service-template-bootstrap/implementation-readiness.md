@@ -541,7 +541,8 @@ Added by the orchestrating agent after the assessment above. The assessment itse
 | C5, C6, C7 | Adopted as rules of the loop and written into the implementer and verifier instructions. |
 | C8 | Open until the stories that measure have run; the numbers go into `docs/operations.md` and the run summary. |
 | C9 | Carried into Stories 3.4, 8.5 and 7.4 through the deviation rule. |
-| C10, C11 | Scheduled: C10 before Story 10.5, C11 after Story 10.5 and before the push. |
+| C10 | Done before Story 10.5. Two documentation passes applied every entry of `deviations.md` to `architecture.md`, `architecture-delivery.md`, `epics.md` and this bundle's other documents: the first pass the entries recorded during the implementation stories, among them the corrected "four shards" statements of the core document (F-05); the second pass the entries of the fixes after the first hosted runs and of the final review. `specs/rust-service-template-bootstrap/` was then refreshed from `_bmad-output/planning-artifacts/` with the placeholders kept; its README lists the eleven layout files and `scope-decisions.md` and has no pending row (F-07). |
+| C11 | Scheduled: after Story 10.5 and before the push. |
 | C12 | Open until the first hosted run. |
 
 One rule of the assessment is replaced. "Nothing is pushed before the last story is verified" becomes: handed-over stories of Epics 1 to 9 are pushed as they land, because the branch holds no workflow file until Story 10.1 and a push therefore starts no hosted check; from Story 10.1 on nothing is pushed until Story 10.5 is verified. This keeps finished work safe if the session is interrupted.

@@ -249,7 +249,7 @@ Crates and features considered and not adopted, with the reason: `async-graphql-
 
 | Rule | Fails when |
 | --- | --- |
-| `arch::uncovered` | A workspace crate matches no layer pattern |
+| `arch::uncovered` | A workspace crate matches no layer pattern; or a local crate (no registry or git source) below the workspace root that is not a member of the workspace and is used by the dependency graph, reported as `` `<crate>` is not assigned to any layer: it is a local crate that is not a member of the workspace `` with the hint ``add the crate to `members` of the workspace and name it `<context>-<layer>`, or add its name to the `crates` of a [[layer]]``. A path dependency outside the workspace root directory stays a third-party crate |
 | `arch::ambiguous` | A workspace crate matches more than one layer pattern |
 | `arch::layer` | A crate depends on a workspace crate whose layer is not in `depends_on`; for a dev-dependency, not in `depends_on` or `dev_depends_on` |
 | `arch::context` | A layered crate depends on a layered crate of another context that is not in `[contexts].shared` |
@@ -374,7 +374,7 @@ Crates and features considered and not adopted, with the reason: `async-graphql-
 
 ### AD-12 Liveness
 
-- **Decision.** `GET /ping` returns `200`, `content-type: text/plain; charset=utf-8`, body `pong`. It is registered in `service::http::ping`, outside `/api`, outside the OpenAPI router, and touches no dependency. The spike's `/api/health/live` does not exist. The container healthcheck runs `service healthcheck`, which requests `/ping` on `127.0.0.1:$APP_PORT`.
+- **Decision.** `GET /ping` returns `200`, `content-type: text/plain; charset=utf-8`, body `pong`. It is registered in `service::http::ping`, outside `/api`, outside the OpenAPI router, and touches no dependency. The spike's `/api/health/live` does not exist. The container healthcheck runs `service healthcheck`, which requests `/ping` on the address of `APP_HOST` and the port `APP_PORT` (the loopback address of the same family when `APP_HOST` is `0.0.0.0` or `::`, and `127.0.0.1` when it is unset).
 - **Rationale.** Scope 3.1 and 8.3; `/ping` is the liveness contract of every VilnaCRM template.
 - **Alternatives rejected.** Liveness under `/api/health/live` (contradicts scope).
 - **Consequences.** `/ping` passes through the same middleware stack, so it carries the request id and security headers and appears in the access log.
@@ -506,7 +506,7 @@ Crates and features considered and not adopted, with the reason: `async-graphql-
 
 - **Decision.** One file, `protected-config.toml`, is the single list used by the guard, the guidance and the assistant settings. `cargo xtask config-guard --base <ref>` (default `origin/main`) checks it; the rules and the list are in "Quality Gates". A protected item is a whole file, every file below a directory, or a named section of a file that otherwise changes freely (FR44(b), PD-25). Summary:
   - a protected item that does not exist on the base ref is not a violation;
-  - a modified, deleted or renamed protected file is a violation;
+  - a modified, deleted or renamed protected file is a violation, and so is a protected file whose entry kind changed (regular, executable, symbolic link) or that has a symbolic link in a directory above it; a protected directory that holds files at the base and is now a link or a file is a violation too;
   - the `[workspace.lints]` table of the root `Cargo.toml` is compared as a parsed TOML value, and the budgets of the shipped load scenarios in `tests/Load/config.json.dist` are compared as parsed JSON values at listed JSON pointers; the rest of both files is not protected; a missing file, table or pointer is a modification;
   - once the base ref holds at least one protected item, a new file that would override a protected configuration file for part of the tree (a nested `clippy.toml`, `rustfmt.toml`, `rust-toolchain.toml`, `.cargo/config.toml` and the other names of `override_names`) is a violation (FR44(c));
   - a missing required directory is always a violation;
@@ -520,7 +520,7 @@ Crates and features considered and not adopted, with the reason: `async-graphql-
 
 ### AD-26 Scaffolding command
 
-- **Decision.** `cargo xtask new-context <group> <context>` creates `crates/<group>/<context>/{domain,application,infrastructure}`, each with a manifest that inherits `[workspace.package]` fields and `[lints] workspace = true`, no dependencies, and a `src/lib.rs` that contains only crate-level documentation describing what belongs in that layer. It adds the three paths to `[workspace].members` of the root `Cargo.toml` with `toml_edit` (formatting preserved), then runs `cargo update --workspace --offline`, which adds the three crates to `Cargo.lock` without network access, and prints the next steps, among them adding the module's components to `workspace.dsl` (FR39(e)). If the lock-file step fails the command exits with status 2. Both names must match `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`; the context must not exist; reserved context names are `shared`, `service`, `xtask`, `test-support` and `e2e-tests`. Exit status: 0 created, 1 refused (invalid or existing name), 2 could not run.
+- **Decision.** `cargo xtask new-context <group> <context>` creates `crates/<group>/<context>/{domain,application,infrastructure}`, each with a manifest that inherits `[workspace.package]` fields and `[lints] workspace = true`, no dependencies, and a `src/lib.rs` that contains only crate-level documentation describing what belongs in that layer. It adds the three paths to `[workspace].members` of the root `Cargo.toml` with `toml_edit` (formatting preserved), then runs `cargo update --workspace --offline`, which adds the three crates to `Cargo.lock` without network access, and prints the next steps, among them adding the module's components to `workspace.dsl` (FR39(e)). If the lock-file step fails the command exits with status 2. Both names must match `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`; the context must not exist: the command refuses it, before anything is written, with `` the bounded context `<context>` already exists at <path> `` when `crates/<group>/<context>` exists for any group, when `crates/<context>` exists, when a registered member has a package named `<context>-domain`, `<context>-application` or `<context>-infrastructure`, or when a member path ends with `<context>/<layer>` (the path named is the context directory, or the member directory for a package-name match); reserved context names are `shared`, `service`, `xtask`, `test-support` and `e2e-tests`. Exit status: 0 created, 1 refused (invalid or existing name), 2 could not run.
 - **Rationale.** FR39: the result compiles and passes the architecture gate and the crate-isolation gate without an edit to a protected file. Crates without dependencies also pass the unused-dependency and workspace-dependency gates, which a pre-wired skeleton would fail. The lock-file step is required: after three members are added without it, `cargo metadata --locked` and `cargo check --locked` exit 101 (`cannot update the lock file ... because --locked was passed`), which would break every gate and the `xtask` alias itself; `cargo update --workspace --offline` adds the three packages with exit status 0 and no network access, after which `--locked` passes again (verified on cargo 1.99.1).
 - **Alternatives rejected.** `cargo generate` (another tool to install and pin). Generating a copy of the example slice (dead code in every new context). Leaving the lock-file refresh to the Make recipe (a direct `cargo xtask new-context` would leave the workspace unusable).
 - **Consequences.** The developer adds `[workspace.dependencies]` entries and wiring in `service` when the first code arrives; the guide "create a service from the template" lists these steps. An integration test runs the command in a copy of a fixture workspace, checks that `cargo metadata --locked` succeeds, runs the architecture gate on the result and checks each of the three new packages alone with `cargo check --locked --offline --package <name>`, which is what the crate-isolation gate does per crate (FR39(b), NFR18); it also asserts that no path of `protected-config.toml` was touched. The tests of `xtask` that run against the real workspace assert at least 13 crates, never an exact count: `xtask/tests/` is protected, so a service that has run `new-context` could not adjust a pinned count without the approval label.
@@ -577,7 +577,7 @@ features/
 crates/shared/domain/                         crate shared-domain
   Cargo.toml
   src/lib.rs                       crate docs, module declarations, re-exports of the public items
-  src/error.rs                     `BoxError` type alias
+  src/error.rs                     `BoxError` type alias, `error_chain`
   src/aggregate.rs (+tests)        `AggregateRoot`, `RecordedEvents`
   src/event.rs                     `DomainEvent`, `DomainEventSubscriber`
   src/bus.rs                       module declarations for the four files below
@@ -711,7 +711,7 @@ crates/service/                               crate service (library + binary `s
   src/command/migrate.rs           bounded database wait; apply, revert; plain-text output
   src/command/check_config.rs      print `configuration OK`
   src/command/export.rs (+tests)   write a document to stdout or a file
-  src/command/healthcheck.rs       request `/ping` on the loopback interface
+  src/command/healthcheck.rs       request `/ping` on the address of `APP_HOST` (the loopback interface by default)
   tests/integration/main.rs        module declarations
   tests/integration/support.rs     spawn the binary with the cleared environment and the forwarded profile variable, read its
                                    JSON log lines, send SIGTERM, open sockets, measure time, build the URL of a test database
@@ -733,7 +733,7 @@ crates/service/                               crate service (library + binary `s
   tests/integration/check_config.rs   valid environment exits 0; every invalid variable is named; exit status 2; credentials
                                    set singly are reported; `serve --help` does not contain the value of `DATABASE_URL`
   tests/integration/export.rs      both exports with an empty environment; 20 runs are byte-identical; `--output`
-  tests/integration/healthcheck.rs exit 0 against a running service, exit 1 with nothing listening
+  tests/integration/healthcheck.rs exit 0 against a running service, exit 1 with nothing listening; a service bound to `127.0.0.2` is probed through `APP_HOST`
 
 tests/support/                                crate test-support (test doubles; excluded from coverage and mutation by path)
   Cargo.toml
@@ -808,7 +808,7 @@ Layer crates take every third-party version from `[workspace.dependencies]` (`<n
 | `shared-application` | `crates/shared/application` | lib | application | shared | `shared-domain` | `async-graphql`, `axum`, `serde`, `tokio`, `tracing`, `utoipa`, `validator` | `test-support`, `http-body-util`, `rstest`, `serde_json`, `tokio` (+`test-util`), `tower` |
 | `shared-infrastructure` | `crates/shared/infrastructure` | lib | infrastructure | shared | `shared-domain` | `async-trait`, `aws-config`, `aws-sdk-sqs`, `moka`, `sqlx`, `thiserror`, `uuid` (+`v7`) | `tokio` |
 | `health-check-domain` | `crates/internal/health-check/domain` | lib | domain | health-check | `shared-domain` | `async-trait`, `thiserror` | `rstest` |
-| `health-check-application` | `crates/internal/health-check/application` | lib | application | health-check | `shared-application`, `health-check-domain` | `axum`, `futures-util`, `tokio`, `tracing`, `utoipa`, `utoipa-axum` | `test-support`, `http-body-util`, `rstest`, `serde_json`, `tokio` (+`test-util`), `tower` |
+| `health-check-application` | `crates/internal/health-check/application` | lib | application | health-check | `shared-application`, `shared-domain`, `health-check-domain` | `axum`, `futures-util`, `tokio`, `tracing`, `utoipa`, `utoipa-axum` | `async-trait`, `test-support`, `http-body-util`, `rstest`, `serde_json`, `tokio` (+`test-util`), `tower` |
 | `health-check-infrastructure` | `crates/internal/health-check/infrastructure` | lib | infrastructure | health-check | `shared-domain`, `health-check-domain` | `async-trait`, `aws-sdk-sqs`, `sqlx` | `shared-infrastructure`, `test-support`, `aws-sdk-sqs` (+`test-util`), `aws-smithy-mocks`, `tokio` |
 | `some-module-domain` | `crates/company-subdomain/some-module/domain` | lib | domain | some-module | `shared-domain` | `async-trait`, `thiserror` | `proptest`, `rstest` |
 | `some-module-application` | `crates/company-subdomain/some-module/application` | lib | application | some-module | `shared-domain`, `shared-application`, `some-module-domain` | `async-graphql`, `async-trait`, `axum`, `humantime`, `serde`, `thiserror`, `tracing`, `utoipa`, `utoipa-axum`, `uuid`, `validator` | `test-support`, `http-body-util`, `proptest`, `rstest`, `serde_json`, `tokio`, `tower` |
@@ -1176,6 +1176,8 @@ Signatures are normative: names, parameters, return types and trait bounds must 
 ```rust
 // error.rs
 pub type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
+pub fn error_chain(cause: &(dyn std::error::Error + 'static)) -> String;   // the error and every source, outermost
+                                                                           // first, joined by ": "; re-exported at the root
 
 // value_object/uuid.rs
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -1399,7 +1401,10 @@ pub struct PostgresSettings {
     pub url: String, pub max_connections: u32,
     pub acquire_timeout: std::time::Duration, pub statement_timeout: std::time::Duration,
 }
-pub fn connect_lazy(settings: &PostgresSettings) -> Result<sqlx::PgPool, sqlx::Error>;   // no network access
+pub const MIN_STATEMENT_TIMEOUT: std::time::Duration;   // 1 ms: PostgreSQL reads 0 as no limit
+pub const MAX_STATEMENT_TIMEOUT: std::time::Duration;   // 24 days: PostgreSQL refuses more than 2147483647 ms
+pub fn connect_lazy(settings: &PostgresSettings) -> Result<sqlx::PgPool, sqlx::Error>;   // no network access; the
+                                                        // statement_timeout it sets is clamped to MIN..=MAX
 
 // messaging.rs
 #[derive(Debug, Clone)]
@@ -1427,7 +1432,7 @@ impl Dependency {
 // health-check-domain: value_object/report.rs
 #[derive(Debug, thiserror::Error)]
 pub enum ProbeFailureCause {
-    #[error("probe failed: {0}")] Failed(#[source] BoxError),
+    #[error("probe failed")] Failed(#[source] BoxError),   // the reason is in the source chain
     #[error("probe timed out after {0:?}")] TimedOut(std::time::Duration),
 }
 #[derive(Debug)]
@@ -1454,11 +1459,12 @@ impl HealthService {
     pub const fn new(probes: Vec<Arc<dyn HealthProbe>>, probe_timeout: Duration) -> Self;
     pub async fn check(&self) -> HealthReport;   // join_all over `self.run(probe)`, failures collected in probe order
     async fn run(&self, probe: &dyn HealthProbe) -> Option<ProbeFailure>;   // probe.check() under tokio::time::timeout;
-                                                 // a failure or a timeout becomes a ProbeFailure, passed to log_failure
+                                                 // a failure or a timeout becomes a ProbeFailure, logged with
+                                                 // log_failure(failure.dependency, &error_chain(&failure.cause))
 }
 // The event is the only statement of its own function and is written on one line (rule 17a).
-fn log_failure(failure: &ProbeFailure) {
-    tracing::warn!(dependency = failure.dependency.identifier(), cause = %failure.cause, "health probe failed");
+fn log_failure(dependency: Dependency, cause: &str) {
+    tracing::warn!(dependency = dependency.identifier(), cause = %cause, "health probe failed");
 }
 
 // health-check-application: http.rs
@@ -1585,7 +1591,7 @@ impl CreateExampleApiResourceHandler {
     // 1 build value objects (domain errors -> Invalid)   2 ExampleApiResource::create(.., uuid_generator.generate(), clock.now())
     // 3 repository.save (AlreadyExists -> AlreadyExists(id); Unavailable -> Storage)
     // 4 only after the save succeeded: event_bus.publish(resource.pull_domain_events()); on Err every failure is
-    //   passed to log_publication_failure and the result is still Ok(()) (PD-18, FR20(e))
+    //   passed to log_publication_failure with error_chain(&*failure.source) and the result is still Ok(()) (PD-18, FR20(e))
 }
 #[async_trait::async_trait]
 impl CommandHandler<CreateExampleApiResource> for CreateExampleApiResourceHandler {
@@ -1593,8 +1599,8 @@ impl CommandHandler<CreateExampleApiResource> for CreateExampleApiResourceHandle
         self.create(command).await   // rule 21: the trait method only delegates
     }
 }
-fn log_publication_failure(failure: &SubscriberFailure) {
-    tracing::error!(event_name = failure.event_name, event_id = %failure.event_id, error = %failure.source, "event publication failed");
+fn log_publication_failure(failure: &SubscriberFailure, error: &str) {
+    tracing::error!(event_name = failure.event_name, event_id = %failure.event_id, error = %error, "event publication failed");
 }
 
 // some-module-application: query.rs and query/*.rs
@@ -2178,7 +2184,7 @@ sqlx adds its own bookkeeping table `_sqlx_migrations`; it is not declared in a 
 ### Test database strategy
 
 - The test database is `<DB_NAME>_test` (`app_test`) on the compose `database` service. `.env.test` sets `DATABASE_URL` to it. Role: `DB_USER`, which is the superuser of the local PostgreSQL container and may therefore create databases. `app_test` itself holds no test data: it carries the `_sqlx_test` bookkeeping, its URL names the server on which the per-test and per-scenario databases are created, and it is the target of the query-metadata gate.
-- `setup-test-db` must, with the variables of `.env` and `.env.test` exported: run `sqlx database reset -y -f --source migrations` (drop `app_test` with force, create it, apply every migration; 0.14 s measured). Nothing else. It requires the `database` service to be healthy and never touches the development database `app`.
+- `setup-test-db` must, with a `DATABASE_URL` of the caller removed and the variables of `.env` and `.env.test` exported: refuse with exit status 2, before it calls `sqlx`, a database whose name does not end in `_test`; then run `sqlx database reset -y -f --source migrations` (drop `app_test` with force, create it, apply every migration; 0.14 s measured). Nothing else. It requires the `database` service to be healthy and never touches the development database `app`.
 - Every test that writes to PostgreSQL has its own database (NFR29, FR55(d)):
   - *Adapter crates.* Integration tests are declared `#[sqlx::test(migrator = "shared_infrastructure::persistence::MIGRATOR")]`. sqlx reads `DATABASE_URL`, creates a fresh database per test next to `app_test`, applies the migrations, passes a `PgPool` to the test, and drops the database when the test passes. Its bookkeeping lives in schema `_sqlx_test` of `app_test`. Databases left by failed tests are removed by sqlx on the next run. Verified in two adapter crates with `DATABASE_URL` from `.env.test`.
   - *`service` integration tests.* Every test that touches PostgreSQL takes its database from `#[sqlx::test]` in the same way (`migrations = false` for `migrate.rs`, which applies and reverts the migrations itself). The helper `support::database_url(&pool)` returns the URL of that database: the name from `SELECT current_database()`, the server part from `DATABASE_URL`. The test passes the URL to the spawned binary as `DATABASE_URL`, or assigns it to `config.database.url` for the in-process test of `bootstrap.rs`. Verified in this revision: the whole `service` integration suite of the skeleton (17 tests, among them the in-process wiring test and the migration round trip) passes in 3.0 s against PostgreSQL and LocalStack.
@@ -2195,13 +2201,13 @@ sqlx adds its own bookkeeping table `_sqlx_migrations`; it is not declared in a 
 | Name | Type | Default | Required | Consumer | PHP name |
 | --- | --- | --- | --- | --- | --- |
 | `APP_ENV` | `dev`, `test` or `prod` | `prod` | no | `service` (explorer on in `dev` only); compose | `APP_ENV` |
-| `APP_HOST` | IP address | `0.0.0.0` | no | `service serve` | none (Caddy) |
+| `APP_HOST` | IP address | `0.0.0.0` | no | `service serve`; `service healthcheck` (the address it probes) | none (Caddy) |
 | `APP_PORT` | integer 0 to 65535 (0 = any free port, for tests) | `8081` | no | `service serve`, `service healthcheck`; compose | listener `:8081` in the Caddyfile |
 | `LOG_LEVEL` | `tracing` filter directives | `info` | no | `service serve` (the other commands write plain text) | none |
 | `DATABASE_URL` | `postgres://` or `postgresql://` URL | none | yes for `serve`, `migrate`, `migrate revert`, `check-config` | `service`; `sqlx-cli`; `#[sqlx::test]`; the end-to-end world | `DB_URL` |
 | `DATABASE_MAX_CONNECTIONS` | integer 1 to 100 | `10` | no | `service` | none |
 | `DATABASE_ACQUIRE_TIMEOUT` | duration | `2s` | no | `service` | none |
-| `DATABASE_STATEMENT_TIMEOUT` | duration | `5s` | no | `service` | none |
+| `DATABASE_STATEMENT_TIMEOUT` | duration from 1 ms to 24 days (otherwise `must be a duration from 1ms to 24d`) | `5s` | no | `service` (every pool connection, `service migrate` included) | none |
 | `DATABASE_WAIT_TIMEOUT` | duration | `30s` | no | `service migrate` (one attempt per second until it elapses) | entrypoint loop, 60 tries |
 | `AWS_REGION` | string | none | yes for `serve`, `check-config` | `service` | `AWS_SQS_REGION` |
 | `AWS_ENDPOINT_URL_SQS` | `http://` or `https://` URL | unset (regional AWS endpoint) | no | `service` | `AWS_SQS_ENDPOINT_BASE` + `LOCALSTACK_PORT` |
@@ -2232,7 +2238,7 @@ Not carried from PHP: `APP_SECRET`, `AWS_SQS_VERSION`, `EMAIL_QUEUE_NAME`, `MESS
 
 ### Committed environment files
 
-Both files are tracked and are not git-ignored. They contain placeholders for the local compose stack only. `${NAME}` references are resolved by `dotenvy`, by Docker Compose and by `scripts/with-env.sh` (delivery document), and in all three a value already present in the process environment wins (verified for dotenvy 0.15.7 and Compose 5.6.1: `${DB_HOST}` and `${DB_PORT}` are taken from the process environment first, and an explicit `DATABASE_URL` wins). That is how the same file works on a host (`localhost`) and inside a container (compose sets `DB_HOST=database` and `LOCALSTACK_HOST=localstack`). Compose must not inject `DATABASE_URL`, `AWS_ENDPOINT_URL_SQS`, `APP_ENV` or `LOG_LEVEL` into the development container, because an injected value would win over `.env.test` in the test targets. Sourcing a file in a shell (`set -a; . ./.env`) overrides the caller's values and must not be used.
+Both files are tracked and are not git-ignored. They contain placeholders for the local compose stack only. `${NAME}` references are resolved by `dotenvy`, by Docker Compose and by `scripts/with-env.sh` (delivery document), and in all three a value already present in the process environment wins (verified for dotenvy 0.15.7 and Compose 5.6.1: `${DB_HOST}` and `${DB_PORT}` are taken from the process environment first, and an explicit `DATABASE_URL` wins). That is how the same file works on a host (`localhost`) and inside a container (compose sets `DB_HOST=database` and `LOCALSTACK_HOST=localstack`). Compose must not inject `DATABASE_URL`, `AWS_ENDPOINT_URL_SQS`, `APP_ENV` or `LOG_LEVEL` into the development container, because an injected value would win over `.env.test` in the test targets. Sourcing a file in a shell (`set -a; . ./.env`) overrides the caller's values and must not be used. `scripts/with-env.sh` reads a value as dotenvy 0.15.7 and Compose read it for the forms on which the two agree: a value in double quotes loses the quotes (`\"`, `\\` and `\n` are unescaped, `${NAME}` is expanded), a value in single quotes loses the quotes and stays literal, an unquoted value ends at whitespace followed by `#`, and an `export ` prefix is accepted. A form that the two read differently (an unquoted value with whitespace, a quote or a backslash, a `$` that does not start `${NAME}`, an unknown escape, an unclosed quote, a comment right after the `=`) makes it exit 2 with `with-env.sh: invalid value in <file>: <line>`, so a committed value has one meaning in all three readers.
 
 `.env` (development):
 
@@ -2271,7 +2277,7 @@ LOG_LEVEL=warn
 DATABASE_URL=postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}_test
 ```
 
-Contract for the Makefile (delivery document): the integration, end-to-end, coverage, mutation and `setup-test-db` commands run with the variables of `.env` and then of `.env.test` exported, a later file overriding an earlier one and a variable the caller has already set overriding both; the Makefile does not `include` either file. The binary loads `.env` itself, so `cargo run -p service -- serve` works on a host without any wrapper. The production image contains no env file. A spawned test binary never reads `.env`: it runs with a cleared environment in a directory outside the repository ("Test Architecture").
+Contract for the Makefile (delivery document): the integration, end-to-end, coverage, mutation and `setup-test-db` commands run with the variables of `.env` and then of `.env.test` exported, a later file overriding an earlier one and a variable the caller has already set overriding both, except `DATABASE_URL`, which the test targets remove from the caller's environment first, so that they always reach the test database of `.env.test` (a caller's `DB_HOST`, `DB_PORT` and `DB_NAME` still apply through it); the Makefile does not `include` either file. The binary loads `.env` itself, so `cargo run -p service -- serve` works on a host without any wrapper. The production image contains no env file. A spawned test binary never reads `.env`: it runs with a cleared environment in a directory outside the repository ("Test Architecture").
 
 ### Binary `service`: subcommands and exit statuses
 
@@ -2285,7 +2291,7 @@ The seven commands of FR2 (the PRD names `migrate` and `check-config`; the other
 | `service check-config` | same as `serve` | Validates the configuration of `serve` without opening a socket or contacting a dependency | `configuration OK` on stdout; one line `<VARIABLE>: <reason>` per problem on stderr | 0; 2 |
 | `service openapi-export` | `--output <path>` (optional) | Writes the OpenAPI YAML to the path or to stdout; reads no configuration | the document | 0; 1 write failure |
 | `service graphql-export` | `--output <path>` (optional) | Writes the GraphQL SDL to the path or to stdout; reads no configuration | the document | 0; 1 write failure |
-| `service healthcheck` | `--port` / `APP_PORT` | Sends `GET /ping` to `127.0.0.1:<port>` with a 2 s connect and read timeout over a plain `std::net::TcpStream`; succeeds on status 200 | none | 0 alive; 1 otherwise |
+| `service healthcheck` | `--port` / `APP_PORT`; `--host` / `APP_HOST` (value hidden) | Sends `GET /ping` to `<host>:<port>`, where the host is the address of `APP_HOST`, the loopback address of the same family when that is `0.0.0.0` or `::`, and `127.0.0.1` when `APP_HOST` is unset, with a 2 s connect and read timeout over a plain `std::net::TcpStream`; succeeds on status 200 | none | 0 alive; 1 otherwise |
 | `service --help`, `service --version` | none | clap output; the version is the release version (`CARGO_PKG_VERSION`); no value of a variable is printed | text | 0 |
 
 An unknown command or flag is a clap usage error with exit status 2, printed by clap before any command runs. A configuration problem never contains the value of a variable. A bind or runtime failure of `serve` is one JSON entry `serve failed` at ERROR with the field `error`; a failure of another command is one line `error: <message>` on stderr. `rollback` of the PRD command table is `service migrate revert`; the liveness probe is `service healthcheck`.
@@ -2403,7 +2409,7 @@ Rules are numbered so a review can cite them. "Must" rules are checked by a gate
 ### Logging
 
 17. Log through `tracing` macros with a fixed message and structured fields. No string interpolation in the message.
-17a. A tracing event macro (`trace!` to `error!`) is the only statement of a private function `fn log_<event>(..)`, with no branch, no `.await` and no second event, and the macro call is written on one source line: `fn log_failure(failure: &ProbeFailure) { tracing::warn!(dependency = failure.dependency.identifier(), cause = %failure.cause, "health probe failed"); }`. Long values are bound to locals or passed as parameters. Reasons, both measured: with tracing's `log` feature active one event costs 7 of the 8 points of cognitive complexity, and a multi-line event leaves its field lines at coverage count 0 even when it is emitted. A line that carries `%` or `?` sigils is left alone by rustfmt and may exceed 100 columns (a 112-column line passed `cargo fmt --check`); rustfmt wraps an argument list it can parse as soon as the list is longer than its `fn_call_width` (60 characters), even when the line stays within 100 columns; an event with dotted field names keeps one line through an explicit `target:` and a braced field list, which rustfmt leaves alone, for example `tracing::info!(target: module_path!(), { http.response.status_code = status, duration_ms }, "request completed");` (a plain `target:` followed by a dotted field does not compile). Span macros are not affected.
+17a. A tracing event macro (`trace!` to `error!`) is the only statement of a private function `fn log_<event>(..)`, with no branch, no `.await` and no second event, and the macro call is written on one source line: `fn log_failure(dependency: Dependency, cause: &str) { tracing::warn!(dependency = dependency.identifier(), cause = %cause, "health probe failed"); }`. Long values are bound to locals or passed as parameters. Reasons, both measured: with tracing's `log` feature active one event costs 7 of the 8 points of cognitive complexity, and a multi-line event leaves its field lines at coverage count 0 even when it is emitted. A line that carries `%` or `?` sigils is left alone by rustfmt and may exceed 100 columns (a 112-column line passed `cargo fmt --check`); rustfmt wraps an argument list it can parse as soon as the list is longer than its `fn_call_width` (60 characters), even when the line stays within 100 columns; an event with dotted field names keeps one line through an explicit `target:` and a braced field list, which rustfmt leaves alone, for example `tracing::info!(target: module_path!(), { http.response.status_code = status, duration_ms }, "request completed");` (a plain `target:` followed by a dotted field does not compile). Span macros are not affected.
 18. `println!`, `eprintln!` and `dbg!` are forbidden in production code (gate: clippy `print_stdout`, `print_stderr`, `dbg_macro`). Command output is written with `writeln!` on a `stdout`/`stderr` handle, and only in `service::command`, `xtask::cli` and `test_support::seed` (the seed line). The build script of `shared-infrastructure` prints its `cargo:` directive with `println!`; the two print lints do not apply to build scripts (verified).
 19. Domain crates do not log, and neither does the event bus. An error is logged once, where it is converted to a response or swallowed: `Problem::internal` for a 5xx, the command handler for a failed event publication.
 20. Banned APIs (gate: clippy `disallowed_methods`, list in `clippy.toml`). Each of these items carries one item-level `#[expect(clippy::disallowed_methods, reason = ..)]` and no other code may:
@@ -2482,7 +2488,7 @@ The delivery document wraps each row in a Make target; the command lines are fix
 | QG-15 | End-to-end tests | cucumber 0.23.0 through `cargo test` | `features/`, `.env`, `.env.test` | `cargo test --locked -p e2e-tests --test e2e` | a step fails, is undefined or is skipped | 2 min 07 s cold, 5 s warm (measured) | `behat` | G13 |
 | QG-16 | Coverage floor | cargo-llvm-cov 0.9.1 | flags below | sequence below | lines or functions below 100% | 1 min 23 s cold for the run (measured) | `tests-with-coverage` | G14 |
 | QG-17 | Mutation testing, full | cargo-mutants 27.1.0 | `.cargo/mutants.toml` | `env -u CARGO_TARGET_DIR -u CARGO_BUILD_WARNINGS cargo mutants --workspace --cargo-arg=--locked` (CI shards add `--shard <k>/<n>`, k from 0 to n-1) | exit 2 (a mutant survived) or 3 (a mutant timed out) | 60 to 80 min unsharded; about 15 min per shard of at most 150 mutants (delivery DD-09; 5.2 s per mutant, measured on 89 mutants) | `infection` | G15 |
-| QG-18 | Mutation testing, changed code | cargo-mutants 27.1.0 | same | `git diff --no-ext-diff "$(git merge-base origin/main HEAD)" -- '*.rs' > target/mutants.diff`, then the command of QG-17 with `--in-diff target/mutants.diff` | as QG-17; exit 2 when the base ref cannot be resolved | 5.2 s per mutant in the diff (measured mean) | none | G15 |
+| QG-18 | Mutation testing, changed code | cargo-mutants 27.1.0 | same | `git diff --no-ext-diff --no-textconv --no-color --no-relative --no-renames --unified=3 --src-prefix=a/ --dst-prefix=b/ "$(git merge-base origin/main HEAD)" -- '*.rs' > target/mutants.diff`, run by `scripts/mutation-diff.sh` with `-c` pins for `core.quotePath`, `diff.mnemonicPrefix`, `diff.noprefix`, `diff.relative`, `diff.renames`, `diff.context`, `color.ui` and `color.diff` and without `GIT_DIFF_OPTS` and `GIT_EXTERNAL_DIFF`, so the user's git configuration cannot change the file; then the command of QG-17 with `--in-diff target/mutants.diff` | as QG-17; exit 2 when the base ref cannot be resolved | 5.2 s per mutant in the diff (measured mean) | none | G15 |
 | QG-19 | Contract snapshots are current | `service` | none | `cargo run --locked --quiet -p service -- openapi-export --output .github/openapi-spec/spec.yaml`, `cargo run --locked --quiet -p service -- graphql-export --output .github/graphql-spec/spec`, then `test -z "$(git status --porcelain -- .github/openapi-spec .github/graphql-spec)"` | a committed snapshot differs from the generated one, or a snapshot is not tracked | seconds after the build | `generate-openapi-spec`, `generate-graphql-spec` | G17 |
 | QG-20 | Complexity limits | clippy (toolchain 1.99.1) | `clippy.toml` | `cargo clippy --locked --workspace --lib --bins --all-features -- -A warnings -D clippy::cognitive_complexity -D clippy::too_many_lines -D clippy::excessive_nesting -D clippy::too_many_arguments` | a production function over a limit | seconds after QG-02 | `phpmd`, `phpinsights` complexity | G3 |
 
@@ -2751,6 +2757,8 @@ files = [
     "rustfmt.toml",
     "xtask/src/arch.rs",
     "xtask/src/config_guard.rs",
+    "xtask/src/cli.rs",
+    "xtask/src/main.rs",
 ]
 
 # Protected directories: every file that exists below them on the base ref is protected.
@@ -2807,10 +2815,35 @@ override_names = [
     ".markdownlint.yml",
     ".markdownlint-cli2.jsonc",
     ".markdownlint-cli2.yaml",
+    ".markdownlint-cli2.cjs",
+    ".markdownlint-cli2.mjs",
+    ".markdownlint.cjs",
+    ".markdownlint.mjs",
     ".prettierrc",
     ".prettierrc.json",
     ".prettierrc.yaml",
     ".prettierrc.yml",
+    ".prettierrc.json5",
+    ".prettierrc.toml",
+    ".prettierrc.js",
+    ".prettierrc.ts",
+    ".prettierrc.mjs",
+    ".prettierrc.mts",
+    ".prettierrc.cjs",
+    ".prettierrc.cts",
+    "prettier.config.js",
+    "prettier.config.ts",
+    "prettier.config.mjs",
+    "prettier.config.mts",
+    "prettier.config.cjs",
+    "prettier.config.cts",
+    "package.yaml",
+    "eslint.config.js",
+    "eslint.config.ts",
+    "eslint.config.mjs",
+    "eslint.config.mts",
+    "eslint.config.cjs",
+    "eslint.config.cts",
 ]
 # Fixture trees may contain such files.
 override_exempt = ["tests/CLI/bats/fixtures/", "xtask/tests/fixtures/"]
@@ -2837,7 +2870,7 @@ What the list covers, against NFR26: the toolchain pin (`rust-toolchain.toml`); 
 How `cargo xtask config-guard --base <ref>` decides:
 
 1. Resolve `<ref>` (default `origin/main`) with git. If it cannot be resolved (shallow checkout, missing remote), print `configuration guard could not run: base ref <ref> is not available` and exit 2. A guard that cannot compare never passes.
-2. For each entry of `files` and each file under `directories` on the base ref: read the blob at the base ref. If the path does not exist on the base ref, it is new and allowed. If the working-tree file is missing (deleted or renamed) or its bytes differ, record `Modification of locked configuration file is not allowed: <path>`.
+2. For each entry of `files` and each file under `directories` on the base ref: read the blob and its entry kind at the base ref (regular file, executable file, symbolic link). If the path does not exist on the base ref, it is new and allowed. If the working-tree file is missing (deleted or renamed), its bytes differ, its kind or executable bit differs, or a directory above it is a symbolic link, record `Modification of locked configuration file is not allowed: <path>`. Links are never followed: an entry that the base holds as a link is compared as that link. A protected directory that holds files at the base ref and is now a link or a file is recorded with the same line for the directory, without a trailing slash.
 3. If the base ref holds at least one protected item: list the files of the working tree that git tracks or would add (`git ls-files --cached --others --exclude-standard`). Every such path that matches an entry of `override_names`, is not itself an entry of `files`, is not under an entry of `override_exempt` and does not exist on the base ref is recorded as `Overriding configuration file is not allowed: <path>`.
 4. For each entry of `manifest_tables`: parse the file at the base ref and in the working tree and compare the named table as TOML values (key order and comments are ignored). A difference, a missing table or a missing file in the working tree is recorded as `Modification of locked configuration table is not allowed: <file> [<table>]`. A file or table that does not exist on the base ref is new and allowed.
 5. For each entry of `json_values`: parse the file at the base ref and in the working tree and compare the value at each pointer. A different value, a missing pointer or a missing file in the working tree is recorded as `Modification of locked configuration value is not allowed: <file> <pointer>`. A file or pointer that does not exist on the base ref is new and allowed.

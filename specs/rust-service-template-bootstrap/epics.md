@@ -570,7 +570,7 @@ Verify: `make`; `make help`; `make ci-list`; `make -n ci`; `make -n bootstrap`; 
 
 **Given** a host with the toolchain and no container running
 **When** the four `make -n format-check` commands of the Verify line are run
-**Then** the first, third and fourth print `cargo fmt --all --check` with no prefix, and the second prints it prefixed by `docker compose exec -T --user <uid>:<gid> -e TEST_SEED -e PROPTEST_RNG_SEED -e CONFIG_CHANGE_APPROVED -e CARGO_BUILD_WARNINGS app`
+**Then** the first, third and fourth print `cargo fmt --all --check` with no prefix, and the second prints it prefixed by `docker compose exec -T --user <uid>:<gid> -e TEST_SEED -e PROPTEST_RNG_SEED -e CONFIG_CHANGE_APPROVED -e CARGO_BUILD_WARNINGS -e DATABASE_STATEMENT_TIMEOUT app`
 **And** `DOCKER=/nonexistent make lint-docker` (a class HOST target without a reachable container engine) exits 2 and prints `This target needs a reachable container engine (docker).`
 
 **Given** the gates that need only the toolchain
@@ -1081,7 +1081,7 @@ Verify: `COMMIT_TITLE='feat(#12): add health endpoint' make check-commit-message
 
 **Given** `make install-hooks` was run in a clone
 **When** `git config core.hooksPath` is read and the three hook files are inspected
-**Then** the value is `.githooks`; each hook is an executable POSIX shell file of at most three lines that calls only `make` (`check-commit-message`, `pre-commit`, `pre-push`)
+**Then** the value is `.githooks`; each hook is an executable POSIX shell file that chooses the GNU Make to run (`$MAKE` when it is set, else `gmake` when it exists, else `make`) and calls only that make (`check-commit-message`, `pre-commit`, `pre-push`)
 **And** `make -n pre-commit` shows `format-check`, `lint-code`, `architecture`, `check-security-offline` and `unused-dependencies` and no target that needs a container or the network, and `make -n pre-push` shows `unit-tests`
 
 **Given** a temporary clone of the repository with a local bare remote, cocogitto 7.0.0 and a stub `gh` on `PATH`, and one new commit `feat(#1): first feature` (cocogitto is not installed by `make install`; where `cog --version` does not print `cog 7.0.0`, the story and the verifier install it with `cargo install cocogitto --version 7.0.0 --locked --root "$(mktemp -d)"` and put that `bin` first on `PATH`)
@@ -1864,7 +1864,7 @@ Touches: `crates/service/src/lib.rs` (module declaration `telemetry`), `crates/s
 Implements: FR1, FR2, FR10, FR12, FR87, FR126, NFR2, NFR3, NFR5, NFR31.
 Reference: architecture.md AD-12, AD-13, AD-15 (a forced end of the grace period exits non-zero), "Configuration" ("Binary `service`: subcommands and exit statuses": rows `serve`, `healthcheck`), "Observability and Operations" ("Log line schema", "Operations": shutdown sequence, panics, start-up), "Workspace and Project Structure" (tree: the case lists of `tests/integration/serve.rs`, `panic.rs` and `healthcheck.rs`), "Test Architecture" (required-test rows PD-21/NFR5, NFR31 and FR126/NFR2/NFR3), "Implementation Patterns and Consistency Rules" (rule 23), "Architecture Validation Results" ("Risks": Schemathesis ran against the first form of the page parameters); architecture-delivery.md "Command Surface" (target `schemathesis-validate` with a caller-set `SCHEMATHESIS_URL`).
 Pitfalls: PF-10, PF-12, PF-19, PF-20, PF-22, PF-23, PF-36, PF-50.
-Verify: `make setup-test-db`; `make integration-tests`; `make unit-tests`; `make format-check`; `make lint-code`; `make lint-rustdoc`; `make complexity`; `make architecture`; `grep -c "is not available yet" crates/service/src/lib.rs` (expected output `0`); `scripts/with-env.sh .env .env.test -- cargo llvm-cov nextest --locked -p service --profile ci --summary-only`; `scripts/with-env.sh .env .env.test -- env -u CARGO_TARGET_DIR -u CARGO_BUILD_WARNINGS cargo mutants --cargo-arg=--locked -p service -f crates/service/src/lib.rs -f crates/service/src/command/serve.rs -f crates/service/src/command/healthcheck.rs -f crates/service/src/telemetry.rs`; `mkdir -p target/reports && cargo build --locked --quiet -p service; APP_PORT=18082 scripts/with-env.sh .env .env.test -- target/debug/service serve > target/reports/early-serve.log & pid=$!; for i in $(seq 1 120); do curl -fsS http://127.0.0.1:18082/ping > /dev/null && break; sleep 1; done; make schemathesis-validate SCHEMATHESIS_URL=http://127.0.0.1:18082; status=$?; kill -TERM "$pid"; wait "$pid"; serve_status=$?; test "$status" -eq 0 && test "$serve_status" -eq 0` (the built binary is started through `scripts/with-env.sh`, which replaces itself with it, so `$pid` is the service and its exit status after SIGTERM is checked).
+Verify: `make setup-test-db`; `make integration-tests`; `make unit-tests`; `make format-check`; `make lint-code`; `make lint-rustdoc`; `make complexity`; `make architecture`; `grep -rn "is not available yet" crates/service/src` (expected: prints nothing); `scripts/with-env.sh .env .env.test -- cargo llvm-cov nextest --locked -p service --profile ci --summary-only`; `scripts/with-env.sh .env .env.test -- env -u CARGO_TARGET_DIR -u CARGO_BUILD_WARNINGS cargo mutants --cargo-arg=--locked -p service -f crates/service/src/lib.rs -f crates/service/src/command/serve.rs -f crates/service/src/command/healthcheck.rs -f crates/service/src/telemetry.rs`; `mkdir -p target/reports && cargo build --locked --quiet -p service; APP_PORT=18082 scripts/with-env.sh .env .env.test -- target/debug/service serve > target/reports/early-serve.log & pid=$!; for i in $(seq 1 120); do curl -fsS http://127.0.0.1:18082/ping > /dev/null && break; sleep 1; done; make schemathesis-validate SCHEMATHESIS_URL=http://127.0.0.1:18082; status=$?; kill -TERM "$pid"; wait "$pid"; serve_status=$?; test "$status" -eq 0 && test "$serve_status" -eq 0` (the built binary is started through `scripts/with-env.sh`, which replaces itself with it, so `$pid` is the service and its exit status after SIGTERM is checked).
 
 **Acceptance Criteria:**
 
@@ -1891,7 +1891,7 @@ Verify: `make setup-test-db`; `make integration-tests`; `make unit-tests`; `make
 
 **Given** `service healthcheck`
 **When** it is run with `APP_PORT` of a running service and with a port on which nothing listens
-**Then** it exits 0 and 1 respectively, using a plain TCP request to `127.0.0.1` with a 2 s timeout and no dependency access
+**Then** it exits 0 and 1 respectively, using a plain TCP request with a 2 s timeout and no dependency access to `127.0.0.1` when `APP_HOST` is unset and to the address of `APP_HOST` otherwise (the loopback address of the same family for `0.0.0.0` and `::`), so a service bound to `127.0.0.2` is probed there
 **And** `grep -rl "MIGRATOR" crates/service/src` prints only `crates/service/src/command/migrate.rs`: start-up never migrates
 
 **Given** the development services, a prepared test database and the service started on the host by the last command of the Verify line (`APP_PORT=18082`, the variables of `.env` and `.env.test`)
@@ -2199,7 +2199,7 @@ Verify: `make lint-markdown`; `make lint-spelling`; `grep -c "Database is not av
 
 **Given** `docs/extension-seams.md` and `docs/repository-settings.md`
 **When** they are read
-**Then** the first covers a Redis adapter through the `Cache` port, tracing and metrics at the request span, an authentication layer and an outbox; the second names every job of the pull-request workflows (G31 rule (d)), marking the gate jobs and the aggregators `mutation-tests` and `bats` as required status checks and `changes`, `mutation-plan`, `mutation-shard`, `bats-group`, `clippy-sarif-upload` and `codeql` as not required; it states squash merging with the pull-request title as commit subject, permission for the release identity to push to `main`, private vulnerability reporting, the secrets and variables, the five labels to create, the code-scanning setup (`CODE_SCANNING_ENABLED`) and the governance follow-ups (CODEOWNERS, rulesets, auto-merge, stale bot, OSSF Scorecard, multi-architecture images)
+**Then** the first covers a Redis adapter through the `Cache` port, tracing and metrics at the request span, an authentication layer and an outbox; the second names every job of the pull-request workflows (G31 rule (d)), marking the gate jobs, the `changes` job of each workflow under its own check name (`Changes (Quality)` and so on) and the aggregators `mutation-tests` and `bats` as required status checks and `mutation-plan`, `mutation-shard`, `bats-group`, `clippy-sarif-upload` and `codeql` as not required; it states squash merging with the pull-request title as commit subject, permission for the release identity to push to `main`, private vulnerability reporting, the secrets and variables, the five labels to create, the code-scanning setup (`CODE_SCANNING_ENABLED`) and the governance follow-ups (CODEOWNERS, rulesets, auto-merge, stale bot, OSSF Scorecard, multi-architecture images)
 
 **Given** `.github/AUTORELEASE.md`
 **When** it is read
@@ -2488,9 +2488,9 @@ Verify: `make bats BATS_PATH="tests/CLI/bats/make_tests.bats tests/CLI/bats/make
 **When** the fixture function `planted` (`fixtures/uncovered_function.rs.txt`) is appended to `xtask/src/cli.rs`, and one file of `.sqlx/` is removed
 **Then** `tests-with-coverage` exits non-zero, `target/coverage/lcov.info` exists and has an `FNDA:0,` record for `planted`; `CI=true make mutation-tests-diff base_ref=HEAD` exits non-zero with the status 2 of cargo-mutants and prints a `MISSED` line with `replace planted -> bool with true`, and `base_ref=no-such-ref` fails with the base-ref message; `validate-sqlx-metadata` exits non-zero
 
-**Given** the development database
+**Given** a throw-away database on the server of the development compose project, named by `DATABASE_URL` (the tests that apply migrations are skipped with a reason in container mode, which forwards no `DATABASE_URL`)
 **When** the tests of `make_database.bats` run
-**Then** `make migrate` twice changes nothing the second time, `migrate-rollback` followed by `migrate` restores the schema, and `create-migration` without `name` fails with the usage line (exit status 2 of the recipe)
+**Then** `make migrate` twice changes nothing the second time, `migrate-rollback` followed by `migrate` restores the schema, neither touches the development database, and `create-migration` without `name` fails with the usage line (exit status 2 of the recipe)
 
 **Given** a committed tree
 **When** `make new-context group=bats-group context=bats-context` runs in `make_scaffolding.bats`
@@ -2685,7 +2685,7 @@ Verify: `make bats BATS_PATH="tests/CLI/bats/make_execution_mode.bats tests/CLI/
 
 **Given** the execution-mode tests
 **When** they run
-**Then** `make -n format-check` is native; `RUN_IN_CONTAINER=1 make -n format-check` starts with `docker compose exec -T` and carries the four `-e` options; with `CI=true` or `IN_DEV_CONTAINER=1` it is native again; `RUN_IN_CONTAINER=1 make format-check`, `check-requirements`, `lint-rustdoc` and `setup-test-db` succeed in the running development container; inside the container `scripts/with-env.sh .env .env.test -- printenv APP_ENV DATABASE_URL` prints `test` and a URL on `database:5432/app_test`; `TEST_SEED=7` reaches a command behind `EXEC`, and without it the variable is unset there; `RUN_IN_CONTAINER=1 scripts/doctor.sh` with cargo removed from `PATH` exits 0 and prints the `[SKIP]` line; an orchestration target ignores the switch
+**Then** `make -n format-check` is native; `RUN_IN_CONTAINER=1 make -n format-check` starts with `docker compose exec -T` and carries the five `-e` options; with `CI=true` or `IN_DEV_CONTAINER=1` it is native again; `RUN_IN_CONTAINER=1 make format-check`, `check-requirements`, `lint-rustdoc` and `setup-test-db` succeed in the running development container; inside the container `scripts/with-env.sh .env .env.test -- printenv APP_ENV DATABASE_URL` prints `test` and a URL on `database:5432/app_test`; `TEST_SEED=7` reaches a command behind `EXEC`, and without it the variable is unset there; the same holds for `DATABASE_STATEMENT_TIMEOUT=30m`; `RUN_IN_CONTAINER=1 scripts/doctor.sh` with cargo removed from `PATH` exits 0 and prints the `[SKIP]` line; an orchestration target ignores the switch
 **And** `DOCKER=/nonexistent make lint-docker` exits 2 with `This target needs a reachable container engine`, and `RUN_IN_CONTAINER=1 make format-check` with the environment stopped fails with Docker's message that the service is not running
 
 **Given** the lifecycle tests
@@ -2815,7 +2815,7 @@ Verify: `make lint-actions`; `make lint-yaml`; `make lint-prettier`; `make lint-
 
 **Given** `.templatesyncignore`
 **When** it is compared with the listing
-**Then** it is equal: the service-owned block (`.templatesyncignore`, README, changelog, workspace manifest and lock file, `.sqlx/`, migrations, both snapshots, `workspace.dsl`, `bmalph/config.json`, `specs/`, `crates/company-subdomain/`, the four feature files other than the health feature, `tests/Load/config.json.dist`, `docs/requests.http`) and the block of template-owned files a service extends (`.env`, `.env.test`, `docs/adr/`, `docs/environment.md`, `.github/dependabot.yml`, the skill index, the policy and exception files, the health-check and `service` wiring files, `tests/support/`, `tests/e2e/`)
+**Then** it is equal: the service-owned block (`.templatesyncignore`, README, changelog, workspace manifest and lock file, `.sqlx/`, migrations, both snapshots, `workspace.dsl`, `bmalph/config.json`, `specs/`, `crates/company-subdomain/`, the four feature files other than the health feature, `tests/Load/config.json.dist`, `docs/requests.http`) and the block of template-owned files a service extends (`.env`, `.env.test`, `docs/adr/`, `docs/environment.md`, `.github/dependabot.yml`, the skill index, the policy and exception files, the health-check and `service` wiring files, the four `service` tests that build `Adapters` or name the example context (`src/http/router/tests.rs`, `tests/integration/bootstrap.rs`, `migrate.rs` and `serve.rs`), `tests/support/`, `tests/e2e/`)
 
 **Given** `.github/dependabot.yml`
 **When** it is read
@@ -2892,7 +2892,7 @@ Verify: `test -z "$(git status --porcelain)" && make down && d=$(mktemp -d) && g
 
 **Given** `docs/repository-settings.md`
 **When** it is compared with the job names in the pull-request workflows under `.github/workflows/`
-**Then** it names every job (G31 rule (d)); it marks the gate jobs and the aggregators `mutation-tests` and `bats` as required status checks, and `changes`, `mutation-plan`, `mutation-shard`, `bats-group`, `clippy-sarif-upload` and `codeql` as not required
+**Then** it names every job (G31 rule (d)); it marks the gate jobs, the seven `changes` jobs under their own check names (`Changes (Quality)`, `Changes (Tests)`, `Changes (Contracts)`, `Changes (Change control)`, `Changes (Load tests)`, `Changes (Security)`, `Changes (Repository)`) and the aggregators `mutation-tests` and `bats` as required status checks, and `mutation-plan`, `mutation-shard`, `bats-group`, `clippy-sarif-upload` and `codeql` as not required
 
 **Given** the complete tree
 **When** `make docs-check`, `make lint-repo`, the two loops of the Verify line and `grep -rn "rust-service-template" Makefile make scripts Dockerfile docker-compose*.yml tests/CLI tests/Load AGENTS.md CLAUDE.md .claude/skills` are run
