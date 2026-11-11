@@ -15,6 +15,9 @@ pub(crate) const VALID_ENVIRONMENT: [(&str, &str); 2] = [
     ("AWS_REGION", "us-east-1"),
 ];
 
+/// URL that nothing listens on: the "unreachable database" case. No container is stopped.
+pub(crate) const DEAD_DATABASE_URL: &str = "postgres://app:unused@127.0.0.1:1/app";
+
 static SEQUENCE: AtomicU32 = AtomicU32::new(0);
 
 /// An empty directory under the system temporary directory, removed when the value is dropped.
@@ -84,4 +87,29 @@ pub(crate) fn stdout(output: &Output) -> String {
 /// Standard error as text.
 pub(crate) fn stderr(output: &Output) -> String {
     String::from_utf8(output.stderr.clone()).unwrap()
+}
+
+/// The URL of the database a `#[sqlx::test]` gave the test: its name from the server, the rest
+/// from `DATABASE_URL`.
+pub(crate) async fn database_url(pool: &sqlx::PgPool) -> String {
+    let name: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    let base = from_environment("DATABASE_URL")
+        .expect("DATABASE_URL is not set; run the tests through `make`")
+        .into_string()
+        .unwrap();
+    let (server, _database) = base.rsplit_once('/').unwrap();
+    format!("{server}/{name}")
+}
+
+/// A listener on a free loopback port that accepts connections (the kernel does) and never
+/// answers: the peer connects and then waits.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "integration tests open the sockets their subject talks to"
+)]
+pub(crate) fn silent_listener() -> std::net::TcpListener {
+    std::net::TcpListener::bind("127.0.0.1:0").unwrap()
 }

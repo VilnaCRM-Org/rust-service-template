@@ -15,7 +15,7 @@ use shared_infrastructure::persistence::PostgresSettings;
 use sqlx::postgres::PgConnectOptions;
 use tracing_subscriber::EnvFilter;
 
-use crate::cli::{DatabaseArgs, ServeArgs};
+use crate::cli::{DatabaseArgs, MigrateArgs, ServeArgs};
 
 /// Deployment environment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -115,6 +115,38 @@ impl Config {
                     shutdown_grace_period: limits.shutdown_grace_period,
                 })
             }
+            _ => Err(ConfigErrors(collector.problems)),
+        }
+    }
+}
+
+/// The settings of `migrate` and `migrate revert`: the database and how long to wait for it.
+#[derive(Debug, Clone)]
+pub struct MigrateSettings {
+    /// The PostgreSQL pool.
+    pub database: PostgresSettings,
+    /// How long to wait for the database, one attempt per second.
+    pub wait_timeout: Duration,
+}
+
+impl MigrateSettings {
+    /// Parses and validates the database variables and `DATABASE_WAIT_TIMEOUT`.
+    ///
+    /// # Errors
+    ///
+    /// Returns every problem found, each naming its environment variable.
+    pub fn from_args(args: &MigrateArgs) -> Result<Self, ConfigErrors> {
+        let mut collector = Collector::default();
+        let database = database(&mut collector, &args.database);
+        let wait = collector.collect(
+            "DATABASE_WAIT_TIMEOUT",
+            duration(args.wait_timeout.as_deref(), Duration::from_secs(30)),
+        );
+        match (database, wait) {
+            (Some(database), Some(wait_timeout)) => Ok(Self {
+                database,
+                wait_timeout,
+            }),
             _ => Err(ConfigErrors(collector.problems)),
         }
     }

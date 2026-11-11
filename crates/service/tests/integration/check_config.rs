@@ -228,8 +228,6 @@ fn a_usage_error_exits_2_with_the_text_on_stderr(#[case] arguments: &[&str]) {
 
 #[rstest]
 #[case("serve")]
-#[case("migrate")]
-#[case("migrate revert")]
 #[case("openapi-export")]
 #[case("graphql-export")]
 #[case("healthcheck")]

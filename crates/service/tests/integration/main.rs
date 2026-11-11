@@ -3,4 +3,6 @@
 #[cfg(test)]
 mod check_config;
 #[cfg(test)]
+mod migrate;
+#[cfg(test)]
 mod support;
