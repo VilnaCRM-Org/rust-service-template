@@ -85,7 +85,7 @@ teardown() {
   plant_new planted_unformatted.toml "${fixtures}/unformatted.toml.txt"
   run make --no-print-directory lint-toml
   assert_failure
-  assert_output --partial 'planted_unformatted.toml'
+  assert_output --regexp 'not properly formatted path="[^"]*/planted_unformatted\.toml"'
 }
 
 @test "lint-spelling: a misspelt word fails with the finding of typos" {
@@ -117,6 +117,7 @@ teardown() {
 
 # --- G26, G27, G31 ------------------------------------------------------------------------------------------
 
+# bats test_tags=slow
 @test "docs-check: a command that is no Make target fails with a rule (1) line" {
   printf 'Run \x60make no-such-target\x60 to see it fail.\n' >"${tmp}/line"
   plant_append README.md "${tmp}/line"
@@ -130,6 +131,7 @@ teardown() {
   plant_append workspace.dsl "${fixtures}/broken_relationship.dsl.txt"
   run make --no-print-directory validate-architecture-model
   assert_failure
+  assert_output --regexp 'Unexpected tokens at line [0-9]+ of /work/workspace\.dsl: planted -> nowhere'
   assert_output --partial 'does not parse'
 }
 
