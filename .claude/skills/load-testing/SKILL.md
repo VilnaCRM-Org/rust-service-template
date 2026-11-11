@@ -14,7 +14,7 @@ description: Use when adding, changing or running a K6 scenario or a latency bud
 ## Commands
 
 - `make smoke-load-tests` runs every scenario with the smoke profile; always start here.
-- `make execute-load-tests-script scenario=<name>` runs one scenario; add `runSmoke=true`, `runAverage=true`, `runStress=true` or `runSpike=true` to choose profiles.
+- `make execute-load-tests-script scenario=<name>` runs one scenario with all four profiles; set `runSmoke=false`, `runAverage=false`, `runStress=false` or `runSpike=false` (each defaults to `true`) to skip profiles.
 - `make load-tests` runs every scenario with all four profiles.
 - `make lint-load-tests` lints and format-checks the load-test JavaScript.
 

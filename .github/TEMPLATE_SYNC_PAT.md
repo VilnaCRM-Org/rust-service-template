@@ -1,6 +1,6 @@
 # Template sync with a personal access token
 
-This guide sets up the workflow `.github/workflows/template-sync-pat.yml`, the flavour of template sync that authenticates with a personal access token. A repository keeps one flavour only; the other, which uses a GitHub App, is described in `.github/TEMPLATE_SYNC_APP.md`.
+This guide sets up the workflow `.github/workflows/template-sync-pat.yml`, the flavour of template sync that authenticates with a personal access token. A repository keeps one flavour only; the other, which uses a GitHub App, is described in `TEMPLATE_SYNC_APP.md`, the guide of the same name in this directory.
 
 A repository created from the template receives later changes of the template as a pull request that a bot opens. The workflow runs `AndreasAugustin/actions-template-sync`, compares the template with the repository, and opens or updates one pull request titled `chore(template): merge template changes` with the label `template_sync`. A maintainer reviews it like any other pull request. In the template repository itself both sync workflows compare `$GITHUB_REPOSITORY` with their source in the first step, write a notice and do nothing.
 
@@ -43,9 +43,10 @@ The sync pull request is a pull request like any other: the check `validate-conf
 
 Both flavours do the same thing and would open competing pull requests. Keep one:
 
-1. Delete the workflow file of the other flavour: `.github/workflows/template-sync-app.yml`. Delete its guide `.github/TEMPLATE_SYNC_APP.md` as well.
+1. Delete the workflow file of the other flavour, `template-sync-app.yml` in `.github/workflows`, and its guide, `TEMPLATE_SYNC_APP.md` in `.github`. Both are named here without their directory on purpose: the documentation check (`make docs-check`) reports a citation of a path that does not exist, and this guide is synchronised from the template, so an edit that removes the citation would come back with the next sync.
 2. Delete the secrets that only the removed flavour used.
 3. Open the deletion as a normal pull request. The sync would restore a deleted file, so add the deleted paths to `.templatesyncignore`.
+4. Search your own documents (`README.md`, for example) for citations of the deleted files and name them without their directory, as this guide does.
 
 ## The template changes that do not propagate
 
@@ -65,11 +66,23 @@ The ignored files are the service-owned files (`README.md`, `CHANGELOG.md`, `Car
 | `deny.toml`, `.trivyignore`, `.gitleaksignore`, `_typos.toml`, `.cargo/mutants.toml` | dated exceptions | changes of the template's own policy in these files |
 | `crates/internal/health-check/domain/src/value_object/dependency.rs` and its `dependency/` tests, `crates/internal/health-check/infrastructure/src/probe.rs` | a dependency and the module declaration of its probe | changes of the health-check wiring |
 | `crates/service/Cargo.toml`, `src/bootstrap`, `src/cli`, `src/config`, `src/http.rs`, `src/openapi`, `src/graphql/schema` of that crate | wiring, commands, configuration, routes and schema roots | changes of the service wiring |
+| `crates/service/src/http/router/tests.rs` and `crates/service/tests/integration/bootstrap.rs`, `migrate.rs`, `serve.rs` | the tests that construct `Adapters` and use the routes, the table and the migration of the example context; a service keeps them in step with its wiring | changes of these tests |
 | `tests/support/`, `tests/e2e/` | test doubles, world and step definitions | changes of the test support |
 
-`Makefile` and `docs/make-targets.md` are synchronised, not ignored: a service defines its own targets in make/service.mk, which the `Makefile` loads, and documents them in docs/make-targets-service.md. The template ships neither file, so a sync cannot change them.
+`docs/repository-settings.md` is synchronised too: a service lists the jobs of its own pull-request workflows in docs/repository-settings-service.md, which the template does not ship and a sync never touches. `Makefile` and `docs/make-targets.md` are synchronised, not ignored: a service defines its own targets in make/service.mk, which the `Makefile` loads, and documents them in docs/make-targets-service.md. The template ships neither file, so a sync cannot change them.
 
 `.templatesyncignore` itself is on the list: the service owns its copy. The file in the template is the reference.
+
+### Deletions and renames do not propagate
+
+A file that the template deletes or renames is not removed from your repository. With no common ancestor the merge cannot see a deletion: the old file exists only on your side, so the merge keeps it as your own file, and the sync action does not delete files (`is_force_deletion` is not set, and a squash merge would find nothing to delete anyway). A stale Bats file or workflow then keeps running against targets that no longer exist, and the pull requests of your repository turn red with nothing in the sync pull request to explain it. After every sync, find the files that exist in your repository and no longer in the template, and delete them in the sync pull request. With the template added as a remote (see below):
+
+```sh
+git fetch template main
+git diff --name-only --diff-filter=A template/main HEAD
+```
+
+The command lists every path that your repository has and the template does not. Most of them are your own files; the template's former files are among them, so read the list against `git log --diff-filter=DR --name-status template/main` and delete the paths that the template removed or renamed. A path that you keep on purpose belongs in `.templatesyncignore`.
 
 ### Apply an ignored change by hand
 

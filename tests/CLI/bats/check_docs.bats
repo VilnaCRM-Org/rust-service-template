@@ -385,6 +385,22 @@ EOF
   assert_line --regexp '^\(3\) README\.md:[0-9]+: \.cargo/missing\.toml '
 }
 
+@test "rule 3: the optional sync guide named by its bare file name is not reported, its full path is" {
+  append README.md <<'EOF'
+The guide `TEMPLATE_SYNC_PAT.md` and the workflow `template-sync-pat.yml` of the other flavour.
+EOF
+  check
+  assert_success
+  mkdir -p "${tree}/.github"
+  printf 'x\n' >"${tree}/.github/TEMPLATE_SYNC_APP.md"
+  append README.md <<'EOF'
+The guide `.github/TEMPLATE_SYNC_PAT.md` of the other flavour.
+EOF
+  check
+  assert_failure 1
+  assert_line --regexp '^\(3\) README\.md:[0-9]+: \.github/TEMPLATE_SYNC_PAT\.md '
+}
+
 @test "rule 3: git-ignored paths and tokens with a placeholder or wildcard are not reported" {
   append README.md <<'EOF'
 The state is in `_bmad/`, `_bmad/core/agent.md`, `target/coverage/html`, `specs/<bundle-id>/spec.md`, `docs/*.md`, `docs/make-targets-*.md` and `.claude/skills/*/SKILL.md`.
@@ -629,11 +645,13 @@ EOF
 }
 
 @test "the checks leave the repository untouched" {
-  local before
+  local before hooks_before
   before="$(tree_status)"
+  # The developer's own setting (make install-hooks sets it in the local configuration) is not under test: the
+  # checks must leave it as it was.
+  hooks_before="$(git config --get core.hooksPath || true)"
   check
   assert_success
   assert_equal "$(tree_status)" "${before}"
-  run git config --get core.hooksPath
-  assert_failure 1
+  assert_equal "$(git config --get core.hooksPath || true)" "${hooks_before}"
 }

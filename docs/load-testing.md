@@ -72,7 +72,7 @@ One row per measurement. Add a row for every new measurement; do not overwrite o
 | `make stress-load-tests` | every scenario, stress profile |
 | `make spike-load-tests` | every scenario, spike profile |
 | `make load-tests` | every scenario, all four profiles |
-| `make execute-load-tests-script scenario=health runSmoke=true` | one scenario with the profiles that are named (`runSmoke`, `runAverage`, `runStress`, `runSpike`) |
+| `make execute-load-tests-script scenario=health runAverage=false runStress=false runSpike=false` | one scenario; every profile runs unless its switch (`runSmoke`, `runAverage`, `runStress`, `runSpike`) is set to `false`, so this example runs the smoke profile only |
 | `make lint-load-tests` | ESLint and Prettier on the load-test JavaScript |
 
 Every run writes one self-contained HTML dashboard to `tests/Load/results/<prefix><scenario>.html` and prints K6's end-of-run summary with the statistics `avg,min,med,max,p(95),p(99)`. The prefixes are `smoke-`, `average-`, `stress-`, `spike-` and `all-`; a run of `make execute-load-tests-script` has none. The directory is git-ignored apart from its `.gitignore`. CI uploads it as the artifact `load-test-results` (14 days).
@@ -86,7 +86,7 @@ A scenario is one script and one configuration entry; no runner needs an edit.
 1. Create `tests/Load/scripts/<scenario>.js`. Copy `tests/Load/scripts/health.js` and change the request and the checks. The script builds its options from the configuration through the helpers in `tests/Load/utils`.
 2. Add `endpoints.<scenario>` to `tests/Load/config.json.dist` with the four profiles (`smoke`, `average`, `stress`, `spike`), each with `threshold`, `rps`, `vus` and `duration`, in the shapes of the table above.
 3. Start with ceilings you can defend, then derive the budgets with the budget rule once a measurement exists.
-4. Run `make execute-load-tests-script scenario=<scenario> runSmoke=true`, then `make smoke-load-tests`, which now includes the scenario.
+4. Run `make execute-load-tests-script scenario=<scenario> runAverage=false runStress=false runSpike=false` (the smoke profile only), then `make smoke-load-tests`, which now includes the scenario.
 5. Run `make lint-load-tests`. The JavaScript runs in K6, not in Node: only the K6 globals (`__ENV`, `__VU`, `__ITER`, `open`) exist, and `console` is forbidden.
 6. Add the measurement to the table above.
 

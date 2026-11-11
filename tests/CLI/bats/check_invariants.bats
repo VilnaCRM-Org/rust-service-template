@@ -91,7 +91,7 @@ export STRUCTURIZR_IMAGE := structurizr/structurizr:2026.10.26@sha256:@D64@
 export K6_IMAGE ?= grafana/k6:2.3.0@sha256:@D64@
 EOF
   put Dockerfile <<'EOF'
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1.27@sha256:@D64@
 FROM rust:1.99.1-slim-trixie@sha256:@D64@ AS base
 WORKDIR /app
 FROM base AS chef
@@ -406,6 +406,27 @@ EOF
   assert_violation b 'has no version tag'
 }
 
+@test "(b) a BuildKit frontend of the syntax line without a digest is refused" {
+  replace Dockerfile "# syntax=docker/dockerfile:1.27@sha256:${d64}" '# syntax=docker/dockerfile:1'
+  check
+  assert_violation b 'Dockerfile:1: image docker/dockerfile:1 has no digest'
+}
+
+@test "(b) a BuildKit frontend of the syntax line without a version tag or with the tag latest is refused" {
+  replace Dockerfile "# syntax=docker/dockerfile:1.27@sha256:${d64}" "# syntax=docker/dockerfile@sha256:${d64}"
+  check
+  assert_violation b 'Dockerfile:1: image docker/dockerfile@sha256:.* has no version tag'
+  replace Dockerfile "# syntax=docker/dockerfile@sha256:${d64}" "# syntax=docker/dockerfile:latest@sha256:${d64}"
+  check
+  assert_violation b 'Dockerfile:1: image docker/dockerfile:latest@sha256:.* uses the tag latest'
+}
+
+@test "(b) a comment that mentions syntax after the first line is not read as the parser directive" {
+  replace Dockerfile 'WORKDIR /app' $'# syntax=anything\nWORKDIR /app'
+  check
+  assert_success
+}
+
 @test "(b) a compose image without a digest is refused" {
   replace docker-compose.yml "structurizr/structurizr:2026.10.26@sha256:${d64}" 'structurizr/structurizr:2026.10.26'
   check
@@ -610,6 +631,26 @@ EOF
   assert_violation d 'docs/repository-settings.md is missing'
 }
 
+@test "(d) a job listed only in the service-owned docs/repository-settings-service.md is accepted" {
+  replace docs/repository-settings.md "| \`lint\` | Lint |" ''
+  put docs/repository-settings-service.md <<'EOF'
+| Job | Check name | Required |
+| --- | --- | --- |
+| `lint` | Lint | yes |
+EOF
+  check
+  assert_success
+}
+
+@test "(d) a job listed in neither settings document is refused when the service document exists" {
+  replace docs/repository-settings.md "| \`lint\` | Lint |" ''
+  put docs/repository-settings-service.md <<'EOF'
+| `other` | Other | yes |
+EOF
+  check
+  assert_violation d 'quality.yml: job lint is missing from docs/repository-settings.md \(or docs/repository-settings-service.md\)'
+}
+
 # --- rule (e) ------------------------------------------------------------------------------------------------
 
 @test "(e) the repository name in a script is refused" {
@@ -622,6 +663,16 @@ EOF
   replace .github/workflows/tests.yml '      - run: echo done' "      - run: echo ${repo_name}"
   check
   assert_violation e '.github/workflows/tests.yml'
+}
+
+@test "(e) the repository name in a test of a crate, of xtask or of the features is refused" {
+  append crates/a/tests/identity.rs "const NAME: &str = \"${repo_name}\";"
+  append xtask/src/tests.rs "// ${repo_name}"
+  append features/identity.feature "Scenario: ${repo_name}"
+  check
+  assert_violation e 'crates/a/tests/identity.rs:1'
+  assert_line --regexp '^\(e\) xtask/src/tests\.rs:1'
+  assert_line --regexp '^\(e\) features/identity\.feature:1'
 }
 
 @test "(e) the repository name in the Makefile and in AGENTS.md is refused" {

@@ -57,6 +57,10 @@ services:
       POSTGRES_DB: ${DB_NAME:-app}
       POSTGRES_USER: ${DB_USER:-app}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-local-dev-only}
+      # From PostgreSQL 18 the image keeps the cluster in /var/lib/postgresql/<major>/docker and refuses a
+      # mount at /var/lib/postgresql/data. Naming the old path keeps the data in db_data for every DB_VERSION.
+      # A change of the major version still needs a fresh volume or pg_upgrade.
+      PGDATA: /var/lib/postgresql/data
     ports:
       - '127.0.0.1:${DB_PORT:-5432}:5432'
     volumes:

@@ -8,22 +8,24 @@ Use the GitHub "Use this template" button, or clone the template and push it to 
 
 ## 2. Set the package identity
 
-Edit `[workspace.package]` in the root `Cargo.toml` and change two values:
+Edit `[workspace.package]` in the root `Cargo.toml` and change these values:
 
 | Key | What it feeds |
 | --- | --- |
 | `description` | the service name; the OpenAPI title is `<description> API` |
 | `repository` | the repository URL; the OpenAPI contact URL |
+| `version` | the version of your first release: set it to `0.1.0` or to the first version you want. A repository created from the template copies the manifest as the template last released it, and none of its tags; refresh `Cargo.lock` afterwards with `cargo update --workspace` |
 
-These two values and the checkout directory name are the only things a new service changes for its identity. After the edit, regenerate the contract snapshots (`make generate-openapi-spec`) so the committed OpenAPI snapshot carries the new title, and commit the result.
+These values and the checkout directory name are what a new service changes for its identity. After the edit, regenerate the contract snapshots (`make generate-openapi-spec`) so the committed OpenAPI snapshot carries the new title, and commit the result.
 
 ## 3. Update the service-owned files
 
-Three groups of files name the template and belong to the service from the start; the template sync never touches them:
+These files name the template and belong to the service from the start; the template sync never touches them:
 
 - `bmalph/config.json`: set `name` and `description`.
 - The badges in `README.md`: point each badge at your repository, and rewrite the introduction to describe your service.
 - The planning bundle under `specs/`: replace it with your own planning documents, or remove it.
+- `CHANGELOG.md`: reset it to the cocogitto skeleton and remove the release sections of the template, so that your changelog starts with your first release.
 
 ## 4. Keep or remove the example context
 
@@ -50,7 +52,7 @@ Then wire the context into the service:
 
 ## 6. Where a service adds its own Make targets
 
-Never edit the template's Makefile for service targets, because the sync would overwrite the edit. Define them in the file make/service.mk, which the `Makefile` loads with `-include`, and document them in docs/make-targets-service.md. The template ships neither file, so a sync cannot change them. The documentation check reads the target reference of the template and this second reference, and requires every target to appear in `make help` and in one of the two documents.
+Never edit the template's Makefile for service targets, because the sync would overwrite the edit. Define them in the file make/service.mk, which the `Makefile` loads with `-include`, and document them in docs/make-targets-service.md. The template ships neither file, so a sync cannot change them. Likewise, list the jobs of the pull-request workflows that your service adds in docs/repository-settings-service.md, in the table format of docs/repository-settings.md and with a column that says whether each job is a required check. The template ships no such file, so a sync cannot change it, and the repository invariants (rule (h) of `make validate-invariants`) accept a job that is listed in either document. The documentation check reads the target reference of the template and this second reference, and requires every target to appear in `make help` and in one of the two documents.
 
 ## 7. Template-owned files a service extends
 
@@ -67,6 +69,7 @@ A service adds to these files, and the template sync ignores them so that the ad
 | `crates/internal/health-check/domain/src/value_object/dependency.rs` and `crates/internal/health-check/infrastructure/src/probe.rs` | a dependency and the module declaration of its probe |
 | `crates/service/Cargo.toml` and the bootstrap, command-line, configuration, routes, OpenAPI and GraphQL schema modules of that crate | wiring, commands, configuration, routes and schema roots of its contexts |
 | `tests/support/`, `tests/e2e/` | test doubles, world and step definitions |
+| `crates/service/src/http/router/tests.rs` and `crates/service/tests/integration/{bootstrap,migrate,serve}.rs` | the tests that construct `Adapters` and call the routes, the table and the migration of the example context; keep them in step with your wiring |
 
 `Makefile` and `docs/make-targets.md` are synchronised, not ignored; a service adds targets through the fragment of section 6 instead.
 
@@ -90,10 +93,10 @@ The template ships two workflows that merge template changes into your repositor
 
 | Flavour | Credentials | Schedule | Guide |
 | --- | --- | --- | --- |
-| App | `VILNACRM_APP_ID` and `VILNACRM_APP_PRIVATE_KEY` | Mondays | `.github/TEMPLATE_SYNC_APP.md` |
-| Token | `PERSONAL_ACCESS_TOKEN` (fine-grained: Contents, Pull requests and Workflows read and write; Metadata read) | the first of each month | `.github/TEMPLATE_SYNC_PAT.md` |
+| App | `VILNACRM_APP_ID` and `VILNACRM_APP_PRIVATE_KEY` | Mondays | `TEMPLATE_SYNC_APP.md` in the `.github` directory |
+| Token | `PERSONAL_ACCESS_TOKEN` (fine-grained: Contents, Pull requests and Workflows read and write; Metadata read) | the first of each month | `TEMPLATE_SYNC_PAT.md` in the `.github` directory |
 
-Keep one and delete the other workflow and its guide. When both App secrets exist the token flavour skips itself with a notice. A sync that changes protected configuration needs the label `approved-config-change`. The guides also list the template changes that do not propagate because their files are ignored.
+Keep one and delete the other workflow (`template-sync-app.yml` or `template-sync-pat.yml` in `.github/workflows`) and its guide, and add the deleted paths to `.templatesyncignore`: the sync would otherwise restore them. This document and both guides name the two flavours by bare file name, and the guide that stays is synchronised from the template, so nothing needs editing for the documentation check to pass after the deletion. When both App secrets exist the token flavour skips itself with a notice. A sync that changes protected configuration needs the label `approved-config-change`. The guides also list the template changes that do not propagate because their files are ignored, and say that a file the template deletes or renames is not removed from your repository.
 
 ## 10. Check the result
 

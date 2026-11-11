@@ -31,7 +31,7 @@ The version follows the conventional commit types of the squashed commits:
 Rules that follow from this:
 
 - While the version is `0.y.z`, a breaking change raises the minor number (`0.1.0` becomes `0.2.0`), not the major number. Release `1.0.0` by hand with the input `version`, when the service declares its interface stable.
-- The first release is the version in the workspace manifest, which is `0.1.0` in the template, whether the first releasable commit is a `feat` or a `fix`. The script passes the manifest version to the first bump.
+- The first release is the version in the workspace manifest of your repository, whether the first releasable commit is a `feat` or a `fix`. The script passes the manifest version to the first bump. A repository created from the template copies the manifest and `CHANGELOG.md` as the template last released them and none of its tags, so check the version after creating the repository (it is `0.1.0` only while the template has not released), set it to the version of your first release and reset `CHANGELOG.md` to the cocogitto skeleton, as `docs/new-service.md` describes.
 - Dependency updates by Dependabot use the types `build`, `ci` and `chore`. They cause no release by themselves; they are released with the next `feat` or `fix`.
 - Only user-visible changes appear in the changelog: `feat`, `fix`, `perf` and breaking changes. The other types are omitted.
 - The release commit carries `[skip ci]`, so it starts no workflow, and the job also checks the message as a second barrier. A commit whose subject is not conventional does not stop the bump; it is ignored.

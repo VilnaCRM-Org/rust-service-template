@@ -213,9 +213,20 @@ check_image_ref() {
 
 check_dockerfile_images() {
   local file=$1 line number=0 image rest lower
+  local in_directives=1
   local -a stages=()
   while IFS= read -r line || [[ -n "${line}" ]]; do
     number=$((number + 1))
+    # The BuildKit frontend named by the `# syntax=` parser directive is an image that parses and runs the
+    # build: it needs a version tag and a digest like every other image. Parser directives stand at the top,
+    # before the first line that is not a directive.
+    if [[ "${in_directives}" == 1 ]]; then
+      if [[ "${line}" =~ ^#[[:space:]]*[Ss][Yy][Nn][Tt][Aa][Xx][[:space:]]*=[[:space:]]*([^[:space:]]+) ]]; then
+        check_image_ref "${file}:${number}" "${BASH_REMATCH[1]}"
+        continue
+      fi
+      in_directives=0
+    fi
     [[ "${line}" =~ ^[[:space:]]*[Ff][Rr][Oo][Mm][[:space:]]+(.*)$ ]] || continue
     rest=${BASH_REMATCH[1]}
     # shellcheck disable=SC2206
@@ -618,8 +629,11 @@ rule_d_required_checks() {
     fi
     while IFS= read -r job; do
       [[ -n "${job}" ]] || continue
-      if ! grep -qF -- "\`${job}\`" docs/repository-settings.md; then
-        report d "${file}: job ${job} is missing from docs/repository-settings.md"
+      # docs/repository-settings.md is synchronised from the template; the jobs of the workflows that a service
+      # adds itself are listed in the optional, service-owned docs/repository-settings-service.md.
+      if ! grep -qF -- "\`${job}\`" docs/repository-settings.md &&
+        ! { [[ -f docs/repository-settings-service.md ]] && grep -qF -- "\`${job}\`" docs/repository-settings-service.md; }; then
+        report d "${file}: job ${job} is missing from docs/repository-settings.md (or docs/repository-settings-service.md)"
       fi
     done < <(awk '
       /^jobs:/ { in_jobs = 1; next }
@@ -646,7 +660,7 @@ rule_e() {
   while IFS= read -r file; do
     files+=("${file}")
   done < <({
-    list_files .github/workflows scripts tests .claude/skills make
+    list_files .github/workflows scripts tests crates xtask features .claude/skills make
     for file in Makefile Dockerfile AGENTS.md CLAUDE.md "${compose_files[@]+"${compose_files[@]}"}"; do
       [[ -f "${file}" ]] && printf '%s\n' "${file}"
     done
