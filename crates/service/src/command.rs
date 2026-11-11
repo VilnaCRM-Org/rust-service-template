@@ -7,13 +7,16 @@ use std::convert::Infallible;
 use std::io::Write;
 use std::process::ExitCode;
 
-use crate::cli::Command;
+use crate::cli::{Command, ServeArgs};
+use crate::config::Config;
 use crate::graphql::schema;
 use crate::openapi;
 
 pub mod check_config;
 pub mod export;
+pub mod healthcheck;
 pub mod migrate;
+pub mod serve;
 
 /// Exit status of a command that failed while running.
 const FAILURE: u8 = 1;
@@ -25,13 +28,13 @@ pub(crate) const REJECTED: u8 = 2;
 pub fn run(command: Command, stdout: &mut dyn Write, stderr: &mut dyn Write) -> ExitCode {
     match command {
         Command::CheckConfig(args) => check_config::run(args, stdout, stderr),
-        Command::Serve(_) => unavailable("serve", stderr),
+        Command::Serve(args) => start_service(args),
         Command::Migrate(args) => migrate::run(&args, stdout, stderr),
         Command::OpenapiExport(args) => export::run(openapi::yaml, &args, stdout, stderr),
         Command::GraphqlExport(args) => {
             export::run(|| Ok::<_, Infallible>(schema::sdl()), &args, stdout, stderr)
         }
-        Command::Healthcheck(_) => unavailable("healthcheck", stderr),
+        Command::Healthcheck(args) => healthcheck::run(&args),
     }
 }
 
@@ -62,7 +65,10 @@ pub(crate) fn failure(error: &dyn std::error::Error, stderr: &mut dyn Write) -> 
     ExitCode::from(FAILURE)
 }
 
-fn unavailable(name: &str, stderr: &mut dyn Write) -> ExitCode {
-    let _written = writeln!(stderr, "error: {name} is not available yet");
-    ExitCode::from(FAILURE)
+/// Starts the service, or reports the invalid configuration as JSON log entries.
+fn start_service(args: ServeArgs) -> ExitCode {
+    match Config::from_args(args) {
+        Ok(config) => serve::run(&config),
+        Err(errors) => serve::reject(&errors),
+    }
 }

@@ -226,24 +226,6 @@ fn a_usage_error_exits_2_with_the_text_on_stderr(#[case] arguments: &[&str]) {
     assert!(stderr(&output).contains("Usage:"));
 }
 
-#[rstest]
-#[case("serve")]
-#[case("healthcheck")]
-fn a_command_of_a_later_story_reports_that_it_is_not_available(#[case] command: &str) {
-    let scratch = Scratch::new();
-    let arguments: Vec<&str> = command.split(' ').collect();
-
-    let output = scratch.run(&arguments, &VALID_ENVIRONMENT);
-
-    assert_eq!(output.status.code(), Some(1));
-    assert_eq!(stdout(&output), "");
-    let name = command.split(' ').next().unwrap();
-    assert_eq!(
-        stderr(&output),
-        format!("error: {name} is not available yet\n")
-    );
-}
-
 #[test]
 fn the_env_file_of_the_working_directory_is_loaded() {
     let scratch = Scratch::new();

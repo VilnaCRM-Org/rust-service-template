@@ -2,9 +2,15 @@
 
 use std::ffi::OsString;
 use std::fs;
+use std::io::{BufRead as _, BufReader, Read as _, Write as _};
+use std::net::TcpStream;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Child, ChildStderr, Command, Output, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::mpsc::{self, Receiver};
+use std::time::Duration;
+
+use serde_json::Value;
 
 /// Every variable of a valid configuration that has no default: the database and the region.
 pub(crate) const VALID_ENVIRONMENT: [(&str, &str); 2] = [
@@ -112,4 +118,270 @@ pub(crate) async fn database_url(pool: &sqlx::PgPool) -> String {
 )]
 pub(crate) fn silent_listener() -> std::net::TcpListener {
     std::net::TcpListener::bind("127.0.0.1:0").unwrap()
+}
+
+/// A variable of the test stack (`AWS_ENDPOINT_URL_SQS` and the like), taken from the environment
+/// of the test process.
+pub(crate) fn stack_variable(name: &str) -> String {
+    from_environment(name)
+        .unwrap_or_else(|| panic!("{name} is not set; run the tests through `make`"))
+        .into_string()
+        .unwrap()
+}
+
+/// The variables that let `serve` start against the compose services: the AWS ones of the test
+/// stack and the given database URL.
+pub(crate) fn stack_with(database_url: &str) -> Vec<(&'static str, String)> {
+    vec![
+        ("DATABASE_URL", database_url.to_owned()),
+        ("AWS_REGION", stack_variable("AWS_REGION")),
+        (
+            "AWS_ENDPOINT_URL_SQS",
+            stack_variable("AWS_ENDPOINT_URL_SQS"),
+        ),
+        ("AWS_ACCESS_KEY_ID", stack_variable("AWS_ACCESS_KEY_ID")),
+        (
+            "AWS_SECRET_ACCESS_KEY",
+            stack_variable("AWS_SECRET_ACCESS_KEY"),
+        ),
+    ]
+}
+
+/// An answer of the service to one HTTP request.
+#[derive(Debug)]
+pub(crate) struct Answer {
+    pub(crate) status: u16,
+    /// The status line and the headers, header names in lower case.
+    pub(crate) head: String,
+    pub(crate) body: String,
+}
+
+impl Answer {
+    fn parse(raw: &str) -> Self {
+        let (head, body) = raw.split_once("\r\n\r\n").unwrap();
+        let status = head.split(' ').nth(1).unwrap().parse().unwrap();
+        Self {
+            status,
+            head: head.to_lowercase(),
+            body: body.to_owned(),
+        }
+    }
+}
+
+/// A running `service serve` process with its standard output read as JSON lines.
+///
+/// A server that is dropped while it still runs is killed, so that no test leaks a process.
+#[derive(Debug)]
+pub(crate) struct Server {
+    child: Child,
+    /// Lines of standard output, read by a thread so that a wait for a line can time out.
+    stdout: Receiver<String>,
+    stderr: ChildStderr,
+    /// The bound port.
+    pub(crate) port: u16,
+    /// Every log line read so far.
+    pub(crate) lines: Vec<Value>,
+}
+
+/// How long a test waits for the next line of a service before it fails.
+const LINE_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// Reads the lines of `stdout` on a thread; the channel closes when the process closes it.
+fn lines_of(stdout: BufReader<std::process::ChildStdout>) -> Receiver<String> {
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        for line in stdout.lines().map_while(Result::ok) {
+            if sender.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    receiver
+}
+
+/// How a `serve` process ended.
+#[derive(Debug)]
+pub(crate) struct Finished {
+    pub(crate) code: Option<i32>,
+    /// Every log line of the process, in order.
+    pub(crate) lines: Vec<Value>,
+    pub(crate) stderr: String,
+}
+
+impl Finished {
+    /// The messages of the log lines.
+    pub(crate) fn messages(&self) -> Vec<&str> {
+        self.lines
+            .iter()
+            .map(|line| line["message"].as_str().unwrap())
+            .collect()
+    }
+}
+
+/// Starts `service serve` on `127.0.0.1` with an ephemeral port and waits for its `listening`
+/// entry. `variables` complete the configuration (`DATABASE_URL`, `AWS_REGION`, ..).
+pub(crate) fn serve(scratch: &Scratch, variables: &[(&str, &str)]) -> Server {
+    let mut all = vec![("APP_PORT", "0"), ("APP_HOST", "127.0.0.1")];
+    all.extend_from_slice(variables);
+    let mut child = scratch
+        .service(&["serve"], &all)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let stdout = lines_of(BufReader::new(child.stdout.take().unwrap()));
+    let stderr = child.stderr.take().unwrap();
+    let mut server = Server {
+        child,
+        stdout,
+        stderr,
+        port: 0,
+        lines: Vec::new(),
+    };
+    let listening = server.read_until("listening").pop().unwrap();
+    server.port = listening["addr"]
+        .as_str()
+        .unwrap()
+        .rsplit(':')
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    server
+}
+
+impl Server {
+    /// Reads log lines up to and including the first one with this message.
+    pub(crate) fn read_until(&mut self, message: &str) -> Vec<Value> {
+        let start = self.lines.len();
+        loop {
+            let line = self
+                .stdout
+                .recv_timeout(LINE_TIMEOUT)
+                .unwrap_or_else(|error| {
+                    panic!("{message} was not logged ({error}): {:?}", self.lines)
+                });
+            let json: Value = serde_json::from_str(&line).unwrap();
+            let found = json["message"] == message;
+            self.lines.push(json);
+            if found {
+                return self.lines[start..].to_vec();
+            }
+        }
+    }
+
+    /// Sends one request and reads the whole answer (the connection is closed after it).
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "integration tests open the sockets their subject talks to"
+    )]
+    pub(crate) fn request(
+        &self,
+        method: &str,
+        path: &str,
+        headers: &[(&str, &str)],
+        body: &str,
+    ) -> Answer {
+        let mut stream = TcpStream::connect(("127.0.0.1", self.port)).unwrap();
+        let extra = headers
+            .iter()
+            .map(|(name, value)| format!("{name}: {value}"))
+            .collect::<Vec<_>>()
+            .join("\r\n");
+        let extra = if extra.is_empty() {
+            extra
+        } else {
+            format!("{extra}\r\n")
+        };
+        let length = body.len();
+        let head = format!(
+            "{method} {path} HTTP/1.1\r\nhost: localhost\r\nconnection: close\r\n{extra}content-length: {length}\r\n\r\n{body}"
+        );
+        stream.write_all(head.as_bytes()).unwrap();
+        let mut raw = String::new();
+        stream.read_to_string(&mut raw).unwrap();
+        Answer::parse(&raw)
+    }
+
+    /// Sends a `GET`.
+    pub(crate) fn get(&self, path: &str) -> Answer {
+        self.request("GET", path, &[], "")
+    }
+
+    /// Opens a connection and sends a request head without its final blank line: the request is
+    /// in flight until the caller completes it.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "integration tests open the sockets their subject talks to"
+    )]
+    pub(crate) fn begin(&self, path: &str) -> TcpStream {
+        let mut stream = TcpStream::connect(("127.0.0.1", self.port)).unwrap();
+        write!(
+            stream,
+            "GET {path} HTTP/1.1\r\nhost: localhost\r\nconnection: close\r\n"
+        )
+        .unwrap();
+        stream.flush().unwrap();
+        stream
+    }
+
+    /// Whether a new connection is refused.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "integration tests open the sockets their subject talks to"
+    )]
+    pub(crate) fn refuses_connections(&self) -> bool {
+        TcpStream::connect(("127.0.0.1", self.port))
+            .is_err_and(|error| error.kind() == std::io::ErrorKind::ConnectionRefused)
+    }
+
+    /// Sends a signal (`TERM` or `INT`) with `kill`.
+    pub(crate) fn signal(&self, name: &str) {
+        let status = Command::new("kill")
+            .args([format!("-{name}"), self.child.id().to_string()])
+            .status()
+            .unwrap();
+        assert!(status.success());
+    }
+
+    /// Waits until a new connection is refused, for at most `limit`.
+    pub(crate) fn wait_until_refusing(&self, limit: Duration) {
+        let started = tokio::time::Instant::now();
+        while !self.refuses_connections() {
+            assert!(started.elapsed() < limit, "connections are still accepted");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// Sends SIGTERM and waits for the exit.
+    pub(crate) fn terminate(self) -> Finished {
+        self.signal("TERM");
+        self.finish()
+    }
+
+    /// Waits for the exit and collects the exit status, the remaining lines and standard error.
+    pub(crate) fn finish(mut self) -> Finished {
+        let status = self.child.wait().unwrap();
+        let mut lines = std::mem::take(&mut self.lines);
+        while let Ok(line) = self.stdout.recv_timeout(LINE_TIMEOUT) {
+            lines.push(serde_json::from_str::<Value>(&line).unwrap());
+        }
+        let mut stderr = String::new();
+        self.stderr.read_to_string(&mut stderr).unwrap();
+        Finished {
+            code: status.code(),
+            lines,
+            stderr,
+        }
+    }
+}
+
+impl Drop for Server {
+    fn drop(&mut self) {
+        // Reached with a running child only when a test failed before it ended the process.
+        if self.child.try_wait().unwrap_or(None).is_none() {
+            let _killed = self.child.kill();
+            let _reaped = self.child.wait();
+        }
+    }
 }

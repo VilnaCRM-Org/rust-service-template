@@ -14,6 +14,7 @@ pub mod config;
 pub mod graphql;
 pub mod http;
 pub mod openapi;
+pub mod telemetry;
 
 /// Runs the service command line and maps the outcome to a process exit status.
 ///
