@@ -224,7 +224,7 @@ fn the_parameters_accept_the_values_inside_their_bounds(#[case] page: i32, #[cas
 #[case::page_zero(0, 30, "page", "This value must be 1 or greater.")]
 #[case::page_negative(-1, 30, "page", "This value must be 1 or greater.")]
 #[case::page_minimum(i32::MIN, 30, "page", "This value must be 1 or greater.")]
-#[case::no_items(1, 0, "itemsPerPage", "This value must be between 1 and 100.")]
+#[case::no_items(1, 0, "items_per_page", "This value must be between 1 and 100.")]
 #[case::too_many_items(1, 101, "items_per_page", "This value must be between 1 and 100.")]
 #[case::negative_items(1, -5, "items_per_page", "This value must be between 1 and 100.")]
 fn the_parameters_reject_the_values_outside_their_bounds(
@@ -235,8 +235,7 @@ fn the_parameters_reject_the_values_outside_their_bounds(
 ) {
     let errors = params(page, items).validate().unwrap_err();
 
-    let property = property.replace("itemsPerPage", "items_per_page");
-    let failed = &errors.field_errors()[property.as_str()];
+    let failed = &errors.field_errors()[property];
     assert_eq!(failed.len(), 1);
     assert_eq!(failed[0].code, "range");
     assert_eq!(failed[0].message.as_deref(), Some(message));
