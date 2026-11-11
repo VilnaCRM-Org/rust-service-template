@@ -2460,7 +2460,7 @@ Coverage sequence (QG-16); reports go to `target/coverage/`, which is git-ignore
 cargo llvm-cov clean --workspace
 cargo llvm-cov --no-report nextest --locked --workspace --lib --bins --test integration --profile ci
 cargo llvm-cov report --lcov --output-path target/coverage/lcov.info
-cargo llvm-cov report --html --output-dir target/coverage
+cargo llvm-cov report --html --output-dir target/coverage/html
 cargo llvm-cov report --fail-under-lines 100 --fail-under-functions 100
 ```
 
