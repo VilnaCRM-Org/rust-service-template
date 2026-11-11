@@ -17,7 +17,7 @@ A repository created from this template starts with the files, workflows and gat
 
 Every pull-request workflow runs on pull requests to `main` and on pushes to `main`. The tables name every job by its id, with the check name that GitHub shows in brackets. Mark the jobs in the column "Required" as required status checks of the branch protection of `main`.
 
-A job that is skipped counts as passing for a required check. This is intended: every job runs only when the change detection reports a code change (`code=true`), except `secrets-scan`, `lint-repo`, `invariants`, `docs-check`, `title` and `validate-configuration`, which also run for a documentation-only change; every other job is skipped for a documentation-only change, the job `title` is skipped for Dependabot pull requests and for pull requests labelled `template_sync`, and a job that has nothing to do reports why in its log.
+A job that is skipped counts as passing for a required check. This is intended. Jobs that depend on the change detection (the "code" jobs) are skipped for a documentation-only change. Every job is a "code" job except `changes` itself, the aggregators `mutation-tests` and `bats` (they always run and pass when their matrix was skipped), and `secrets-scan`, `lint-repo`, `invariants`, `docs-check`, `title` and `validate-configuration`, which run for every change. The job `title` is also skipped for Dependabot pull requests and for pull requests labelled `template_sync`. A job that has nothing to do reports why in its log.
 
 The matrix jobs have an aggregator job with a fixed name. The aggregator is the required check, because the names of the matrix jobs depend on the number of shards and groups: mark `mutation-tests` and `bats`, never `mutation-shard` and `bats-group`.
 

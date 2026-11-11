@@ -5,8 +5,10 @@
 # The names of every resource carry a run id and are written to tests/Load/aws-run.env before the first
 # resource is created; cleanup.sh (make aws-load-tests-cleanup) reads that file.
 # Set wait=false to launch the instance without waiting for the results.
-# Exit status: 0 success (also the LocalStack dry run); 1 the run failed or timed out; the status of a failed AWS CLI call
-# (255) is passed through unchanged; 2 the configuration is unusable.
+# Exit status: 0 success (also the LocalStack dry run); 1 a previous run was not cleaned up, there is
+# no default VPC, the bucket policy or the instance launch failed after its retries, or the run
+# failed or timed out; any other failed AWS CLI call passes its own status through (255); 2 the
+# configuration is unusable.
 set -euo pipefail
 
 LOAD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

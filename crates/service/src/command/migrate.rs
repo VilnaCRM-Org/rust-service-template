@@ -89,10 +89,11 @@ fn execute(
 /// Tries to open a connection, one attempt per second, until the wait timeout has elapsed, and
 /// reports every failed attempt on `stderr`. The error of the last attempt is returned.
 ///
-/// The timeout is a deadline measured from the first attempt: an attempt is limited to the time left, and no attempt starts once
-/// the deadline has passed. A wait shorter than a second still makes one attempt. An attempt is one
-/// connection, not a pool acquisition: a pool retries until its own timeout, so the attempts would
-/// no longer be a second apart. Each attempt lasts at most `Wait::limit`.
+/// The timeout is a deadline measured from the first attempt: an attempt is limited to the time
+/// left, and no attempt starts once the deadline has passed. A wait shorter than a second still
+/// makes one attempt. An attempt is one connection, not a pool acquisition: a pool retries until
+/// its own timeout, so the attempts would no longer be a second apart. Each attempt lasts at most
+/// `Wait::limit`.
 fn wait_for_database(
     runtime: &Runtime,
     pool: &PgPool,
