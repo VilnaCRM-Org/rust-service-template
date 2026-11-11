@@ -1,0 +1,13 @@
+# _typos.toml
+[files]
+extend-exclude = [
+    ".github/openapi-spec/",
+    ".github/graphql-spec/",
+    ".sqlx/",
+    "Cargo.lock",
+    "CHANGELOG.md",
+    "LICENSE",
+    "specs/",
+    "tests/Load/pnpm-lock.yaml",
+    "tests/CLI/bats/fixtures/",
+]

@@ -80,7 +80,7 @@ BATS = $(if $(wildcard .tools/bats/core/bin/bats),.tools/bats/core/bin/bats,bats
 SCHEMATHESIS_RUN = $(DOCKER) run --rm --network host -v "$(CURDIR)/.github/openapi-spec:/data:ro" $(SCHEMATHESIS_IMAGE) run /data/spec.yaml --url $(SCHEMATHESIS_URL) $(SCHEMATHESIS_FLAGS)
 AWS_OPTIONS = $(if $(region),-r "$(region)") $(if $(ami),-a "$(ami)") $(if $(instance_type),-t "$(instance_type)") $(if $(instance_tag),-i "$(instance_tag)") $(if $(role),-o "$(role)") $(if $(branch),-b "$(branch)") $(if $(security_group),-s "$(security_group)") $(if $(load_target),-l "$(load_target)")
 PRETTIER_REPO_ARGS = --config /repo/.prettierrc.yml --ignore-path /repo/.gitignore --ignore-path /repo/.prettierignore /repo
-PNPM_INSTALL = corepack pnpm install --frozen-lockfile --ignore-scripts
+PNPM_INSTALL = corepack pnpm install --frozen-lockfile --ignore-scripts --store-dir /tmp/pnpm-store
 
 # The seven stages of `make ci` (DD-02), in order; `ci-list` prints the targets of all of them.
 CI_PREFLIGHT_TARGETS := validate-configuration validate-invariants secrets-scan lint-repo lint-load-tests validate-architecture-model

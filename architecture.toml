@@ -26,8 +26,19 @@ directory = "application"
 depends_on = ["domain", "application"]
 dev_depends_on = ["test-support"]
 external = [
-    "async-graphql", "async-trait", "axum", "futures-util", "humantime", "serde", "thiserror",
-    "tokio", "tracing", "utoipa", "utoipa-axum", "uuid", "validator",
+    "async-graphql",
+    "async-trait",
+    "axum",
+    "futures-util",
+    "humantime",
+    "serde",
+    "thiserror",
+    "tokio",
+    "tracing",
+    "utoipa",
+    "utoipa-axum",
+    "uuid",
+    "validator",
 ]
 dev_external = ["http-body-util", "proptest", "rstest", "serde_json", "tokio", "tower"]
 forbidden_transitive = ["aws-config", "aws-sdk-sqs", "moka", "sqlx"]
@@ -38,7 +49,16 @@ crates = ["*-infrastructure"]
 directory = "infrastructure"
 depends_on = ["domain", "infrastructure"]
 dev_depends_on = ["test-support"]
-external = ["async-trait", "aws-config", "aws-sdk-sqs", "moka", "sqlx", "thiserror", "tracing", "uuid"]
+external = [
+    "async-trait",
+    "aws-config",
+    "aws-sdk-sqs",
+    "moka",
+    "sqlx",
+    "thiserror",
+    "tracing",
+    "uuid",
+]
 dev_external = ["aws-smithy-mocks", "rstest", "tokio"]
 forbidden_transitive = ["async-graphql", "axum", "utoipa"]
 
