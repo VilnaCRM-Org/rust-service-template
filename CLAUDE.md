@@ -1,3 +1,25 @@
+# Claude Code Guide
+
+## Start Here
+
+Read these files, in this order, before you change anything:
+
+1. [`AGENTS.md`](AGENTS.md): the working rules, the verification list and the close-out.
+2. [`.claude/skills/README.md`](.claude/skills/README.md): the skill inventory and how to pick a skill.
+3. [`.claude/skills/AI-AGENT-GUIDE.md`](.claude/skills/AI-AGENT-GUIDE.md): the cycle and the flows for a code change, an API change and an architecture change.
+
+## Project Snapshot
+
+- A Rust 1.99.1 workspace with one crate per bounded-context layer.
+- REST and GraphQL interfaces served with axum.
+- PostgreSQL access through sqlx.
+- Contract snapshots under `.github/`.
+- Load tests under `tests/Load/`.
+- The architecture model in `workspace.dsl`.
+
+## Command Reference
+
+Run `make help` to list every target. The ordered list of verification targets is in the [Verification section of `AGENTS.md`](AGENTS.md#verification); it is kept there and not repeated here.
 
 ## BMAD-METHOD Integration
 
