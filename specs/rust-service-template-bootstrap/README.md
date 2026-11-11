@@ -18,9 +18,9 @@ the orchestrating agent acting as the user's surrogate for decisions.
 | 3. Solutioning | `create-architecture`, `validate-architecture` | [Architecture: core](architecture.md) | Complete |
 | 3. Solutioning | `create-architecture`, `validate-architecture` | [Architecture: delivery](architecture-delivery.md) | Complete |
 | 3. Solutioning | `create-epics-stories`, `validate-epics-stories` | [Epics and stories](epics.md) | Complete |
-| 3. Solutioning | `implementation-readiness` | Implementation readiness | Pending |
+| 3. Solutioning | `implementation-readiness` | [Implementation readiness](implementation-readiness.md) | Complete: READY WITH CONDITIONS |
 | — | orchestrator | [Scope decisions](scope-decisions.md) | Living record |
-| — | orchestrator | Run summary | Pending |
+| — | orchestrator | [Run summary](run-summary.md) | Complete |
 
 ## How to read the bundle
 
@@ -45,6 +45,10 @@ the orchestrating agent acting as the user's surrogate for decisions.
 7. [Epics and stories](epics.md) — 10 epics and 57 stories with dependencies,
    owned paths, verification commands and acceptance criteria, in the form
    `bmalph implement` parses.
+8. [Implementation readiness](implementation-readiness.md) — the independent
+   cross-artifact assessment, its conditions and how each was handled.
+9. [Run summary](run-summary.md) — how the run was orchestrated, the subagent
+   execution log, validation rounds, open questions and the next step.
 
 ## Notes
 

@@ -475,10 +475,12 @@ reports. They bind the architecture, epics and implementation stages. Where
   all files are new, the diff against the base is the whole repository, fork
   and organisation secrets may be absent.
 
-## 9. Model allocation (user instruction, 2026-11-10)
+## 9. Agent allocation (user instruction, 2026-11-10)
 
 - BMAD planning (analysis, planning, solutioning, including the planning
-  validation rounds and the readiness check): the session model, Fable 5.2.
-- bmalph implementation phase: implementation and CI work by Sonnet 5.5
-  agents; verification, checks, reviews and control of the Ralph loop by
-  Opus 5.5 agents.
+  validation rounds and the readiness check): agents on the session model.
+- bmalph implementation phase: implementation and CI work by implementation
+  agents on a faster model tier; verification, checks, reviews and control of
+  the Ralph loop by independent agents on a stronger model tier.
+- The exact models were named by the user in the session and are not recorded
+  in the repository.
