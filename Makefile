@@ -60,6 +60,7 @@ instance_type ?=
 instance_tag ?=
 role ?=
 branch ?=
+repo_url ?=
 security_group ?=
 load_target ?=
 name ?=
@@ -80,7 +81,7 @@ REQUIRE_DOCKER = @$(DOCKER) info >/dev/null 2>&1 || { echo 'This target needs a 
 NODE_RUN = $(DOCKER_RUN) -e HOME=/tmp -e COREPACK_HOME=/tmp/corepack -v "$(CURDIR):/repo" -w /repo/tests/Load $(NODE_IMAGE)
 BATS = $(if $(wildcard .tools/bats/core/bin/bats),.tools/bats/core/bin/bats,bats)
 SCHEMATHESIS_RUN = $(DOCKER) run --rm --network host -v "$(CURDIR)/.github/openapi-spec:/data:ro" $(SCHEMATHESIS_IMAGE) run /data/spec.yaml --url $(SCHEMATHESIS_URL) $(SCHEMATHESIS_FLAGS)
-AWS_OPTIONS = $(if $(region),-r "$(region)") $(if $(ami),-a "$(ami)") $(if $(instance_type),-t "$(instance_type)") $(if $(instance_tag),-i "$(instance_tag)") $(if $(role),-o "$(role)") $(if $(branch),-b "$(branch)") $(if $(security_group),-s "$(security_group)") $(if $(load_target),-l "$(load_target)")
+AWS_OPTIONS = $(if $(region),-r "$(region)") $(if $(ami),-a "$(ami)") $(if $(instance_type),-t "$(instance_type)") $(if $(instance_tag),-i "$(instance_tag)") $(if $(role),-o "$(role)") $(if $(branch),-b "$(branch)") $(if $(repo_url),-u "$(repo_url)") $(if $(security_group),-s "$(security_group)") $(if $(load_target),-l "$(load_target)")
 PRETTIER_REPO_ARGS = --config /repo/.prettierrc.yml --ignore-path /repo/.gitignore --ignore-path /repo/.prettierignore /repo
 PNPM_INSTALL = corepack pnpm install --frozen-lockfile --ignore-scripts --store-dir /tmp/pnpm-store
 

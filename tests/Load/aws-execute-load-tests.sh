@@ -71,6 +71,7 @@ INSTANCE_TAG=${INSTANCE_TAG}
 EOF
 
 echo "Run id: ${RUN_ID} (region ${REGION}, local mode ${LOCAL_MODE})"
+echo "Repository URL: ${REPO_URL}"
 echo "Repository branch: ${BRANCH_NAME}"
 echo "Resource names are recorded in ${RUN_FILE#"${REPO_ROOT}/"}"
 

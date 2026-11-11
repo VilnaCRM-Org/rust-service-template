@@ -2,8 +2,8 @@
 # Shared configuration of aws-execute-load-tests.sh and cleanup.sh. Source it with the script's arguments:
 #   . "${LOAD_DIR}/config.sh" "$@"
 #
-# Options: -r region, -a ami, -t instance type, -i instance tag, -o role, -b branch, -s security group,
-#          -l load target (the Make target that runs on the instance).
+# Options: -r region, -a ami, -t instance type, -i instance tag, -o role, -b branch, -u repository URL, -s security
+#          group, -l load target (the Make target that runs on the instance).
 # Environment: LOCAL_MODE_ENV=true talks to LocalStack with the placeholder credentials `test`; otherwise
 #   AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY (and AWS_SESSION_TOKEN for temporary credentials) are
 #   required. AWS_REGION is used when -r is not given; without both the region is us-east-1.
@@ -30,7 +30,7 @@ DEFAULT_ROLE_NAME="EC2S3WriteAccessRole"
 DEFAULT_SECURITY_GROUP_NAME="LoadTestSecurityGroup"
 DEFAULT_LOAD_TARGET="smoke-load-tests"
 
-config_usage="Usage: ${0##*/} [-r region] [-a ami_id] [-t instance_type] [-i instance_tag] [-o role_name] [-b branch_name] [-s security_group_name] [-l load_target]"
+config_usage="Usage: ${0##*/} [-r region] [-a ami_id] [-t instance_type] [-i instance_tag] [-o role_name] [-b branch_name] [-u repository_url] [-s security_group_name] [-l load_target]"
 
 config_fail() {
   echo "Error: $1" >&2
@@ -48,10 +48,10 @@ done
 
 # The options are the only input of these variables: clear them, so that a variable of the same name in
 # the caller's environment cannot take the place of an option that was not given.
-REGION="" AMI_ID="" INSTANCE_TYPE="" INSTANCE_TAG="" ROLE_NAME="" BRANCH_NAME="" SECURITY_GROUP_NAME="" LOAD_TARGET=""
+REGION="" AMI_ID="" INSTANCE_TYPE="" INSTANCE_TAG="" ROLE_NAME="" BRANCH_NAME="" REPO_URL="" SECURITY_GROUP_NAME="" LOAD_TARGET=""
 
 OPTIND=1
-while getopts "r:a:t:i:o:b:s:l:" opt; do
+while getopts "r:a:t:i:o:b:u:s:l:" opt; do
   case ${opt} in
     r) REGION=${OPTARG} ;;
     a) AMI_ID=${OPTARG} ;;
@@ -59,6 +59,7 @@ while getopts "r:a:t:i:o:b:s:l:" opt; do
     i) INSTANCE_TAG=${OPTARG} ;;
     o) ROLE_NAME=${OPTARG} ;;
     b) BRANCH_NAME=${OPTARG} ;;
+    u) REPO_URL=${OPTARG} ;;
     s) SECURITY_GROUP_NAME=${OPTARG} ;;
     l) LOAD_TARGET=${OPTARG} ;;
     *)
@@ -77,6 +78,7 @@ ROLE_NAME=${ROLE_NAME:-${DEFAULT_ROLE_NAME}}
 SECURITY_GROUP_NAME=${SECURITY_GROUP_NAME:-${DEFAULT_SECURITY_GROUP_NAME}}
 LOAD_TARGET=${LOAD_TARGET:-${DEFAULT_LOAD_TARGET}}
 BRANCH_NAME=${BRANCH_NAME:-}
+REPO_URL=${REPO_URL:-}
 LOCAL_MODE=${LOCAL_MODE_ENV:-false}
 
 # Values reach AWS calls and the instance's shell script: allow only plain characters.
@@ -153,31 +155,43 @@ render() {
   sed "${expressions[@]}" "${template}" >"${WORK_DIR}/${output}"
 }
 
-# resolve_repository: REPO_URL (HTTPS, without credentials) from `git remote get-url origin`, and the branch
-# from `git rev-parse --abbrev-ref HEAD` unless -b was given.
+# https_url <http or https URL>: the HTTPS form without credentials (one rule for -u and for the remote origin).
+https_url() {
+  local rest host path
+  rest=${1#*://}
+  host=${rest%%/*}
+  path=${rest#"${host}"}
+  printf 'https://%s%s' "${host##*@}" "${path}"
+}
+
+# resolve_repository: REPO_URL (HTTPS, without credentials) from -u when it was given (the remote is then not
+# read), otherwise from `git remote get-url origin`; the branch from `git rev-parse --abbrev-ref HEAD` unless
+# -b was given.
 resolve_repository() {
   local url rest host path
-  url=$(git -C "${REPO_ROOT}" remote get-url origin 2>/dev/null) || config_fail "the git remote 'origin' is not set."
-  case ${url} in
-    https://* | http://*)
-      rest=${url#*://}
-      host=${rest%%/*}
-      path=${rest#"${host}"}
-      REPO_URL="https://${host##*@}${path}"
-      ;;
-    ssh://*)
-      rest=${url#ssh://}
-      host=${rest%%/*}
-      path=${rest#"${host}"}
-      host=${host##*@}
-      REPO_URL="https://${host%%:*}${path}"
-      ;;
-    *@*:*)
-      rest=${url#*@}
-      REPO_URL="https://${rest%%:*}/${rest#*:}"
-      ;;
-    *) config_fail "the URL of the remote 'origin' cannot be converted to HTTPS." ;;
-  esac
+  if [[ -n ${REPO_URL} ]]; then
+    case ${REPO_URL} in
+      https://* | http://*) REPO_URL=$(https_url "${REPO_URL}") ;;
+      *) config_fail "the repository URL given with -u must be an http or https URL." ;;
+    esac
+  else
+    url=$(git -C "${REPO_ROOT}" remote get-url origin 2>/dev/null) || config_fail "the git remote 'origin' is not set; give the repository URL with -u (make aws-load-tests repo_url=<https url>)."
+    case ${url} in
+      https://* | http://*) REPO_URL=$(https_url "${url}") ;;
+      ssh://*)
+        rest=${url#ssh://}
+        host=${rest%%/*}
+        path=${rest#"${host}"}
+        host=${host##*@}
+        REPO_URL="https://${host%%:*}${path}"
+        ;;
+      *@*:*)
+        rest=${url#*@}
+        REPO_URL="https://${rest%%:*}/${rest#*:}"
+        ;;
+      *) config_fail "the URL of the remote 'origin' cannot be converted to HTTPS; give the repository URL with -u (make aws-load-tests repo_url=<https url>)." ;;
+    esac
+  fi
   config_check "Repository URL" "${REPO_URL}" '^https://[A-Za-z0-9.-]+(:[0-9]+)?/[A-Za-z0-9._~/-]+$'
   if [[ -z ${BRANCH_NAME} ]]; then
     BRANCH_NAME=$(git -C "${REPO_ROOT}" rev-parse --abbrev-ref HEAD)

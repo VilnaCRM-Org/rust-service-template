@@ -26,7 +26,7 @@ description: Use when adding, changing or running a K6 scenario or a latency bud
 - A budget in `tests/Load/config.json.dist` is a protected value; raising it needs the configuration approval label and a recorded measurement in `docs/load-testing.md`.
 - Never loosen a budget so that a failing run passes; find the slow path.
 - Results go to `tests/Load/results/` and stay out of git.
-- Cloud runs use `make aws-load-tests` and must be cleaned up with `make aws-load-tests-cleanup`.
+- Cloud runs use `make aws-load-tests` and must be cleaned up with `make aws-load-tests-cleanup`; the options include `branch=<name>` and `repo_url=<https url>` (needed when `origin` is a local path, or when a detached HEAD has no branch).
 
 ## Verification
 

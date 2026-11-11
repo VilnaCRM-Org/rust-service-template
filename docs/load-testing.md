@@ -111,7 +111,7 @@ make aws-load-tests region=eu-west-1 instance_type=c6i.xlarge load_target=smoke-
 make aws-load-tests-cleanup
 ```
 
-Parameters (all optional): `region`, `ami`, `instance_type`, `instance_tag`, `role`, `branch`, `security_group`, `load_target`. Defaults: region `us-east-1`; instance type `c6i.xlarge` (4 vCPU, 8 GiB; a cold release build of the image takes about 5 minutes, which a `t2.micro` cannot do); the AMI is Ubuntu 24.04, resolved for the chosen region from the public SSM parameter `/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id`; the repository is the `origin` remote of the checkout, converted to HTTPS; the branch is the checked-out branch, which must be pushed; the load target is `smoke-load-tests`.
+Parameters (all optional): `region`, `ami`, `instance_type`, `instance_tag`, `role`, `branch`, `repo_url`, `security_group`, `load_target`. Defaults: region `us-east-1`; instance type `c6i.xlarge` (4 vCPU, 8 GiB; a cold release build of the image takes about 5 minutes, which a `t2.micro` cannot do); the AMI is Ubuntu 24.04, resolved for the chosen region from the public SSM parameter `/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id`; the repository is `repo_url` (an http or https URL; credentials are removed) or else the `origin` remote of the checkout, converted to HTTPS (a remote that is a local path is refused with exit status 2: give `repo_url=https://…`); the branch is the checked-out branch, which must be pushed; the load target is `smoke-load-tests`.
 
 ### Credentials
 

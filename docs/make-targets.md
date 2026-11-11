@@ -161,7 +161,7 @@ All 68 targets of the PHP template are accounted for. "Kept" means the same name
 | `build-k6-docker` | dropped | the stock K6 image is used |
 | `smoke-load-tests`, `average-load-tests`, `stress-load-tests`, `spike-load-tests`, `load-tests` | kept | isolated environment |
 | `execute-load-tests-script` | kept | starts the isolated environment; rejects an empty `scenario` |
-| `aws-load-tests`, `aws-load-tests-cleanup` | kept | options can be passed through Make |
+| `aws-load-tests`, `aws-load-tests-cleanup` | kept | options can be passed through Make, `repo_url` (`-u`) among them |
 | `ci`, `all`, `ci-sequential` | kept | the seven stages in order |
 | `ci-preflight`, `ci-static-analysis`, `ci-mutation` | kept | contents redefined; no mutating step |
 | `ci-deptrac` | merged into `ci-static-analysis` | |

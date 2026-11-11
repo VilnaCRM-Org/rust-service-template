@@ -95,6 +95,7 @@ Every variable a caller may set, except `PROJECT_NAME` (see below the table), is
 | `instance_tag` | empty (the script default applies) | `aws-load-tests`, passed as `-i` | none |
 | `role` | empty (the script default applies) | `aws-load-tests`, passed as `-o` | none |
 | `branch` | empty (the script default applies) | `aws-load-tests`, passed as `-b` | none |
+| `repo_url` | empty (the `origin` remote is used) | `aws-load-tests`, passed as `-u` | none |
 | `security_group` | empty (the script default applies) | `aws-load-tests`, passed as `-s` | none |
 | `load_target` | empty (the script default applies) | `aws-load-tests`, passed as `-l` | none |
 | `name` | empty | parameter of `create-migration` (snake_case description) | none |

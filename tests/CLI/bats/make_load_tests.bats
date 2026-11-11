@@ -115,9 +115,11 @@ STUB
   require_docker
   run make --no-print-directory start-deps DEPS=localstack
   assert_success
-  # The branch is given: a pull-request job checks out a detached HEAD, which the script refuses on purpose.
-  run make --no-print-directory aws-load-tests LOCAL_MODE_ENV=true branch=load-dry-run
+  # The branch and the repository URL are given: a pull-request job checks out a detached HEAD, and a clone made
+  # from a local path has no HTTPS origin, which the script refuses on purpose.
+  run make --no-print-directory aws-load-tests LOCAL_MODE_ENV=true branch=load-dry-run repo_url=https://example.com/acme/service.git
   assert_success
+  assert_output --partial 'Repository URL: https://example.com/acme/service.git'
   assert_output --partial 'Repository branch: load-dry-run'
   assert_output --partial 'Launched instance'
   assert_output --partial 'You can access the S3 bucket here'
@@ -136,6 +138,17 @@ STUB
   run env LOCAL_MODE_ENV=true "${BATS_TEST_TMPDIR}/clone/tests/Load/aws-execute-load-tests.sh"
   assert_failure 2
   assert_output --partial 'Error: HEAD is detached; give the branch with -b (make aws-load-tests branch=<name>).'
+  assert_file_not_exists "${BATS_TEST_TMPDIR}/clone/tests/Load/aws-run.env"
+}
+
+@test "aws-load-tests refuses a path origin without a repository URL and exits 2 before any container or AWS call" {
+  require_command git
+  # A throw-away clone whose origin is a local path (a mirror, or a clone made with --no-local).
+  git clone --quiet --local --no-hardlinks "${REPO_ROOT}" "${BATS_TEST_TMPDIR}/clone"
+  git -C "${BATS_TEST_TMPDIR}/clone" remote set-url origin "${BATS_TEST_TMPDIR}/mirror.git"
+  run env LOCAL_MODE_ENV=true "${BATS_TEST_TMPDIR}/clone/tests/Load/aws-execute-load-tests.sh" -b load-dry-run
+  assert_failure 2
+  assert_output --partial "Error: the URL of the remote 'origin' cannot be converted to HTTPS; give the repository URL with -u (make aws-load-tests repo_url=<https url>)."
   assert_file_not_exists "${BATS_TEST_TMPDIR}/clone/tests/Load/aws-run.env"
 }
 
