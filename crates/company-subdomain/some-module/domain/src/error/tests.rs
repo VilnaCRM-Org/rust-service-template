@@ -1,6 +1,9 @@
+use std::error::Error as _;
+
 use rstest::rstest;
 
 use super::InvalidExampleApiResource;
+use crate::repository::RepositoryError;
 
 #[rstest]
 #[case(InvalidExampleApiResource::NameLength, "name", "length")]
@@ -39,4 +42,17 @@ fn exposes_the_property_path_and_the_code(
 )]
 fn displays_the_violation_message(#[case] error: InvalidExampleApiResource, #[case] text: &str) {
     assert_eq!(error.to_string(), text);
+}
+
+#[test]
+fn displays_and_chains_its_errors() {
+    let unavailable = RepositoryError::Unavailable("disk on fire".into());
+
+    assert_eq!(
+        RepositoryError::AlreadyExists.to_string(),
+        "the resource already exists"
+    );
+    assert_eq!(unavailable.to_string(), "the repository is unavailable");
+    assert_eq!(unavailable.source().unwrap().to_string(), "disk on fire");
+    assert!(RepositoryError::AlreadyExists.source().is_none());
 }
