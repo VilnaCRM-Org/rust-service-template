@@ -4,7 +4,7 @@
   "delayBetweenScenarios": 60,
   "endpoints": {
     "health": {
-      "smoke": { "threshold": 500, "rps": 10, "vus": 5, "duration": 10 },
+      "smoke": { "threshold": 50, "rps": 10, "vus": 5, "duration": 10 },
       "average": {
         "threshold": 200,
         "rps": 25,

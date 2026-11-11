@@ -36,7 +36,10 @@ trap finish EXIT
 # Ubuntu packages, with the compose v2 plugin; the AWS CLI comes from snap. No unpinned binary downloads.
 apt-get update -y
 apt-get install -y docker.io docker-compose-v2 docker-buildx git make
-snap wait system seed.loaded
+# Bounded at 300 seconds: seeding the snaps of a fresh Ubuntu 24.04 image takes well under a minute, so a seed that
+# has not loaded by then is stuck. timeout then fails the script and the EXIT trap reports FAILED and shuts the
+# instance down instead of leaving it running.
+timeout 300 snap wait system seed.loaded
 snap install aws-cli --classic
 
 # A cold release build of the image needs more memory than a small instance has.

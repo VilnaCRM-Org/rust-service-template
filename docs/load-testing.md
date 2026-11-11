@@ -21,16 +21,16 @@ A run fails when the p99 of the request duration of a profile exceeds its budget
 
 `threshold` in `tests/Load/config.json.dist` is the p99 budget in milliseconds. It must be a positive number; any other value is rejected with `Invalid threshold value` before the run starts. A local `tests/Load/config.json` (git-ignored) overrides the file, and the variables `API_HOST` and `API_PORT` override the target.
 
-The budgets of the `health` scenario (`GET /api/health`, checked for status 204) are the ceilings:
+The budgets of the `health` scenario (`GET /api/health`, checked for status 204):
 
-| Profile | Budget (p99, milliseconds) |
-| --- | --- |
-| `smoke` | 500 |
-| `average` | 200 |
-| `stress` | 1000 |
-| `spike` | 5000 |
+| Profile | Budget (p99, milliseconds) | Ceiling (milliseconds) | Where the budget comes from |
+| --- | --- | --- | --- |
+| `smoke` | 50 | 500 | the budget rule applied to the p99 measured on a 4-vCPU GitHub-hosted runner (7.25 ms on 2026-11-11) |
+| `average` | 200 | 200 | the ceiling: no hosted-runner measurement |
+| `stress` | 1000 | 1000 | the ceiling: no hosted-runner measurement |
+| `spike` | 5000 | 5000 | the ceiling: no hosted-runner measurement |
 
-Each health request makes one `SELECT 1` and one `ListQueues` call to LocalStack, and that was not measured under load. The first local measurement of the `smoke` profile is in the table below (p99 14.79 ms against the budget of 500 ms: 100 requests at 10 per second for 10 s, none failed). It is not a hosted-runner value, so the budget stays at its ceiling; the other profiles have no measurement. Until a hosted-runner measurement exists, a value below the ceiling would be a guess and a source of flaky pull requests, so the ceilings stand.
+Each health request makes one `SELECT 1` and one `ListQueues` call to LocalStack. The smoke profile ran on a 4-vCPU GitHub-hosted runner in the job `Smoke load tests` of commit `db7fe08` (2026-11-11): p99 7.25 ms, 101 of 101 checks passed. The rule gives 3 x 7.25 = 21.75 ms, rounded up to 30 ms, raised to the floor of 50 ms, so the smoke budget is 50 ms. CI runs the smoke profile only. The average, stress and spike profiles run in no pipeline (each of them, and `make load-tests`, was run once locally on 2026-11-11 and passed its budget; see the table below), so they have no hosted-runner measurement and stay at their ceilings; their local measurements are in the table below and are not hosted-runner values.
 
 The four budget values are protected configuration: changing one needs the label `approved-config-change` on the pull request. The rest of the file changes freely. The success-rate threshold of the checks (above 99%) lives in `tests/Load/utils/thresholdsBuilder.js`, which is a protected file in its entirety.
 
@@ -53,15 +53,21 @@ Procedure:
 
 ## Measured values
 
-One row per measurement. Add a row for every new measurement; do not overwrite old rows. The first local value is entered from the first local run; the hosted-runner value follows the first pipeline run. An empty cell means that nothing has been measured yet.
+One row per measurement. Add a row for every new measurement; do not overwrite old rows. Only a hosted-runner row derives a budget; a local row records what the profile measured on that machine. An empty cell means that nothing has been measured yet.
 
 | Scenario | Profile | Environment | Date | Measured p99 (ms) | Budget derived (ms) | Budget in `config.json.dist` (ms) |
 | --- | --- | --- | --- | --- | --- | --- |
 | `health` | `smoke` | local, 4 vCPU virtual machine, inside `make ci` after a clean clone, production image, `BUILD_IMAGE=0` (details in `docs/operations.md`) | 2026-11-11 | 14.79 | not derived; the rule uses the hosted-runner value | 500 |
-| `health` | `smoke` | GitHub-hosted runner, 4 vCPU | | | | 500 |
-| `health` | `average` | | | | | 200 |
-| `health` | `stress` | | | | | 1000 |
-| `health` | `spike` | | | | | 5000 |
+| `health` | `smoke` | GitHub-hosted runner, 4 vCPU, `ubuntu-24.04`, job `Smoke load tests` of commit `db7fe08`, production image | 2026-11-11 | 7.25 | 50 (3 x 7.25 = 21.75, rounded up to 30, floor 50) | 50 |
+| `health` | `average` | local, 4 vCPU and 15 GB Linux virtual machine, production image, `BUILD_IMAGE=0`, `make average-load-tests` (324 requests, checks 100%) | 2026-11-11 | 14.34 | not derived; the rule uses the hosted-runner value | 200 |
+| `health` | `stress` | local, 4 vCPU and 15 GB Linux virtual machine, production image, `BUILD_IMAGE=0`, `make stress-load-tests` (1949 requests, checks 100%) | 2026-11-11 | 16.71 | not derived; the rule uses the hosted-runner value | 1000 |
+| `health` | `spike` | local, 4 vCPU and 15 GB Linux virtual machine, production image, `BUILD_IMAGE=0`, `make spike-load-tests` (999 requests, checks 100%) | 2026-11-11 | 219.98 | not derived; the rule uses the hosted-runner value | 5000 |
+| `health` | `smoke` | local, 4 vCPU and 15 GB Linux virtual machine, production image, `BUILD_IMAGE=0`, `make load-tests` (all four profiles in one run, 3374 checks, 100%) | 2026-11-11 | 25.37 | not derived; the rule uses the hosted-runner value | 50 |
+| `health` | `average` | local, 4 vCPU and 15 GB Linux virtual machine, production image, `BUILD_IMAGE=0`, `make load-tests` | 2026-11-11 | 19.13 | not derived; the rule uses the hosted-runner value | 200 |
+| `health` | `stress` | local, 4 vCPU and 15 GB Linux virtual machine, production image, `BUILD_IMAGE=0`, `make load-tests` | 2026-11-11 | 57.23 | not derived; the rule uses the hosted-runner value | 1000 |
+| `health` | `spike` | local, 4 vCPU and 15 GB Linux virtual machine, production image, `BUILD_IMAGE=0`, `make load-tests` | 2026-11-11 | 91.77 | not derived; the rule uses the hosted-runner value | 5000 |
+| `health` | `smoke` | local, 4 vCPU and 15 GB Linux virtual machine, production image, `BUILD_IMAGE=0`, `make smoke-load-tests`, three runs on an idle machine (101 checks each, 100%) | 2026-11-11 | 25.88, 23.51, 35.22 | not derived; the rule uses the hosted-runner value | 50 |
+| `health` | `smoke` | local, 4 vCPU and 15 GB Linux virtual machine, production image, `BUILD_IMAGE=0`, `make smoke-load-tests`, three runs with all four cores busy (load average 9 to 12; 101 checks each, 100%) | 2026-11-11 | 24.51, 23.71, 30.43 | not derived; the rule uses the hosted-runner value | 50 |
 
 ## Running the tests
 
@@ -98,7 +104,7 @@ The assistant skill `load-testing` shows the same steps with the example resourc
 
 Schemathesis and K6 run against the production image in a compose project of their own, `<project>-load`, never against the development stack. The project has its own network and volumes, publishes no database or LocalStack port, and publishes the service on `LOAD_TEST_APP_PORT` (default `18081`). The development service on port 8081 is a debug build and keeps running next to it.
 
-`scripts/with-load-test-stack.sh` builds the production image (unless `BUILD_IMAGE=0`), starts the project and waits until it is healthy, prepares the database, runs the given command with `API_HOST=localhost` and `API_PORT=$LOAD_TEST_APP_PORT`, and always removes the project with its volumes, also when the command fails. It exits with status 2 and prints the logs when the environment does not become healthy.
+`scripts/with-load-test-stack.sh` builds the production image (unless `BUILD_IMAGE=0`), starts the project and waits until it is healthy, prepares the database, runs the given command with `API_HOST=localhost` and `API_PORT=$LOAD_TEST_APP_PORT`, and always removes the project with its volumes, also when the command fails. When the command fails (a crossed K6 threshold, a failed Schemathesis check), it prints a line with the exit status and the logs of the project, the service's included, to standard error before it removes the project, and exits with the status of the command. It exits with status 2 and prints the logs when the environment does not become healthy.
 
 To test a service that already runs elsewhere, call the runners directly with `API_HOST` and `API_PORT` set; no environment is started then.
 

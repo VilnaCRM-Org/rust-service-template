@@ -206,6 +206,54 @@ pinned_value() {
     "${REPO_ROOT}/make/tool-versions.mk" | head -n 1
 }
 
+# A free TCP port on the loopback interface, from 20000 to 32767, that no earlier call of the same test file chose.
+# The range ends below the ephemeral ports of Linux (32768 to 60999) and macOS (49152 to 65535), so an outbound
+# connection made between the choice and the use of the port cannot hold it.
+# Callers run it in a command substitution, a subshell, so the ports already chosen are kept in a file of the file's
+# temporary directory, not in a variable. Bash only (/dev/tcp), so the suite needs no python3 or other tool.
+free_port() {
+  local port chosen="${BATS_FILE_TMPDIR:-${TMPDIR:-/tmp}}/chosen-ports"
+  while :; do
+    port=$((20000 + RANDOM % 12768))
+    if grep -q -x -F -- "${port}" "${chosen}" 2>/dev/null; then
+      continue
+    fi
+    if ! (exec 3<>"/dev/tcp/127.0.0.1/${port}") 2>/dev/null; then
+      printf '%s\n' "${port}" >>"${chosen}"
+      printf '%s' "${port}"
+      return 0
+    fi
+  done
+}
+
+# Evaluates a JavaScript expression over the JSON document on standard input, in the pinned Node image (NODE_IMAGE
+# of make/tool-versions.mk, the image scripts/validate-architecture-model.sh uses), so that the suite needs no jq on
+# the host. The document is bound to `data`. A string result is printed as it is, any other result as indented JSON.
+# Exit status like `jq -e`: 0 for a result other than false, null and undefined; 1 for those; 2 when the input is not
+# JSON or the expression fails. Usage: json_query '<expression>' <file.json
+json_query() {
+  local image
+  image="${NODE_IMAGE:-$(pinned_value NODE_IMAGE)}"
+  "${DOCKER:-docker}" run --rm --interactive "${image}" node -e '
+let text = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => { text += chunk; });
+process.stdin.on("end", () => {
+  let result;
+  try {
+    result = new Function("data", "return (" + process.argv[1] + ");")(JSON.parse(text));
+  } catch (error) {
+    process.stderr.write("json_query: " + error.message + "\n");
+    process.exit(2);
+  }
+  if (result !== undefined) {
+    process.stdout.write((typeof result === "string" ? result : JSON.stringify(result, null, 2)) + "\n");
+  }
+  process.exit(result === undefined || result === null || result === false ? 1 : 0);
+});
+' "$1"
+}
+
 # `git status --porcelain` of the repository, for before and after comparisons.
 tree_status() {
   git -C "${REPO_ROOT}" status --porcelain

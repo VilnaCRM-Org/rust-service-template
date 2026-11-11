@@ -1,6 +1,7 @@
 #!/usr/bin/env bats
 # Tests of the load-test targets (architecture-delivery.md "CLI Tests (Bats)", file make_load_tests.bats): the
-# single-scenario runner, the AWS dry run against LocalStack, and the negative tests of gates G22 and G24.
+# single-scenario runner, the profile runners, the AWS dry run against LocalStack and its instance script, and the
+# negative tests of gates G22 and G24. JSON is edited with json_query of the helper, so the host needs no jq.
 #
 # The isolated production-image environment is started and removed by the targets under test; tests that start
 # it must not run beside another run of it. Local budgets are written to the git-ignored tests/Load/config.json
@@ -19,7 +20,7 @@ setup() {
 
 teardown() {
   restore_planted
-  rm -f -- "${RESULTS_DIR}/health.html" "${RESULTS_DIR}/smoke-health.html"
+  rm -f -- "${RESULTS_DIR}/health.html" "${RESULTS_DIR}/smoke-health.html" "${RESULTS_DIR}/planted_failing_check.html"
   if [[ -f tests/Load/aws-run.env ]]; then
     make --no-print-directory aws-load-tests-cleanup LOCAL_MODE_ENV=true >/dev/null 2>&1 || true
   fi
@@ -51,9 +52,20 @@ development_containers() {
 
 # Plants a local tests/Load/config.json that is config.json.dist with the smoke budget of the health scenario.
 plant_smoke_budget() {
-  jq --argjson budget "$1" '.endpoints.health.smoke.threshold = $budget' tests/Load/config.json.dist \
+  json_query "(data.endpoints.health.smoke.threshold = $1, data)" <tests/Load/config.json.dist \
     >"${BATS_TEST_TMPDIR}/config.json"
   plant_new tests/Load/config.json "${BATS_TEST_TMPDIR}/config.json"
+}
+
+# A stand-in for docker on PATH that records the arguments of every call in $RECORD; no container runs.
+record_docker_calls() {
+  mkdir -p "${BATS_TEST_TMPDIR}/bin"
+  cat >"${BATS_TEST_TMPDIR}/bin/docker" <<'STUB'
+#!/bin/sh
+printf '%s\n' "$*" >>"${RECORD}"
+exit 0
+STUB
+  chmod +x "${BATS_TEST_TMPDIR}/bin/docker"
 }
 
 # --- setup-load-test-db ----------------------------------------------------------------------------------------
@@ -106,6 +118,32 @@ STUB
   assert_output ''
   after="$(development_containers)"
   assert_equal "${after}" "${before}"
+}
+
+# --- the profile runners ----------------------------------------------------------------------------------------
+
+@test "the profile runners pass their switches and report prefixes to the K6 run" {
+  record_docker_calls
+  local runner expected
+  # runner, then the switches (smoke average stress spike) and the dashboard of the health scenario it must give.
+  for expected in \
+    'run-smoke-load-tests.sh true false false false smoke-health.html' \
+    'run-average-load-tests.sh false true false false average-health.html' \
+    'run-stress-load-tests.sh false false true false stress-health.html' \
+    'run-spike-load-tests.sh false false false true spike-health.html' \
+    'run-load-tests.sh true true true true all-health.html'; do
+    # shellcheck disable=SC2086 # the five words are split on purpose
+    set -- ${expected}
+    runner="$1"
+    rm -f -- "${BATS_TEST_TMPDIR}/calls"
+    PATH="${BATS_TEST_TMPDIR}/bin:${PATH}" RECORD="${BATS_TEST_TMPDIR}/calls" run "tests/Load/${runner}"
+    assert_success
+    run grep -c -F -- "K6_WEB_DASHBOARD_EXPORT=/loadTests/results/$6 " "${BATS_TEST_TMPDIR}/calls"
+    assert_output '1'
+    run grep -c -F -- "/loadTests/scripts/health.js -e run_smoke=$2 -e run_average=$3 -e run_stress=$4 -e run_spike=$5" \
+      "${BATS_TEST_TMPDIR}/calls"
+    assert_output '1'
+  done
 }
 
 # --- aws-load-tests against LocalStack -------------------------------------------------------------------------
@@ -169,6 +207,18 @@ STUB
   assert_success
 }
 
+@test "every snap wait of the instance script is bounded by timeout" {
+  local unbounded
+  # Lines that call `snap wait` (comments aside) without a `timeout <seconds>` in front of it.
+  unbounded="$(grep -n -E '(^|[^#[:alnum:]_-])snap[[:space:]]+wait([[:space:]]|$)' tests/Load/user-data.sh |
+    grep -v -E '^[0-9]+:[[:space:]]*#' | grep -v -E 'timeout[[:space:]]+[0-9]+[smh]?[[:space:]]+snap[[:space:]]+wait' || true)"
+  assert_equal "${unbounded}" ''
+  # The script does wait for the seed (the line the test is about exists).
+  run grep -c -E '^[[:space:]]*timeout[[:space:]]+[0-9]+[smh]?[[:space:]]+snap[[:space:]]+wait[[:space:]]+system[[:space:]]+seed\.loaded' \
+    tests/Load/user-data.sh
+  assert_output '1'
+}
+
 # --- G22: load budgets -----------------------------------------------------------------------------------------
 
 # bats test_tags=slow
@@ -180,6 +230,27 @@ STUB
   assert_failure
   assert_output --regexp 'thresholds on metrics .* have been crossed'
   assert_file_exists "${RESULTS_DIR}/smoke-health.html"
+  # The failed run prints the logs of the isolated project before it removes it, the service's included.
+  assert_output --partial "with-load-test-stack.sh: the command failed with exit status 99; logs of project '$(make_var LOAD_TEST_PROJECT)':"
+  assert_output --regexp 'app-1 +\| .*"message":"listening"'
+  run isolated_project_resources
+  assert_success
+  assert_output ''
+}
+
+# bats test_tags=slow
+@test "G22: a scenario whose check fails crosses the checks threshold" {
+  require_docker
+  local planted=planted_failing_check
+  plant_new "tests/Load/scripts/${planted}.js" "${BATS_TEST_DIRNAME}/fixtures/failing_check_scenario.js.txt"
+  # The planted scenario gets the profiles and budgets of the health scenario.
+  json_query "(data.endpoints.${planted} = data.endpoints.health, data)" <tests/Load/config.json.dist \
+    >"${BATS_TEST_TMPDIR}/config.json"
+  plant_new tests/Load/config.json "${BATS_TEST_TMPDIR}/config.json"
+  run make --no-print-directory execute-load-tests-script "scenario=${planted}" runAverage=false runStress=false runSpike=false
+  assert_failure
+  assert_output --regexp "thresholds on metrics .*'checks\{scenario:smoke\}'.* have been crossed"
+  refute_output --regexp "thresholds on metrics .*http_req_duration.* have been crossed"
   run isolated_project_resources
   assert_success
   assert_output ''
@@ -223,7 +294,7 @@ STUB
 
 @test "G24: a prettier key in the package manifest of the load tests does not replace the root configuration" {
   require_docker
-  jq '. + {prettier: {semi: false}}' tests/Load/package.json >"${BATS_TEST_TMPDIR}/package.json"
+  json_query '({ ...data, prettier: { semi: false } })' <tests/Load/package.json >"${BATS_TEST_TMPDIR}/package.json"
   plant_replace tests/Load/package.json "${BATS_TEST_TMPDIR}/package.json"
   run make --no-print-directory lint-load-tests
   assert_success

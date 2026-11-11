@@ -1,7 +1,8 @@
 #!/usr/bin/env bats
 # Tests of the security gates and of the hardening claims (architecture-delivery.md "CLI Tests (Bats)", file
-# make_security.bats, DD-21, "Containers and Compose"): gates G9 and G10, the inspection of the production image
-# and the inspection of the rendered production reference (NFR12).
+# make_security.bats, DD-21, "Containers and Compose"): gates G9 and G10, the inspection of the production image,
+# the inspection of the rendered production reference (NFR12, FR91) and of the database readiness probe (NFR33).
+# JSON is read with json_query of the helper (the pinned Node image), so the host needs no jq.
 #
 # Passing runs of the two gates are not repeated (DD-02). The key pair of G9 is generated at test time and is
 # never stored. The image under test is the production image of the environment (APP_IMAGE); it is built before
@@ -134,6 +135,39 @@ STUB
   assert_file_not_exists "${BATS_TEST_TMPDIR}/listing"
 }
 
+@test "G9: a key that exists only in the history makes secrets-scan report leaks found" {
+  require_docker
+  require_command openssl
+  local repo="${BATS_TEST_TMPDIR}/history" image
+  image="$(pinned_value GITLEAKS_IMAGE)"
+  mkdir -p "${repo}/scripts"
+  cp scripts/secrets-scan.sh "${repo}/scripts/"
+  cp .gitleaks.toml "${repo}/"
+  : >"${repo}/.gitleaksignore"
+  git -C "${repo}" init --quiet
+  git -C "${repo}" add -- .
+  git -C "${repo}" -c user.name=bats -c user.email=bats@example.invalid commit --quiet -m 'scanner'
+  # The key is generated at test time, committed, and removed again in the next commit: only the history has it.
+  openssl genrsa -out "${repo}/history_key.pem" 2048 2>/dev/null
+  git -C "${repo}" add -- history_key.pem
+  git -C "${repo}" -c user.name=bats -c user.email=bats@example.invalid commit --quiet -m 'add a key'
+  git -C "${repo}" rm --quiet -- history_key.pem
+  git -C "${repo}" -c user.name=bats -c user.email=bats@example.invalid commit --quiet -m 'remove the key'
+  assert_file_not_exists "${repo}/history_key.pem"
+  GITLEAKS_IMAGE="${image}" run "${repo}/scripts/secrets-scan.sh"
+  assert_failure 1
+  assert_output --partial 'secrets-scan: leaks found'
+  assert_output --partial 'history_key.pem'
+  # The finding comes from the history scan: the scan of the working files that follows it reports nothing.
+  local working_part
+  working_part="$(sed -n '/^secrets-scan: scanning the working files$/,$p' <<<"${output}")"
+  [[ -n "${working_part}" ]] || fail "the scan of the working files did not run"
+  run grep -c -F 'history_key.pem' <<<"${working_part}"
+  assert_output '0'
+  run grep -c -F 'no leaks found' <<<"${working_part}"
+  refute_output '0'
+}
+
 # --- G10: image scan -----------------------------------------------------------------------------------------
 
 # bats test_tags=slow
@@ -182,8 +216,9 @@ STUB
   image="$(production_image)"
   run docker image inspect --format '{{json .Config.Healthcheck}}' "${image}"
   assert_success
-  run jq -e '.Test == ["CMD", "/app/service", "healthcheck"] and .Interval == 10000000000
-    and .Timeout == 3000000000 and .Retries == 3 and .StartPeriod <= 30000000000' <<<"${output}"
+  run json_query 'JSON.stringify(data.Test) === JSON.stringify(["CMD", "/app/service", "healthcheck"])
+    && data.Interval === 10000000000 && data.Timeout === 3000000000 && data.Retries === 3
+    && data.StartPeriod <= 30000000000' <<<"${output}"
   assert_success
 }
 
@@ -198,8 +233,8 @@ STUB
     "${image}")"
   run docker inspect --format '{{json .HostConfig}}' "${container}"
   assert_success
-  run jq -e '.ReadonlyRootfs == true and .CapDrop == ["ALL"] and .CapAdd == null
-    and (.SecurityOpt | index("no-new-privileges:true") != null)' <<<"${output}"
+  run json_query 'data.ReadonlyRootfs === true && JSON.stringify(data.CapDrop) === JSON.stringify(["ALL"])
+    && data.CapAdd === null && data.SecurityOpt.includes("no-new-privileges:true")' <<<"${output}"
   assert_success
   status=''
   for _ in $(seq 1 40); do
@@ -215,22 +250,54 @@ STUB
 
 # --- production reference ----------------------------------------------------------------------------------------
 
-@test "the production reference renders with limits, read-only root, dropped capabilities and no-new-privileges" {
+@test "the production reference renders with limits, read-only root, dropped capabilities, no-new-privileges and restart policies" {
   require_docker
   run render_production_reference DATABASE_URL=postgres://app:unused@db.example.invalid:5432/app AWS_REGION=eu-west-1
   assert_success
   local rendered="${output}"
-  run jq -e '.services.app.deploy.resources.limits | .cpus == 1 and .memory == "268435456" and .pids == 256' <<<"${rendered}"
+  run json_query 'data.services.app.deploy.resources.limits.cpus === 1
+    && data.services.app.deploy.resources.limits.memory === "268435456"
+    && data.services.app.deploy.resources.limits.pids === 256' <<<"${rendered}"
   assert_success
-  run jq -e '.services.migrate.deploy.resources.limits | .cpus == 0.5 and .memory == "134217728"' <<<"${rendered}"
+  run json_query 'data.services.migrate.deploy.resources.limits.cpus === 0.5
+    && data.services.migrate.deploy.resources.limits.memory === "134217728"' <<<"${rendered}"
   assert_success
-  local service
-  for service in app migrate; do
-    run jq -e --arg service "${service}" '.services[$service] | .read_only == true and .cap_drop == ["ALL"]
-      and .security_opt == ["no-new-privileges:true"]' <<<"${rendered}"
-    assert_success
-  done
-  run jq -e '.services.app.environment | .APP_ENV == "prod" and (has("AWS_ENDPOINT_URL_SQS") | not)' <<<"${rendered}"
+  # Both services, in one query: read-only root, every capability dropped, no-new-privileges.
+  run json_query '["app", "migrate"].every((name) => data.services[name].read_only === true
+    && JSON.stringify(data.services[name].cap_drop) === JSON.stringify(["ALL"])
+    && JSON.stringify(data.services[name].security_opt) === JSON.stringify(["no-new-privileges:true"]))' <<<"${rendered}"
+  assert_success
+  run json_query 'data.services.app.environment.APP_ENV === "prod"
+    && !("AWS_ENDPOINT_URL_SQS" in data.services.app.environment)' <<<"${rendered}"
+  assert_success
+  # The restart policies (FR91): the service restarts unless it was stopped and gets 15 s to drain; the one-shot
+  # migration never restarts.
+  run json_query 'data.services.app.restart === "unless-stopped" && data.services.app.stop_grace_period === "15s"
+    && data.services.migrate.restart === "no"' <<<"${rendered}"
+  assert_success
+}
+
+@test "the database readiness probe uses the configured user and database, at most 10 s apart, with 10 retries" {
+  require_docker
+  run env DB_USER=bats_probe_user DB_NAME=bats_probe_db docker compose --env-file /dev/null -f docker-compose.yml \
+    config --format json
+  assert_success
+  local rendered="${output}"
+  # pg_isready reports success for any role name, so only the rendered command shows that the probe asks for the
+  # role and the database of the container, which take the two configured values.
+  run json_query 'data.services.database.environment.POSTGRES_USER === "bats_probe_user"
+    && data.services.database.environment.POSTGRES_DB === "bats_probe_db"' <<<"${rendered}"
+  assert_success
+  run json_query 'data.services.database.healthcheck.test[0] === "CMD-SHELL"
+    && /^pg_isready -U "[$]+POSTGRES_USER" -d "[$]+POSTGRES_DB"$/.test(data.services.database.healthcheck.test[1])' \
+    <<<"${rendered}"
+  assert_success
+  # Compose prints durations as Go durations (5s, 1m0s); the interval must be at most 10 s.
+  run json_query '(() => {
+    const match = /^(?:(\d+)m)?(?:(\d+(?:\.\d+)?)s)?$/.exec(data.services.database.healthcheck.interval);
+    const seconds = match ? Number(match[1] || 0) * 60 + Number(match[2] || 0) : Infinity;
+    return seconds > 0 && seconds <= 10 && data.services.database.healthcheck.retries === 10;
+  })()' <<<"${rendered}"
   assert_success
 }
 

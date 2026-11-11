@@ -125,7 +125,7 @@ check_container_engine() {
 }
 
 check_toolchain() {
-  local channel found
+  local channel found output
   if ! have rustup; then
     missing rustup "every cargo target" "install rustup 1.26 or newer from https://rustup.rs"
   else
@@ -136,7 +136,14 @@ check_toolchain() {
     missing cargo "every cargo target" "install rustup, which installs the toolchain $channel of rust-toolchain.toml"
     return
   fi
-  found=$(cd "$root" && RUSTUP_AUTO_INSTALL=0 version_of rustc --version)
+  # Installed or not is decided by the exit status: when the pinned toolchain is missing, rustup fails and its error
+  # text names the channel, so a version taken from that text would look like the pinned one. The version is read
+  # only from the line that rustc itself prints (`rustc <version> (...)`).
+  if ! output=$(cd "$root" && RUSTUP_AUTO_INSTALL=0 rustc --version 2>&1); then
+    missing "toolchain $channel" "every cargo target" "run: rustup toolchain install $channel"
+    return
+  fi
+  found=$(printf '%s\n' "$output" | grep -E '^rustc ' | grep -Eo '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -n 1 || true)
   if [ -z "$channel" ] || [ "$found" = "$channel" ]; then
     ok "cargo, toolchain ${found:-$channel}"
   elif [ -z "$found" ]; then

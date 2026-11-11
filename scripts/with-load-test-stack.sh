@@ -5,7 +5,9 @@
 # Builds the production image unless BUILD_IMAGE=0, starts the project $LOAD_TEST_PROJECT (default:
 # <directory name>-load) from docker-compose.yml plus docker-compose.load_test.override.yml, waits for health,
 # prepares its database (setup-load-test-db.sh), exports API_HOST=localhost and API_PORT=$LOAD_TEST_APP_PORT and
-# runs the command. The project is removed with its volumes on every exit path.
+# runs the command. When the command fails, the logs of the project are printed to standard error before the
+# project is removed, so that a failed run keeps the service's side of the story (a 500 carries no detail by
+# design). The project is removed with its volumes on every exit path.
 # Reads LOAD_TEST_PROJECT, LOAD_TEST_APP_PORT, APP_IMAGE, BUILD_IMAGE (and DOCKER for the image build).
 # Exit status: the command's; 2 the environment did not become healthy (its logs are printed) or usage error.
 set -euo pipefail
@@ -53,4 +55,8 @@ export API_HOST=localhost
 export API_PORT="$LOAD_TEST_APP_PORT"
 status=0
 "$@" || status=$?
+if [ "$status" -ne 0 ]; then
+  echo "with-load-test-stack.sh: the command failed with exit status ${status}; logs of project '${LOAD_TEST_PROJECT}':" >&2
+  compose logs --no-color >&2 || true
+fi
 exit "$status"

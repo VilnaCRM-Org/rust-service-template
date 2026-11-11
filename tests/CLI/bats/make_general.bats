@@ -17,9 +17,10 @@ teardown() {
   [[ -z "${tmp:-}" ]] || rm -rf -- "${tmp}"
 }
 
-# Runs the assistant hook with the path of an edit on standard input.
+# Runs the assistant hook with the path of an edit on standard input (the hook itself needs jq).
 run_hook() {
   local mode="$1" path="$2"
+  require_command jq
   run bash -c 'jq -n --arg path "$2" "{tool_input: {file_path: \$path}}" | CLAUDE_PROJECT_DIR="$3" scripts/claude/guard-protected-files.sh "$1"' \
     _ "${mode}" "${path}" "${REPO_ROOT}"
 }
@@ -200,10 +201,64 @@ run_hook() {
   require_command cargo
   printf '\n# planted by a Bats test\n' >"${tmp}/comment.txt"
   plant_append clippy.toml "${tmp}/comment.txt"
-  run make --no-print-directory ci CI_STAGES=validate-configuration base_ref=HEAD
+  # A second stage follows the failing one: make ci must stop at the failure and never start it.
+  run make --no-print-directory ci CI_STAGES='validate-configuration help' base_ref=HEAD
   assert_failure
   assert_output --partial 'Modification of locked configuration file is not allowed: clippy.toml'
   refute_output --partial 'CI checks successfully passed!'
+  refute_output --partial 'Usage:'
+}
+
+@test "scripts/doctor.sh reports a toolchain that is not installed as missing" {
+  local channel
+  channel="$(sed -n 's/^channel[[:space:]]*=[[:space:]]*"\(.*\)"/\1/p' rust-toolchain.toml | head -n 1)"
+  [[ -n "${channel}" ]]
+  mkdir -p "${tmp}/bin"
+  printf '#!/bin/sh\necho "rustup 1.28.2 (e4f3ad6f8 2025-04-28)"\n' >"${tmp}/bin/rustup"
+  printf '#!/bin/sh\nexit 0\n' >"${tmp}/bin/cargo"
+  # What rustup prints through the rustc proxy when the pinned toolchain is not installed: the text names the channel.
+  printf '#!/bin/sh\necho "error: toolchain '"'"'%s-x86_64-unknown-linux-gnu'"'"' is not installed" >&2\nexit 1\n' "${channel}" >"${tmp}/bin/rustc"
+  chmod +x "${tmp}/bin/rustup" "${tmp}/bin/cargo" "${tmp}/bin/rustc"
+  PATH="${tmp}/bin:${PATH}" run scripts/doctor.sh --prerequisites
+  assert_failure 1
+  assert_line "[MISSING] toolchain ${channel}: needed by every cargo target; run: rustup toolchain install ${channel}"
+  refute_output --partial '[OK] cargo, toolchain'
+  # The same stand-ins with a rustc that answers: the toolchain is reported as installed.
+  printf '#!/bin/sh\necho "rustc %s (00000000 2026-01-01)"\n' "${channel}" >"${tmp}/bin/rustc"
+  PATH="${tmp}/bin:${PATH}" run scripts/doctor.sh --prerequisites
+  assert_line "[OK] cargo, toolchain ${channel}"
+  refute_output --partial '[MISSING] toolchain'
+}
+
+@test "no Bats file calls host jq or python3 outside a test guarded by require_command" {
+  local found
+  # A chunk is a test or a function. A call of one of the tools in a chunk without `require_command <tool>` is
+  # reported with file and line: the suite must run on a host with the documented prerequisites only (NFR37), and
+  # JSON is read with json_query of the helper instead.
+  found="$(awk -v tools=jq,python3,python '
+    function flush(   i) {
+      for (i = 1; i <= n; i++) if (!(pending_tool[i] in guarded)) print pending_where[i]
+      n = 0
+      split("", guarded)
+    }
+    BEGIN { count = split(tools, tool, ",") }
+    FNR == 1 { flush() }
+    /^@test / || /^[A-Za-z_][A-Za-z0-9_]*\(\)[[:space:]]*\{/ { flush(); next }
+    /^[[:space:]]*#/ { next }
+    {
+      for (t = 1; t <= count; t++) {
+        if (index($0, "require_command " tool[t]) > 0) {
+          guarded[tool[t]] = 1
+        } else if ($0 ~ ("(^|[[:space:]|;&(!])" tool[t] "([[:space:]]|$)")) {
+          n++
+          pending_tool[n] = tool[t]
+          pending_where[n] = FILENAME ":" FNR ": " $0
+        }
+      }
+    }
+    END { flush() }
+  ' tests/CLI/bats/*.bats tests/CLI/bats/*.bash)"
+  assert_equal "${found}" ''
 }
 
 # --- the assistant hook -------------------------------------------------------------------------------------------

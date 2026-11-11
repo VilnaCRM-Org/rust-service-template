@@ -11,27 +11,15 @@
 # two minutes or more, so the start test is tagged `slow`. Every test that needs the stack it starts (the mount
 # check, `make start-deps` on a running environment, the two log tests, the occupied-port test, the rebuild
 # test, `make stop` and `make down`) is tagged `slow` too, so that `--filter-tags '!slow'` skips the whole
-# group and no test that stays untagged depends on another one. The only untagged test, the second project,
-# starts nothing but its own database and LocalStack and passes on its own. The rebuild test is slow by itself.
+# group and no test that stays untagged depends on another one. The two untagged tests, the second project and
+# the start that never becomes healthy, start nothing but their own database and LocalStack (the second one runs
+# app and migrate from the database image and stops at the failed health check) and pass on their own. The
+# rebuild test is slow by itself.
 
 bats_require_minimum_version 1.8.0
 load test_helper
 
 # bats file_tags=surface
-
-# A free TCP port on the loopback interface that is not in the list of ports already chosen.
-_free_port() {
-  local port
-  while :; do
-    port=$((20000 + RANDOM % 20000))
-    case " ${CHOSEN_PORTS:-} " in *" ${port} "*) continue ;; esac
-    if ! (exec 3<>"/dev/tcp/127.0.0.1/${port}") 2>/dev/null; then
-      CHOSEN_PORTS="${CHOSEN_PORTS:-} ${port}"
-      printf '%s' "${port}"
-      return 0
-    fi
-  done
-}
 
 # Name of the development image that the Makefile derives from the checkout directory.
 _default_dev_image() {
@@ -54,15 +42,15 @@ setup_file() {
   export PROJECT_NAME="bats-life-${suffix}"
   export ALT_PROJECT="bats-alt-${suffix}"
   export BUSY_PROJECT="bats-busy-${suffix}"
-  CHOSEN_PORTS=''
-  DB_PORT="$(_free_port)"
-  LOCALSTACK_PORT="$(_free_port)"
-  APP_PORT="$(_free_port)"
-  STRUCTURIZR_PORT="$(_free_port)"
+  export SICK_PROJECT="bats-sick-${suffix}"
+  DB_PORT="$(free_port)"
+  LOCALSTACK_PORT="$(free_port)"
+  APP_PORT="$(free_port)"
+  STRUCTURIZR_PORT="$(free_port)"
   export DB_PORT LOCALSTACK_PORT APP_PORT STRUCTURIZR_PORT
-  ALT_DB_PORT="$(_free_port)"
-  ALT_LOCALSTACK_PORT="$(_free_port)"
-  BUSY_LOCALSTACK_PORT="$(_free_port)"
+  ALT_DB_PORT="$(free_port)"
+  ALT_LOCALSTACK_PORT="$(free_port)"
+  BUSY_LOCALSTACK_PORT="$(free_port)"
   export ALT_DB_PORT ALT_LOCALSTACK_PORT BUSY_LOCALSTACK_PORT
   # An image that an earlier `make start` of this checkout built is reused; otherwise `make start` builds it.
   if [[ -z "${DEV_IMAGE:-}" ]]; then
@@ -93,6 +81,7 @@ teardown_file() {
   _remove_project "${PROJECT_NAME}"
   _remove_project "${ALT_PROJECT}"
   _remove_project "${BUSY_PROJECT}"
+  _remove_project "${SICK_PROJECT}"
   if [[ -n "${BUILT_IMAGE:-}" ]]; then
     docker image rm "${PROJECT_NAME}-app:dev" >/dev/null 2>&1 || true
   fi
@@ -228,6 +217,37 @@ listening_entries() {
   run docker ps --all --quiet --filter "label=com.docker.compose.project=${ALT_PROJECT}"
   assert_output ''
   run docker volume ls --quiet --filter "label=com.docker.compose.project=${ALT_PROJECT}"
+  assert_output ''
+}
+
+@test "make start exits non-zero when the stack does not become healthy" {
+  # A third project whose database never passes its health check. app and migrate run the database image, so the
+  # test needs no service image and builds nothing (BUILD_IMAGE=0 gives `--no-build`); neither of them starts,
+  # because both wait for a healthy database.
+  cat >"${tmp}/unhealthy.yml" <<'OVERRIDE'
+services:
+  database:
+    healthcheck:
+      test: ['CMD', 'false']
+      interval: 1s
+      timeout: 1s
+      retries: 1
+      start_period: 0s
+      start_interval: 1s
+  migrate:
+    image: postgres:${DB_VERSION:-16}-alpine
+  app:
+    image: postgres:${DB_VERSION:-16}-alpine
+OVERRIDE
+  # Every published port is its own (the stack of the first test holds the others) and is drawn right before use.
+  PROJECT_NAME="${SICK_PROJECT}" DB_PORT="$(free_port)" LOCALSTACK_PORT="$(free_port)" APP_PORT="$(free_port)" \
+    STRUCTURIZR_PORT="$(free_port)" \
+    COMPOSE_FILE="docker-compose.yml:docker-compose.override.yml:${tmp}/unhealthy.yml" BUILD_IMAGE=0 \
+    run make --no-print-directory start
+  assert_failure
+  assert_output --partial "dependency failed to start: container ${SICK_PROJECT}-database-1 is unhealthy"
+  _remove_project "${SICK_PROJECT}"
+  run docker ps --all --quiet --filter "label=com.docker.compose.project=${SICK_PROJECT}"
   assert_output ''
 }
 

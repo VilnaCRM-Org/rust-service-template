@@ -43,11 +43,6 @@ isolated_project_resources() {
   docker network ls --quiet --filter "${filter}"
 }
 
-# A free TCP port of the loopback interface.
-closed_port() {
-  python3 -I -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])'
-}
-
 # The OpenAPI snapshot without the description of its first operation.
 openapi_without_operation_description() {
   awk '!done && /^      description: / { done = 1; next } { print }' "${OPENAPI_SNAPSHOT}"
@@ -127,7 +122,7 @@ graphql_without_field() {
 @test "schemathesis-validate with SCHEMATHESIS_URL on a closed port starts no container and reports the failed connection" {
   require_docker
   local port
-  port="$(closed_port)"
+  port="$(free_port)"
   SCHEMATHESIS_URL="http://127.0.0.1:${port}" run make --no-print-directory schemathesis-validate
   assert_failure
   assert_output --partial 'Connection failed'
@@ -219,6 +214,51 @@ graphql_without_field() {
   assert_failure
   assert_output --partial 'breaking change'
   assert_output --partial 'Approve with the label approved-breaking-change'
+}
+
+@test "G20: the same change passes with BREAKING_CHANGE_APPROVED=true" {
+  require_docker
+  graphql_without_field >"${BATS_TEST_TMPDIR}/planted"
+  plant_replace "${GRAPHQL_SNAPSHOT}" "${BATS_TEST_TMPDIR}/planted"
+  BREAKING_CHANGE_APPROVED=true run make --no-print-directory graphql-diff base_ref=HEAD
+  assert_success
+  assert_output --partial 'breaking change'
+  assert_output --partial 'approved by BREAKING_CHANGE_APPROVED=true'
+  refute_output --partial 'Approve with the label approved-breaking-change'
+}
+
+@test "G20: a base ref that does not exist makes graphql-diff fail, and the script exits 2" {
+  require_docker
+  run make --no-print-directory graphql-diff base_ref=no-such-ref
+  assert_failure
+  assert_output --partial "base ref 'no-such-ref' cannot be resolved"
+  NODE_IMAGE="$(make_var NODE_IMAGE)" GRAPHQL_INSPECTOR_VERSION="$(make_var GRAPHQL_INSPECTOR_VERSION)" \
+    run scripts/graphql-diff.sh no-such-ref
+  assert_failure 2
+  assert_output --partial "base ref 'no-such-ref' cannot be resolved"
+}
+
+# --- the image of the OpenAPI diff can be overridden -------------------------------------------------------------
+
+@test "openapi-diff runs the image named by OPENAPI_DIFF_IMAGE" {
+  # A stand-in for the container engine records its arguments; no container runs.
+  mkdir -p "${BATS_TEST_TMPDIR}/bin"
+  cat >"${BATS_TEST_TMPDIR}/bin/docker" <<'STUB'
+#!/bin/sh
+printf '%s\n' "$*" >>"${RECORD}"
+exit 0
+STUB
+  chmod +x "${BATS_TEST_TMPDIR}/bin/docker"
+  local default_image
+  default_image="$(make_var OPENAPI_DIFF_IMAGE)"
+  [[ -n "${default_image}" ]]
+  RECORD="${BATS_TEST_TMPDIR}/calls" DOCKER="${BATS_TEST_TMPDIR}/bin/docker" OPENAPI_DIFF_IMAGE=registry.example.invalid/oasdiff:planted \
+    run make --no-print-directory openapi-diff base_ref=HEAD
+  assert_success
+  run grep -E '^run .* registry\.example\.invalid/oasdiff:planted breaking /base/spec\.yaml /head/spec\.yaml' "${BATS_TEST_TMPDIR}/calls"
+  assert_success
+  run grep -c -F -- "${default_image}" "${BATS_TEST_TMPDIR}/calls"
+  assert_output '0'
 }
 
 # --- G21: Schemathesis against the production image --------------------------------------------------------------
