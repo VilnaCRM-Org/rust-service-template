@@ -46,11 +46,12 @@ pub fn make_span(request: &Request) -> Span {
 pub fn on_response<B>(response: &Response<B>, latency: Duration, _span: &Span) {
     let status = response.status().as_u16();
     let duration_ms = u64::try_from(latency.as_millis()).unwrap_or(u64::MAX);
-    tracing::info!(
-        http.response.status_code = status,
-        duration_ms,
-        "request completed"
-    );
+    log_request_completed(status, duration_ms);
+}
+
+/// The access-log event. The explicit target is the module path and keeps the call on one line.
+fn log_request_completed(status: u16, duration_ms: u64) {
+    tracing::info!(target: "service::http::trace", { http.response.status_code = status, duration_ms }, "request completed");
 }
 
 #[cfg(test)]
