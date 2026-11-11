@@ -63,7 +63,7 @@ The ignored files are the service-owned files (`README.md`, `CHANGELOG.md`, `Car
 | `crates/service/Cargo.toml`, `src/bootstrap`, `src/cli`, `src/config`, `src/http.rs`, `src/openapi`, `src/graphql/schema` of that crate | wiring, commands, configuration, routes and schema roots | changes of the service wiring |
 | `tests/support/`, `tests/e2e/` | test doubles, world and step definitions | changes of the test support |
 
-`Makefile` and `docs/make-targets.md` are synchronised, not ignored: a service defines its own targets in `make/service.mk`, which the `Makefile` loads, and documents them in `docs/make-targets-service.md`. The template ships neither file, so a sync cannot change them.
+`Makefile` and `docs/make-targets.md` are synchronised, not ignored: a service defines its own targets in make/service.mk, which the `Makefile` loads, and documents them in docs/make-targets-service.md. The template ships neither file, so a sync cannot change them.
 
 `.templatesyncignore` itself is on the list: the service owns its copy. The file in the template is the reference.
 

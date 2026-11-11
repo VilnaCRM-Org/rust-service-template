@@ -63,14 +63,11 @@ Every variable a caller may set is declared with `?=` in the `Makefile` or in on
 
 | Name | Default | Consumer | PHP name |
 | --- | --- | --- | --- |
-| `PROJECT_NAME` | the caller's `COMPOSE_PROJECT_NAME` when set, else the checkout directory name, lower-cased with characters outside `a-z0-9_-` replaced by `-` | Compose project name and image name prefix | none |
 | `COMPOSE_PROJECT_NAME` | `$(PROJECT_NAME)`; a value set by the caller is kept | exported to Compose | none |
 | `RUN_IN_CONTAINER` | empty | `1` or `true`: targets of class TOOL run in the `app` container | none |
 | `CI` | from the environment | non-empty: native mode is forced, `COMPOSE_PROFILES` defaults to empty and `CARGO_BUILD_WARNINGS=deny` is exported | `CI` |
 | `IN_DEV_CONTAINER` | from the environment (`1` in the `app` container of the development environment) | native mode is forced; `ensure-deps` and `ensure-database` start nothing | none |
 | `CARGO_BUILD_WARNINGS` | `deny` when `CI` is set and inside `make ci`; otherwise from the environment | Cargo's `build.warnings`; unset again for cargo-mutants | none |
-| `EXEC` | empty, or `docker compose exec -T --user <uid>:<gid> -e … app` | prefix of every class TOOL command; computed, not meant to be set | none |
-| `EXEC_ENV` | `TEST_SEED PROPTEST_RNG_SEED CONFIG_CHANGE_APPROVED CARGO_BUILD_WARNINGS` | variables that `EXEC` forwards into the container; computed | `EXEC_ENV` |
 | `DOCKER` | `docker` | exported; container engine command, also used by the scripts | `DOCKER` |
 | `DOCKER_COMPOSE` | `docker compose` | exported; Compose command, also used by the scripts | `DOCKER_COMPOSE` |
 | `HOST_UID` | `$(shell id -u)` | exported; user of the development container and of `docker run` tools | none |
@@ -114,7 +111,8 @@ Every variable a caller may set is declared with `?=` in the `Makefile` or in on
 | `CI_STAGES` | the seven stages of `make ci` | stages run by `ci`; lets Bats test the aggregate without running it | none |
 | `BMALPH_PLATFORM` | `claude-code` | parameter of the bmalph targets (`claude-code` or `codex`) | none |
 | `BMALPH_DRY_RUN` | `false` | `true`: the bmalph targets preview without changing files | none |
-| `TEST_ENV` | `scripts/with-env.sh .env .env.test --` | prefix of commands that need the test configuration; computed | none |
+
+Four names that the `Makefile` computes are not rows of the table, because the drift check keeps the table equal to the `?=` declarations. `PROJECT_NAME` is the Compose project name and the prefix of the image names: the caller's `COMPOSE_PROJECT_NAME` when set, else the checkout directory name, lower-cased with characters outside `a-z0-9_-` replaced by `-`; a value given on the command line wins. `EXEC` is the prefix of every class TOOL command: empty, or `docker compose exec -T --user <uid>:<gid> -e … app`; it is computed and not meant to be set. `EXEC_ENV` lists the variables that `EXEC` forwards into the container (`TEST_SEED PROPTEST_RNG_SEED CONFIG_CHANGE_APPROVED CARGO_BUILD_WARNINGS`). `TEST_ENV` is the prefix of commands that need the test configuration (`scripts/with-env.sh .env .env.test --`).
 
 ## PHP-to-Rust name mapping
 

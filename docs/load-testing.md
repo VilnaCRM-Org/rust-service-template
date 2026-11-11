@@ -85,10 +85,12 @@ A scenario is one script and one configuration entry; no runner needs an edit.
 
 1. Create `tests/Load/scripts/<scenario>.js`. Copy `tests/Load/scripts/health.js` and change the request and the checks. The script builds its options from the configuration through the helpers in `tests/Load/utils`.
 2. Add `endpoints.<scenario>` to `tests/Load/config.json.dist` with the four profiles (`smoke`, `average`, `stress`, `spike`), each with `threshold`, `rps`, `vus` and `duration`, in the shapes of the table above.
-3. Start with ceilings you can defend, then derive the budgets with the budget rule once a measurement exists. Only the four budget values of the shipped configuration are protected; check `make validate-configuration` when you change `config.json.dist`.
+3. Start with ceilings you can defend, then derive the budgets with the budget rule once a measurement exists.
 4. Run `make execute-load-tests-script scenario=<scenario> runSmoke=true`, then `make smoke-load-tests`, which now includes the scenario.
 5. Run `make lint-load-tests`. The JavaScript runs in K6, not in Node: only the K6 globals (`__ENV`, `__VU`, `__ITER`, `open`) exist, and `console` is forbidden.
 6. Add the measurement to the table above.
+
+Only the four budget values of the shipped configuration are protected: run `make validate-configuration` when you change `config.json.dist`.
 
 The assistant skill `load-testing` shows the same steps with the example resource as its illustration.
 
