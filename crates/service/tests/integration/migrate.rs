@@ -169,7 +169,7 @@ fn migrate_against_a_silent_database(wait: &str, acquire: &str) -> (String, Opti
 
 #[test]
 fn an_attempt_is_cut_at_the_time_left_of_the_wait() {
-    // An attempt that is not cut would last the whole acquire timeout, ten times the wait.
+    // An attempt that is not cut would last the whole acquire timeout of 10 s, far past the bound.
     let (log, status, elapsed) = migrate_against_a_silent_database("1500ms", "10s");
 
     assert_eq!(status, Some(1));
