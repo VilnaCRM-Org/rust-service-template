@@ -112,7 +112,7 @@ The workflows `release.yml`, `template-sync-app.yml`, `template-sync-pat.yml` an
 ## Merging
 
 - Allow squash merging and disable merge commits and rebase merging.
-- Set the default commit message of a squash merge to "Pull request title". The check of the pull-request title (gate G28) validates the title in the form `type(#issue): subject`, and the release reads the squashed commit on `main`. With any other setting the commit subject is not the checked title and the release version is derived from text that nobody checked.
+- Set the default commit message of a squash merge to "Pull request title and description". The check of the pull-request title (gate G28) validates the title in the form `type(#issue): subject`, and the release reads the squashed commit on `main`. The settings that start with "Pull request title" use the checked title as the subject; "Default message" does not, and then the release version is derived from text that nobody checked. With "Pull request title and description" a `BREAKING CHANGE:` footer written as the last paragraph of the pull-request description becomes the body of the squash commit, which the release reads.
 - Require branches to be up to date before merging, so that the required checks ran on the merged result.
 - Delete head branches after merge.
 
