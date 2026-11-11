@@ -150,3 +150,36 @@ the story's `Verify` line and acceptance criteria and hands the story over.
 Stories of Epics 1 to 9 are pushed as they land; from the first workflow file
 on, nothing is pushed until the clean-clone verification of the last story has
 passed.
+
+## Outcome of the Implementation Run
+
+This section was added after the implementation. The sections above describe
+the planning run and are kept as they were written.
+
+- All 57 stories were implemented through the Ralph loop, one git worktree
+  per story, and each was verified by an agent that had not written it. The
+  last two stories are verification stories: a full `make ci` on the working
+  tree and the clean-clone run.
+- 53 deviation entries were recorded during the implementation, each with the
+  old text, the new text and the proof. They were applied to the architecture,
+  the delivery architecture and the epics in two documentation passes and with
+  the last fix batches. The tracked copies equal the planning sources.
+- The push policy of the paragraph above changed during the run: the workflow
+  stories were pushed as soon as Epic 9 was merged, so that the hosted
+  workflows could run on the pull request before the last story. The first
+  hosted run found five causes of failure. All five were tests or fixtures
+  that depended on the environment of the caller (variables of the hosted
+  runner, a detached checkout, a variable that make passes on), and each was
+  fixed at its cause.
+- A final review of the whole tree, in nine areas and with every finding
+  checked by a second reviewer, confirmed 44 findings: 14 major, 30 minor and
+  none blocking. All were fixed, and each fix was verified independently.
+- Measured on 2026-11-11 on a 4-vCPU machine, in a fresh clone without a build
+  cache: `make bootstrap` 116 s, `make ci` 24 min 42 s with 297 Makefile
+  tests, and `make start` with images and build output present 12 s. The
+  estimates under "Open until measured" were higher than the measurement, and
+  the budgets of the PRD are unchanged. The conditions of the run and the
+  durations of each stage are in `docs/operations.md`.
+- Not verified before the merge, because they run only on `main` or on a
+  schedule: the release workflow, the scheduled verification and template
+  sync.
