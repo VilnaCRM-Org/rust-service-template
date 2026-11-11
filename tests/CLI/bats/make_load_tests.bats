@@ -94,7 +94,6 @@ plant_smoke_budget() {
 }
 
 @test "aws-load-tests refuses a detached HEAD without a branch and exits 2 before any container or AWS call" {
-  require_command docker
   require_command git
   # A throw-away clone with a detached HEAD: the checkout of the developer is never touched.
   git clone --quiet --local --no-hardlinks "${REPO_ROOT}" "${BATS_TEST_TMPDIR}/clone"

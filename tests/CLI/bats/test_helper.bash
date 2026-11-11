@@ -16,6 +16,9 @@ _common_setup() {
   cd "${REPO_ROOT}" || return 1
   # Approval overrides of the caller must not reach the tests: only a test that sets one itself sees it.
   unset CONFIG_CHANGE_APPROVED BREAKING_CHANGE_APPROVED ALLOW_PROTECTED_CONFIG_EDIT
+  # Tool output must be colourless whatever the caller exported (the hosted runner sets CARGO_TERM_COLOR=always).
+  export CARGO_TERM_COLOR=never NO_COLOR=1
+  unset CLICOLOR_FORCE FORCE_COLOR
   restore_planted
 }
 

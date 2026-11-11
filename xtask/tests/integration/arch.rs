@@ -108,8 +108,18 @@ fn github_actions_adds_one_annotation_per_violation() {
         annotations.contains(&"::error file=crates/stray/Cargo.toml,title=Architecture (uncovered)::`stray` is not assigned to any layer"),
         "{annotations:?}"
     );
-    assert!(!plain.stdout.contains("::error"), "{}", plain.stdout);
-    assert!(!disabled.stdout.contains("::error"), "{}", disabled.stdout);
+    // Without the variable, or with another value, the same report is printed and no annotation is added.
+    for (name, run) in [("plain", &plain), ("disabled", &disabled)] {
+        assert_eq!(run.code, Some(1), "{name}: {}", run.stdout);
+        assert!(
+            run.stdout.contains(
+                "error[arch::uncovered]: `stray` is not assigned to any layer\n  --> crates/stray/Cargo.toml\n"
+            ),
+            "{name}: {}",
+            run.stdout
+        );
+        assert!(!run.stdout.contains("::error"), "{name}: {}", run.stdout);
+    }
 }
 
 #[test]
