@@ -12,7 +12,7 @@ description: Use when a crate, bounded context, external dependency or relations
 
 ## Commands
 
-- `make validate-architecture-model` checks `workspace.dsl`: it must be valid, define the three views and name a component for every workspace crate.
+- `make validate-architecture-model` checks `workspace.dsl`: it must be valid, define the three views, name a component for every workspace crate and hold a relationship for every dependency between them.
 - `make start` starts the development environment, which includes the Structurizr viewer for looking at the model.
 
 ## Rules

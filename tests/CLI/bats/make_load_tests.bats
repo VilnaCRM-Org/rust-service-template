@@ -116,6 +116,9 @@ STUB
   before="$(development_containers)"
   run make --no-print-directory execute-load-tests-script scenario=health runAverage=false runStress=false runSpike=false
   assert_success
+  # The failure block of scripts/with-load-test-stack.sh (its line and the project's logs) is for failed runs only.
+  refute_output --partial 'the command failed with exit status'
+  refute_output --regexp '[a-z]-1 +\| '
   assert_file_exists "${RESULTS_DIR}/health.html"
   run isolated_project_resources
   assert_success

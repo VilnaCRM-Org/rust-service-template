@@ -31,14 +31,14 @@ Pull requests are squash-merged, so the checked title becomes the commit subject
 
 ### Version rules
 
-The release is computed from the commit subjects on `main`:
+The release is computed from the commit subjects on `main` and the breaking-change footers of their bodies:
 
 - `fix` raises the patch number.
 - `feat` raises the minor number.
-- A breaking change raises the major number; below `1.0.0` it raises the minor number instead.
-- The other types do not trigger a release.
+- A breaking change raises the major number, whatever the type; below `1.0.0` it raises the minor number instead.
+- The other types do not trigger a release unless they carry a breaking change.
 
-A breaking change is marked with a `BREAKING CHANGE:` footer in the commit body. Pull requests are squash-merged with the setting "Pull request title and description" (see [`docs/repository-settings.md`](docs/repository-settings.md)), so the footer must be the last paragraph of the pull-request description: only then does it reach the body of the squash commit that the release reads (see [`.github/AUTORELEASE.md`](.github/AUTORELEASE.md)). The title keeps the form `type(#issue): subject`, and the pull request carries the label `approved-breaking-change`.
+A breaking change is marked with a `BREAKING CHANGE:` footer in the commit body: a line that starts with the upper-case token, followed by a blank (the same words inside a sentence are no footer). Pull requests are squash-merged with the setting "Pull request title and description" (see [`docs/repository-settings.md`](docs/repository-settings.md)), so the footer must be the last paragraph of the pull-request description: only then does it reach the body of the squash commit that the release reads (see [`.github/AUTORELEASE.md`](.github/AUTORELEASE.md)). The title keeps the form `type(#issue): subject`, and the pull request carries the label `approved-breaking-change`.
 
 ## Hooks
 

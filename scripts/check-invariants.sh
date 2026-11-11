@@ -479,15 +479,27 @@ check_downloads() {
     # is the host localhost, 127.0.0.1 or [::1], an optional port, an optional path without `@`, then a quote,
     # white space or the end of the line (so `http://localhost@host/` names a remote host). A line is a probe and
     # left out only when, once its loopback URLs are removed, it holds exactly one curl or wget, no other URL, no
-    # `$` expansion and no backtick (an address computed elsewhere), no dotted word (a host or a file name) and
-    # no continuation backslash. The decision reads that copy; every other line goes unchanged to the download
-    # pattern, so a loopback proxy still counts as the URL of the command. Known limit: an expansion in the
-    # port position of a loopback URL (`http://127.0.0.1:${APP_PORT}/`) is trusted.
+    # `$` expansion and no backtick (an address computed elsewhere), no dotted word (a host, an IPv4 address or a
+    # file name), no word with a `/` that starts like a host name (`intranet/tool`, an address without a scheme),
+    # no option that sends the request elsewhere (`--resolve`, `--connect-to`, `-x`, `--proxy*`, `--preproxy`,
+    # `--socks*`) or proxy variable (`https_proxy=`), and no continuation backslash. A probe may stand in a
+    # command substitution that starts with it (`status=$(curl -s -o /dev/null -w '%{http_code}' http://...)`);
+    # the backtick form is not read as a probe. The decision reads that copy; every other line goes unchanged to
+    # the download pattern, so a loopback proxy still counts as the URL of the command. Known limits: an
+    # expansion in the port position of a loopback URL (`http://127.0.0.1:${APP_PORT}/`) is trusted; a bare word
+    # without a dot or a `/` (a one-label host such as `intranet`) cannot be told from an option argument
+    # (`--max-time 10`, `--noproxy '*'`, which the probes of the tree use) and is trusted; a proxy exported on an
+    # earlier line is not seen.
     if grep -vE '^[[:space:]]*#' "${file}" \
       | awk '{
           rest = $0
           n = gsub(/[A-Za-z]+:\/\/(localhost|127\.0\.0\.1|\[::1\])(:[^\/?@[:space:]"\047]*)?([\/?][^@[:space:]"\047]*)?(["\047]|[[:space:]]|$)/, " ", rest)
-          probe = n > 0 && rest !~ /:\/\// && rest !~ /\$/ && rest !~ /`/ && rest !~ /\\[[:space:]]*$/ && rest !~ /[A-Za-z0-9]\.[A-Za-z]/
+          gsub(/\$\(curl/, " curl", rest)
+          gsub(/\$\(wget/, " wget", rest)
+          probe = n > 0 && rest !~ /:\/\// && rest !~ /\$/ && rest !~ /`/ && rest !~ /\\[[:space:]]*$/ && rest !~ /[A-Za-z0-9]\.[A-Za-z0-9]/
+          if (probe && rest ~ /(^|[[:space:]])["\047]?[A-Za-z0-9_][A-Za-z0-9_.:@%+~-]*\//) probe = 0
+          if (probe && rest ~ /(^|[[:space:]])(--(resolve|connect-to|proxy|preproxy|socks)|-[A-Za-z]*x)/) probe = 0
+          if (probe && tolower(rest) ~ /(^|[^a-z0-9_])(https?|all|ftp)_proxy=/) probe = 0
           if (probe && gsub(/(^|[^A-Za-z0-9_-])(curl|wget)([^A-Za-z0-9_-]|$)/, "&", rest) != 1) probe = 0
           if (!probe) print
         }' \

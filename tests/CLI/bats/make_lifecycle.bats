@@ -11,10 +11,11 @@
 # two minutes or more, so the start test is tagged `slow`. Every test that needs the stack it starts (the mount
 # check, `make start-deps` on a running environment, the two log tests, the occupied-port test, the rebuild
 # test, `make stop` and `make down`) is tagged `slow` too, so that `--filter-tags '!slow'` skips the whole
-# group and no test that stays untagged depends on another one. The two untagged tests, the second project and
-# the start that never becomes healthy, start nothing but their own database and LocalStack (the second one runs
-# app and migrate from the database image and stops at the failed health check) and pass on their own. The
-# rebuild test is slow by itself.
+# group and no test that stays untagged depends on another one. The two untagged tests start only containers of
+# private projects of their own and pass on their own: the second-project test starts its own database and
+# LocalStack; the start that never becomes healthy starts its own database and, all from the database image, app,
+# migrate and a stand-in for LocalStack (no LocalStack and no service image), and stops at the failed health check
+# of app. The rebuild test is slow by itself.
 
 bats_require_minimum_version 1.8.0
 load test_helper

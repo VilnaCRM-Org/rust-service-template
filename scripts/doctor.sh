@@ -176,6 +176,7 @@ check_cargo_tools() {
   check_cargo_tool taplo TAPLO_VERSION "lint-toml, format-repo" taplo --version
   check_cargo_tool typos TYPOS_VERSION "lint-spelling" typos --version
   check_cargo_tool zizmor ZIZMOR_VERSION "lint-actions" zizmor --version
+  check_cargo_tool cocogitto COCOGITTO_VERSION "bats (make_release.bats)" cog --version
 }
 
 check_bats() {

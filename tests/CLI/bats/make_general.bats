@@ -231,19 +231,39 @@ run_hook() {
   refute_output --partial '[MISSING] toolchain'
 }
 
-@test "no Bats file calls host jq or python3 outside a test guarded by require_command" {
-  local found
-  # A chunk is a test or a function. A call of one of the tools in a chunk without `require_command <tool>` is
-  # reported with file and line: the suite must run on a host with the documented prerequisites only (NFR37), and
-  # JSON is read with json_query of the helper instead. A call counts after any character that cannot be part of a
-  # name: a blank, an operator, a quote (bash -c 'jq ...'), a backquote or a path (/usr/bin/jq).
-  found="$(awk -v 'tools=jq,python3,python' '
+@test "scripts/doctor.sh checks cocogitto at the pinned version that make_release.bats needs" {
+  local pinned
+  pinned="$(pinned_value COCOGITTO_VERSION)"
+  [[ -n "${pinned}" ]]
+  mkdir -p "${tmp}/bin"
+  # Stand-ins first on PATH: cargo exists (the cargo tools are checked only then) and cog prints another version.
+  printf '#!/bin/sh\nexit 0\n' >"${tmp}/bin/cargo"
+  printf '#!/bin/sh\necho "cog 6.5.0"\n' >"${tmp}/bin/cog"
+  chmod +x "${tmp}/bin/cargo" "${tmp}/bin/cog"
+  # The container mode of the caller (RUN_IN_CONTAINER=1) would skip the cargo tools; the test is about the host.
+  PATH="${tmp}/bin:${PATH}" RUN_IN_CONTAINER='' run scripts/doctor.sh
+  assert_failure 1
+  assert_line "[OUTDATED] cocogitto: found 6.5.0, need ${pinned}"
+  printf '#!/bin/sh\necho "cog %s"\n' "${pinned}" >"${tmp}/bin/cog"
+  PATH="${tmp}/bin:${PATH}" RUN_IN_CONTAINER='' run scripts/doctor.sh
+  assert_line "[OK] cocogitto ${pinned}"
+  refute_output --partial '] cocogitto: '
+}
+
+# Prints every call of host jq, python3 or python in the given Bats files that stands in a chunk (a test or a
+# function) without `require_command <tool>`, as <file>:<line>: <text>: the suite must run on a host with the
+# documented prerequisites only (NFR37), and JSON is read with json_query of the helper instead. A call is the
+# name after any character that cannot be part of a name (a blank, an operator, a quote as in bash -c 'jq ...', a
+# backquote or a path as in /usr/bin/jq) and before a blank, the end of the line, `)`, `;`, `|`, `&`, a quote or
+# a backquote (`$(... | jq)`, `jq;`). The names end the list with a comma, so the list itself is no call.
+host_tool_calls() {
+  awk '
     function flush(   i) {
       for (i = 1; i <= n; i++) if (!(pending_tool[i] in guarded)) print pending_where[i]
       n = 0
       split("", guarded)
     }
-    BEGIN { count = split(tools, tool, ",") }
+    BEGIN { count = split("jq,python3,python,", tool, ",") - 1 }
     FNR == 1 { flush() }
     /^@test / || /^[A-Za-z_][A-Za-z0-9_]*\(\)[[:space:]]*\{/ { flush(); next }
     /^[[:space:]]*#/ { next }
@@ -251,7 +271,7 @@ run_hook() {
       for (t = 1; t <= count; t++) {
         if (index($0, "require_command " tool[t]) > 0) {
           guarded[tool[t]] = 1
-        } else if ($0 ~ ("(^|[^[:alnum:]_.-])" tool[t] "([[:space:]]|$)")) {
+        } else if ($0 ~ ("(^|[^[:alnum:]_.-])" tool[t] "([[:space:]);|&\047\042\140]|$)")) {
           n++
           pending_tool[n] = tool[t]
           pending_where[n] = FILENAME ":" FNR ": " $0
@@ -259,8 +279,23 @@ run_hook() {
       }
     }
     END { flush() }
-  ' tests/CLI/bats/*.bats tests/CLI/bats/*.bash)"
-  assert_equal "${found}" ''
+  ' "$@"
+}
+
+@test "no Bats file calls host jq or python3 outside a test guarded by require_command" {
+  run host_tool_calls tests/CLI/bats/*.bats tests/CLI/bats/*.bash
+  assert_success
+  assert_output ''
+}
+
+@test "the scan for host jq and python3 reports every call form of its synthetic cases and nothing else" {
+  local fixture=tests/CLI/bats/fixtures/host_tool_calls.bats.txt expected
+  # The lines that must be reported end with the marker `# call`; every other line must not be reported.
+  expected="$(grep -n ' # call$' "${fixture}" | sed "s|^\([0-9]*\):|${fixture}:\1: |")"
+  [[ "$(grep -c ' # call$' "${fixture}")" -ge 12 ]]
+  run host_tool_calls "${fixture}"
+  assert_success
+  assert_output "${expected}"
 }
 
 # --- the assistant hook -------------------------------------------------------------------------------------------

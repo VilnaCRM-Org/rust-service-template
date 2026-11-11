@@ -276,7 +276,7 @@ Mutation run of Story 9.3 on commit `3650cd4`, on the same machine with its own 
 
 On the bootstrap pull request the hosted workflow counts 697 mutants for commit `d152806` (every file is new against `main`, which holds only the root commit) and divides them into shards of 150, which gives 5 shards. The 665 mutants above belong to the earlier commit `3650cd4`. The durations on 2026-11-11 for commit `d152806` are in the table of the pull-request jobs below. The planning job divides the mutants into shards of 150 (at least 1 and at most 8 shards); that divisor was not changed. The mean time per mutant was not computed: the local shards waited for slots and shared the machine, so a mean from them would not be a stable figure for the divisor.
 
-Smoke load test: the `health` profile ran inside `make ci` (stage 6) with a p99 of 14.79 ms against the budget of 500 ms (see `docs/load-testing.md`).
+Smoke load test: the `health` profile ran inside `make ci` (stage 6) with a p99 of 14.79 ms against the budget of 500 ms that `tests/Load/config.json.dist` held at the time of the run. The budget shipped since then is 50 ms, derived from the hosted-runner measurements; a p99 of 14.79 ms is within it (see `docs/load-testing.md`).
 
 Pull-request jobs on a hosted runner, commit `db7fe08` of the bootstrap pull request, 2026-11-11, from the start and end times of the latest check run of each name. No Rust or image cache was restored, because the caches are saved on `main` only, so these are cold figures:
 

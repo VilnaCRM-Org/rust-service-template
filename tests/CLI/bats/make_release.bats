@@ -150,6 +150,8 @@ assert_released() {
   commit 'feat(#1): add the example'
   release
   assert_success
+  commit 'docs(#3): describe the example'
+  commit 'chore(#3): tidy the example'
   commit 'fix(#2): repair the example'
   release
   assert_success
@@ -159,6 +161,10 @@ assert_released() {
   assert_line --regexp '^## v0\.1\.0 \('
   assert_line '### Bug Fixes'
   assert_line '### Features'
+  # The omit_from_changelog entries of cog.toml keep docs and chore out: no section but these two.
+  assert_equal "$(grep '^###' CHANGELOG.md | sort -u)" $'### Bug Fixes\n### Features'
+  refute_output --partial 'describe the example'
+  refute_output --partial 'tidy the example'
 }
 
 @test "after v0.1.0 a feat releases v0.2.0" {
@@ -177,6 +183,64 @@ assert_released() {
   assert_released v0.2.0
   run git tag --list 'v1*'
   assert_output ''
+}
+
+# FR98(a): the footer raises the version whatever the type is; cocogitto alone ignores it below 1.0.0.
+@test "after v0.1.0 a fix with a BREAKING CHANGE footer releases v0.2.0 and the changelog marks it" {
+  released v0.1.0
+  commit $'fix(#2): rename the field\n\nBREAKING CHANGE: the field name changed'
+  release
+  assert_success
+  assert_released v0.2.0
+  run cat CHANGELOG.md
+  assert_line '### Bug Fixes'
+  assert_line --regexp '^- \*\*BREAKING\*\* \*\*#2:\*\* rename the field \([0-9a-f]{7}\)$'
+}
+
+@test "after v0.1.0 a docs commit with a BREAKING CHANGE footer releases v0.2.0 and the changelog lists it" {
+  released v0.1.0
+  commit $'docs(#2): drop the old setting\n\nBREAKING CHANGE: the setting is gone'
+  release
+  assert_success
+  assert_released v0.2.0
+  run cat CHANGELOG.md
+  assert_line '### Documentation'
+  assert_line --regexp '^- \*\*BREAKING\*\* \*\*#2:\*\* drop the old setting \([0-9a-f]{7}\)$'
+}
+
+@test "after v0.1.0 a refactor with a BREAKING CHANGE footer after other footers releases v0.2.0" {
+  released v0.1.0
+  commit 'chore(#2): tidy'
+  commit $'refactor(#2): split the module\n\nThe module is split in two.\n\nRefs: #2\nBREAKING CHANGE: the path changed'
+  commit 'test(#2): cover the split'
+  release
+  assert_success
+  assert_released v0.2.0
+}
+
+@test "from v1.0.0 a fix with a BREAKING CHANGE footer releases v2.0.0" {
+  released v1.0.0
+  commit $'fix(#2): rename the field\n\nBREAKING CHANGE: the field name changed'
+  release
+  assert_success
+  assert_released v2.0.0
+}
+
+@test "without a tag a docs commit with a BREAKING CHANGE footer releases the manifest version" {
+  commit $'docs(#2): drop the old setting\n\nBREAKING CHANGE: the setting is gone'
+  release
+  assert_success
+  assert_released v0.1.0
+}
+
+# A footer starts a line (cocogitto's grammar and the conventional-commit definition: a token, then `: ` or ` #`)
+# and the token is upper case: words in a sentence, a lower-case token and a missing blank are no footer.
+@test "a BREAKING CHANGE that is not a footer token at the start of a line does not count" {
+  released v0.1.0
+  commit $'fix(#2): repair the example\n\nThis is not a BREAKING CHANGE: the field stays.\nbreaking change: lower case is no token\nBREAKING CHANGE:no blank after the colon\n\nRefs: #2'
+  release
+  assert_success
+  assert_released v0.1.1
 }
 
 @test "--version 1.0.0 releases v1.0.0" {

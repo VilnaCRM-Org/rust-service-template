@@ -695,6 +695,77 @@ EOF
   assert_line '(b) scripts/fetch-connect.sh: a file is downloaded by URL without a checksum'
 }
 
+@test "(b) a loopback URL beside a remote address without a scheme or a name override or proxy option is refused" {
+  put scripts/fetch-resolve.sh <<'EOF'
+#!/usr/bin/env bash
+curl --resolve localhost:80:93.184.216.34 -fsSLO http://localhost/tool.tgz
+EOF
+  put scripts/fetch-ipv4.sh <<'EOF'
+#!/usr/bin/env bash
+curl -fsSLO http://localhost:1/ 93.184.216.34/tool
+EOF
+  put scripts/fetch-ipv4-bare.sh <<'EOF'
+#!/usr/bin/env bash
+curl -fsSL http://localhost:1/ 93.184.216.34 >tool
+EOF
+  put scripts/fetch-word.sh <<'EOF'
+#!/usr/bin/env bash
+curl -fsSLO http://localhost/x intranet/tool
+EOF
+  put scripts/fetch-socks.sh <<'EOF'
+#!/usr/bin/env bash
+curl -x socks5h://127.0.0.1:9050 -fsSLO tool
+EOF
+  put scripts/fetch-resolve6.sh <<'EOF'
+#!/usr/bin/env bash
+curl --resolve localhost:80:[2001:db8::1] -fsSLO http://localhost/tool
+EOF
+  put scripts/fetch-connect-word.sh <<'EOF'
+#!/usr/bin/env bash
+curl --connect-to localhost:80:intranet:80 -fsSLO http://localhost/tool
+EOF
+  put scripts/fetch-preproxy.sh <<'EOF'
+#!/usr/bin/env bash
+curl --preproxy socks5://127.0.0.1:1080 -fsSLO http://localhost/tool
+EOF
+  put scripts/fetch-socks-option.sh <<'EOF'
+#!/usr/bin/env bash
+curl --socks5-hostname 127.0.0.1:9050 -fsSLO http://localhost/tool
+EOF
+  put scripts/fetch-proxy-cluster.sh <<'EOF'
+#!/usr/bin/env bash
+curl -fsSLOx http://127.0.0.1:3128 http://localhost/tool
+EOF
+  put scripts/fetch-proxy-variable.sh <<'EOF'
+#!/usr/bin/env bash
+https_proxy=http://127.0.0.1:3128 curl -fsSLO http://localhost/tool
+EOF
+  check
+  assert_failure
+  local name
+  for name in resolve ipv4 ipv4-bare word socks resolve6 connect-word preproxy socks-option proxy-cluster proxy-variable; do
+    assert_line "(b) scripts/fetch-${name}.sh: a file is downloaded by URL without a checksum"
+  done
+}
+
+@test "(b) a probe in a command substitution is a probe, a download in one is not" {
+  put tests/CLI/bats/probe.bash <<'EOF'
+probe() {
+  status=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/ping)
+  body="$(wget -q -O - http://[::1]:8081/ping)"
+}
+EOF
+  check
+  assert_success
+  assert_output ''
+  put scripts/fetch-substitution.sh <<'EOF'
+#!/usr/bin/env bash
+out=$(curl -fsSLo tool http://localhost:1/ "$TOOL_URL")
+EOF
+  check
+  assert_violation b 'scripts/fetch-substitution.sh: a file is downloaded by URL without a checksum'
+}
+
 @test "(b) a downloaded file with a checksum passes" {
   put scripts/fetch.sh <<'EOF'
 #!/usr/bin/env bash
