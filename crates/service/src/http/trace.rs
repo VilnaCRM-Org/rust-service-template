@@ -51,7 +51,7 @@ pub fn on_response<B>(response: &Response<B>, latency: Duration, _span: &Span) {
 
 /// The access-log event. The explicit target is the module path and keeps the call on one line.
 fn log_request_completed(status: u16, duration_ms: u64) {
-    tracing::info!(target: "service::http::trace", { http.response.status_code = status, duration_ms }, "request completed");
+    tracing::info!(target: module_path!(), { http.response.status_code = status, duration_ms }, "request completed");
 }
 
 #[cfg(test)]
