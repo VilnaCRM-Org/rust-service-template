@@ -71,6 +71,41 @@ check_title() {
   assert_output --partial 'got: Merge branch main into feature'
 }
 
+# A stand-in that names itself and what it was given, for the make the hooks choose.
+hook_make_stub() {
+  mkdir -p "${tmp}/bin"
+  cat >"$1" <<'STUB'
+#!/bin/sh
+echo "${0##*/} $* [$COMMIT_MSG_FILE]"
+STUB
+  chmod +x "$1"
+}
+
+@test "the hooks run the GNU Make named by MAKE, else gmake, else make" {
+  local hook
+  hook_make_stub "${tmp}/bin/make"
+  hook_make_stub "${tmp}/bin/gmake"
+  hook_make_stub "${tmp}/bin/custom-make"
+  # gmake is preferred to the make on PATH (macOS keeps an old make there and Homebrew installs gmake).
+  run env -i PATH="${tmp}/bin" .githooks/pre-commit
+  assert_success
+  assert_output 'gmake --no-print-directory pre-commit []'
+  run env -i PATH="${tmp}/bin" .githooks/pre-push
+  assert_output 'gmake --no-print-directory pre-push []'
+  run env -i PATH="${tmp}/bin" .githooks/commit-msg message-file
+  assert_output 'gmake --no-print-directory check-commit-message [message-file]'
+  # MAKE wins over both.
+  run env -i PATH="${tmp}/bin" MAKE="${tmp}/bin/custom-make" .githooks/pre-commit
+  assert_output 'custom-make --no-print-directory pre-commit []'
+  # Without gmake the make on PATH runs.
+  rm -- "${tmp}/bin/gmake"
+  for hook in pre-commit pre-push; do
+    run env -i PATH="${tmp}/bin" ".githooks/${hook}"
+    assert_success
+    assert_output "make --no-print-directory ${hook} []"
+  done
+}
+
 @test "install-hooks sets core.hooksPath and the previous value is restored" {
   require_command git
   # The recipe runs in a throw-away clone: core.hooksPath is shared by every worktree of this repository.

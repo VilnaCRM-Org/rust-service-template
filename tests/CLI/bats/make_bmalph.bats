@@ -12,6 +12,7 @@ setup_file() {
   command -v npm >/dev/null 2>&1 || return 0
   local root
   root="$(cd "${BATS_TEST_DIRNAME}/../../.." && pwd)"
+  isolate_make_environment
   export BMALPH_TEST_HOME="${BATS_FILE_TMPDIR}/home"
   mkdir -p "${BMALPH_TEST_HOME}"
   set +e

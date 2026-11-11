@@ -96,6 +96,7 @@ FIXTURES="${BATS_TEST_DIRNAME}/fixtures"
 }
 
 @test "G6: check-requirements fails with status 2 and names DATABASE_URL" {
+  require_host_mode "the DATABASE_URL set here does not reach the container"
   run env DATABASE_URL=mysql://x scripts/with-env.sh .env -- make --no-print-directory check-requirements
   assert_failure 2
   assert_output --partial 'DATABASE_URL'
@@ -104,6 +105,7 @@ FIXTURES="${BATS_TEST_DIRNAME}/fixtures"
 }
 
 @test "G8: unused-dependencies names an unused dependency and leaves Cargo.lock as it found it" {
+  require_command cargo
   sed 's/^\[dependencies\]$/&\nhumantime.workspace = true/' xtask/Cargo.toml >"${tmp}/Cargo.toml"
   run ! cmp -s "${tmp}/Cargo.toml" xtask/Cargo.toml
   plant_keep Cargo.lock
@@ -168,6 +170,7 @@ EOF
 
 # bats test_tags=slow
 @test "G29: check-crate-isolation fails on xtask although cargo check --workspace passes" {
+  require_command cargo
   plant_append xtask/src/main.rs "${FIXTURES}/isolation_violation.rs.txt"
   run cargo check --locked --workspace
   assert_success

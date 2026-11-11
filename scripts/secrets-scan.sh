@@ -7,7 +7,8 @@
 # Steps: `gitleaks git` over the full history; then `gitleaks dir` over a temporary copy of the
 # files that `git ls-files --cached --others --exclude-standard` lists (tracked files and untracked
 # files that are not ignored), run from inside the copy so that fingerprints are relative to the
-# repository. Findings are printed with rule, file and fingerprint, and the secret redacted.
+# repository. The copy uses only `cp` and `mkdir` with options that GNU and BSD (macOS) share, and skips a listed
+# file that no longer exists (a tracked file deleted in the working tree). Findings are printed with rule, file and fingerprint, and the secret redacted.
 # The configuration is .gitleaks.toml and the accepted findings are the fingerprints of .gitleaksignore.
 # Environment: GITLEAKS_IMAGE (exported by the Makefile from make/tool-versions.mk), DOCKER (default docker).
 # Exit status: 0 no leak found; 1 a leak was found; 2 usage error or a tool that could not run.
@@ -45,8 +46,9 @@ if ! git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
 fi
 common_dir="$(cd "$(git rev-parse --git-common-dir)" && pwd)"
 
-copy_dir="$(mktemp -d)"
-trap 'rm -rf "${copy_dir}"' EXIT
+copy_dir="$(mktemp -d)" || { echo "secrets-scan: could not create a temporary directory" >&2; exit 2; }
+listing="$(mktemp)" || { rm -rf "${copy_dir}"; echo "secrets-scan: could not create a temporary file" >&2; exit 2; }
+trap 'rm -rf "${copy_dir}" "${listing}"' EXIT
 
 # The repository is mounted read-only at its own path, so a linked worktree resolves its git directory.
 mounts=(-v "${root}:${root}:ro")
@@ -65,13 +67,25 @@ if ! "${run_scanner[@]}" "${mounts[@]}" -w "${root}" "${GITLEAKS_IMAGE}" \
   status=1
 fi
 
+# Copies one listed path below the copy directory. A path that is gone (deleted in the working tree, or removed
+# while the copy runs) and a directory entry (a submodule) are skipped; any other failure is returned.
+copy_listed_path() {
+  local path="$1" target
+  [[ -e "${path}" || -L "${path}" ]] || return 0
+  [[ -L "${path}" || ! -d "${path}" ]] || return 0
+  target="${copy_dir}/${path}"
+  mkdir -p "$(dirname -- "${target}")" || return 1
+  cp -P -- "${path}" "${target}" || { [[ -e "${path}" || -L "${path}" ]] || return 0; return 1; }
+}
+
 echo "secrets-scan: scanning the working files"
-if ! git ls-files -z --cached --others --exclude-standard --deduplicate \
-  | tar --null --files-from=- --ignore-failed-read -cf - \
-  | tar -xf - -C "${copy_dir}"; then
-  echo "secrets-scan: could not copy the working files" >&2
+if ! git ls-files -z --cached --others --exclude-standard >"${listing}"; then
+  echo "secrets-scan: could not list the working files" >&2
   exit 2
 fi
+while IFS= read -r -d '' listed; do
+  copy_listed_path "${listed}" || { echo "secrets-scan: could not copy the working files" >&2; exit 2; }
+done <"${listing}"
 if ! "${run_scanner[@]}" -v "${copy_dir}:/scan:ro" -v "${root}/.gitleaks.toml:/config/.gitleaks.toml:ro" \
   -v "${root}/.gitleaksignore:/config/.gitleaksignore:ro" -w /scan "${GITLEAKS_IMAGE}" \
   dir --config /config/.gitleaks.toml --gitleaks-ignore-path /config/.gitleaksignore --redact --verbose --no-banner .; then

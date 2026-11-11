@@ -7,6 +7,8 @@
 # Lines: `[OK] <name>`, `[MISSING] <name>: needed by <targets>; <how to install>`,
 # `[OUTDATED] <name>: found <v>, need <v>`, `[OPTIONAL] <name>: ...` (never fails the check) and
 # `[SKIP] ...`. The first line is the platform.
+# The make check looks at the GNU Make that runs the doctor: the Makefile passes it as MAKE_COMMAND (`gmake` on a
+# macOS host that installed GNU Make next to the old system `make`); without it the `make` on PATH is checked.
 # Exit status: 0 all required checks passed; 1 otherwise; 2 on a wrong argument.
 set -euo pipefail
 
@@ -93,8 +95,11 @@ print_platform() {
 
 check_base_tools() {
   local make_v bash_v git_v curl_v
-  make_v=$(have make && version_of make --version || true)
-  check_min make "every target" "install GNU Make 4.0 or newer" 4.0 "$make_v"
+  local make_cmd=${MAKE_COMMAND:-make}
+  make_v=$(have "$make_cmd" && version_of "$make_cmd" --version || true)
+  check_min make "every target" \
+    "install GNU Make 4.0 or newer (on macOS: brew install make, then run gmake or put \$(brew --prefix)/opt/make/libexec/gnubin first on PATH)" \
+    4.0 "$make_v"
   bash_v=${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]}
   check_min bash "every script" "install Bash 4.4 or newer (on macOS: brew install bash)" 4.4 "$bash_v"
   git_v=$(have git && version_of git --version || true)

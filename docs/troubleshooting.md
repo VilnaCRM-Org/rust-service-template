@@ -15,6 +15,10 @@ Each section names a symptom and what to do about it.
 
 `make bootstrap` runs the prerequisite part of the doctor first, so a missing prerequisite stops it before anything is installed or started.
 
+## `[OUTDATED] make: found 3.81` on macOS
+
+macOS ships GNU Make 3.81 as `make`. `brew install make` installs the new one as `gmake`, and `make` stays old unless Homebrew's `gnubin` directory comes first on `PATH`. Run the targets with `gmake` (the doctor then checks the make that runs it), or put `$(brew --prefix)/opt/make/libexec/gnubin` first on `PATH`. The git hooks use `gmake` when it exists, or the make that the variable `MAKE` names.
+
 ## Docker Engine older than 25.0 or Compose older than 2.24
 
 The compose files use the healthcheck key `start_interval`, which needs Docker Engine 25.0 or newer, and the `!reset` and `!override` tags, which need Compose 2.24 or newer. Older versions fail with a message about an unknown key or tag, and the doctor reports `[OUTDATED] Docker Engine` or `[OUTDATED] Docker Compose plugin`. Upgrade Docker, then run `make doctor`.

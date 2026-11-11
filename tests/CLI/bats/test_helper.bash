@@ -6,6 +6,26 @@
 
 RESTORE_DIR_NAME=target/bats-restore
 
+# Variables of the outer `make bats ...` call must not decide what the nested makes of the tests see. GNU make
+# hands a command-line variable (`make bats BATS_ARGS=x CI_STAGES=y`) to every child twice: as an exported
+# environment variable and, with command-line precedence, in MAKEFLAGS (MAKEOVERRIDES holds the same list), so
+# unsetting MAKEFLAGS alone changes the precedence but not the presence of the variable. This removes both. The
+# variables dropped are every caller-settable parameter and test hook that the Makefile and make/*.mk declare with a
+# plain `NAME ?=` (BATS_ARGS, BATS_PATH, CI_STAGES, DEPS, base_ref, ...), read from the files so that a new one needs
+# no edit here. What the suite takes from its caller stays: the execution switches (RUN_IN_CONTAINER, CI,
+# IN_DEV_CONTAINER) and every exported setting (`export NAME ?=`: DOCKER, DOCKER_COMPOSE, BUILD_IMAGE, APP_IMAGE,
+# DEV_IMAGE, LOAD_TEST_PROJECT, COMPOSE_PROJECT_NAME, ...), plus DB_PORT and LOCALSTACK_PORT, which are not declared
+# in the Makefile at all.
+isolate_make_environment() {
+  local root name
+  root="${REPO_ROOT:-$(cd "${BATS_TEST_DIRNAME}/../../.." && pwd)}"
+  unset MAKEFLAGS MFLAGS MAKEOVERRIDES MAKELEVEL
+  while IFS= read -r name; do
+    unset "${name}"
+  done < <(sed -n -E 's/^([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*\?=.*/\1/p' "${root}/Makefile" "${root}"/make/*.mk |
+    grep -v -x -e RUN_IN_CONTAINER -e CI -e IN_DEV_CONTAINER || true)
+}
+
 # Repository root, libraries, working directory, and repair of an earlier interrupted run.
 _common_setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/../../.." && pwd)"
@@ -19,6 +39,7 @@ _common_setup() {
   # Tool output must be colourless whatever the caller exported (the hosted runner sets CARGO_TERM_COLOR=always).
   export CARGO_TERM_COLOR=never NO_COLOR=1
   unset CLICOLOR_FORCE FORCE_COLOR
+  isolate_make_environment
   restore_planted
 }
 
@@ -115,6 +136,24 @@ plant_new() {
   cat "${fixture}" >"${REPO_ROOT}/${rel}"
 }
 
+# Registers a directory tree that a tool is about to create (for example crates/bats-group); the restore removes
+# it with everything below. Nothing is registered, and so nothing is removed later, when the path already exists.
+plant_tree() {
+  local rel
+  rel="$(_relative "$1")"
+  [[ ! -e "${REPO_ROOT}/${rel}" ]] || return 0
+  mkdir -p "$(_restore_dir)"
+  _is_registered "${rel}" || printf 'tree\t%s\t-\n' "${rel}" >>"$(_manifest)"
+}
+
+# Registers a path whose index entry a test is about to change (`git add`); the restore unstages it again.
+plant_index() {
+  local rel
+  rel="$(_relative "$1")"
+  mkdir -p "$(_restore_dir)"
+  printf 'index\t%s\t-\n' "${rel}" >>"$(_manifest)"
+}
+
 # Replays the manifest in reverse and deletes it. Safe to call when nothing was planted.
 restore_planted() {
   local manifest kind rel backup
@@ -125,6 +164,8 @@ restore_planted() {
       file | keep) cp --preserve=mode "$(_restore_dir)/${backup}" "${REPO_ROOT}/${rel}" ;;
       new) rm -f -- "${REPO_ROOT}/${rel}" ;;
       dir) rmdir -- "${REPO_ROOT}/${rel}" 2>/dev/null || true ;;
+      tree) rm -rf -- "${REPO_ROOT:?}/${rel}" ;;
+      index) git -C "${REPO_ROOT}" restore --staged -- "${rel}" >/dev/null 2>&1 || true ;;
       *) ;;
     esac
   done < <(tac "${manifest}")
@@ -140,6 +181,21 @@ require_docker() {
 # Skips the test when a command is not on PATH.
 require_command() {
   command -v "$1" >/dev/null 2>&1 || skip "the command '$1' is required"
+}
+
+# Value of a Make variable after the Makefile was read, so the tests follow the caller's environment.
+make_value() {
+  make --no-print-directory --silent -f Makefile -f - "print-$1" <<'MAKEFILE'
+.RECIPEPREFIX = >
+print-%:
+> @printf '%s' "$($*)"
+MAKEFILE
+}
+
+# Skips the test when the Makefile runs the tool targets inside the development container (container mode): the
+# scenario needs the host environment, which that mode does not forward ($1: why).
+require_host_mode() {
+  [[ -z "$(make_value EXEC)" ]] || skip "$1 (not available in container mode)"
 }
 
 # Value of `export NAME := value` in make/tool-versions.mk.

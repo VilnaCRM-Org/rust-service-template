@@ -45,6 +45,7 @@ setup_file() {
   cd "${REPO_ROOT}" || return 1
   "${DOCKER:-docker}" info >/dev/null 2>&1 || return 0
   local suffix="${BASHPID}-${RANDOM}"
+  isolate_make_environment
   unset COMPOSE_PROJECT_NAME CI IN_DEV_CONTAINER RUN_IN_CONTAINER
   export PROJECT_NAME="bats-exec-${suffix}"
   CHOSEN_PORTS=''

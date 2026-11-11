@@ -6,7 +6,7 @@ This guide takes a fresh clone to a running service and a first request. Every c
 
 Required on the host in every mode:
 
-- GNU Make 4.0 or newer, Bash 4.4 or newer, git 2.30 or newer and curl 7.76 or newer.
+- GNU Make 4.0 or newer (on macOS: `brew install make` and run `gmake`, or put its `gnubin` directory first on `PATH`), Bash 4.4 or newer, git 2.30 or newer and curl 7.76 or newer.
 - Docker Engine 25.0 or newer, the Compose plugin 2.24 or newer and the Buildx plugin 0.12 or newer. The engine must be reachable (`docker info` succeeds).
 
 Required for native mode only (the default):

@@ -63,6 +63,63 @@ render_production_reference() {
   assert_output --partial 'planted_private_key.pem:private-key'
 }
 
+# A throw-away repository with the scanner script, and a stand-in for docker that lists the copy of the working files
+# which the script mounts at /scan (and fails the scan of it when STUB_LEAK is set). `tar` is replaced by a stand-in
+# that fails: the copy must not depend on a tar option that only GNU tar has (macOS ships bsdtar).
+secrets_scan_fixture() {
+  local repo="${BATS_TEST_TMPDIR}/repo" bin="${BATS_TEST_TMPDIR}/bin"
+  mkdir -p "${repo}/scripts" "${repo}/dir" "${bin}"
+  cp scripts/secrets-scan.sh "${repo}/scripts/"
+  git -C "${repo}" init --quiet
+  printf 'ignored.txt\n' >"${repo}/.gitignore"
+  : >"${repo}/.gitleaks.toml"
+  : >"${repo}/.gitleaksignore"
+  printf 'one\n' >"${repo}/a.txt"
+  printf 'two\n' >"${repo}/dir/b.txt"
+  printf 'three\n' >"${repo}/e f.txt"
+  git -C "${repo}" add -- .
+  # Listed by git, gone from the working tree.
+  rm -- "${repo}/dir/b.txt"
+  printf 'four\n' >"${repo}/c.txt"
+  printf 'five\n' >"${repo}/ignored.txt"
+  ln -s a.txt "${repo}/link.txt"
+  cat >"${bin}/docker" <<'STUB'
+#!/bin/bash
+[[ "$1" == run ]] || exit 0
+for argument in "$@"; do
+  if [[ "${argument}" == *:/scan:ro ]]; then
+    (cd "${argument%:/scan:ro}" && find . \( -type f -o -type l \) | LC_ALL=C sort) >"${LISTING}"
+    [[ -z "${STUB_LEAK:-}" ]] || exit 1
+  fi
+done
+exit 0
+STUB
+  printf '#!/bin/sh\necho "tar was called" >&2\nexit 99\n' >"${bin}/tar"
+  chmod +x "${bin}/docker" "${bin}/tar"
+}
+
+@test "G9: the copy of the working files skips a listed file that is gone and does not use tar" {
+  secrets_scan_fixture
+  LISTING="${BATS_TEST_TMPDIR}/listing" GITLEAKS_IMAGE=stub DOCKER="${BATS_TEST_TMPDIR}/bin/docker" PATH="${BATS_TEST_TMPDIR}/bin:${PATH}" \
+    run "${BATS_TEST_TMPDIR}/repo/scripts/secrets-scan.sh"
+  assert_success
+  assert_output --partial 'secrets-scan: no leaks found'
+  refute_output --partial 'tar was called'
+  assert_equal "$(cat "${BATS_TEST_TMPDIR}/listing")" "$(printf '%s\n' './.gitignore' './.gitleaks.toml' './.gitleaksignore' './a.txt' './c.txt' './e f.txt' './link.txt' './scripts/secrets-scan.sh')"
+}
+
+@test "G9: a finding of the scanner exits 1, a temporary directory that cannot be created exits 2" {
+  secrets_scan_fixture
+  LISTING="${BATS_TEST_TMPDIR}/listing" STUB_LEAK=1 GITLEAKS_IMAGE=stub DOCKER="${BATS_TEST_TMPDIR}/bin/docker" PATH="${BATS_TEST_TMPDIR}/bin:${PATH}" \
+    run "${BATS_TEST_TMPDIR}/repo/scripts/secrets-scan.sh"
+  assert_failure 1
+  assert_output --partial 'secrets-scan: leaks found'
+  LISTING="${BATS_TEST_TMPDIR}/listing" TMPDIR="${BATS_TEST_TMPDIR}/missing" GITLEAKS_IMAGE=stub DOCKER="${BATS_TEST_TMPDIR}/bin/docker" \
+    run "${BATS_TEST_TMPDIR}/repo/scripts/secrets-scan.sh"
+  assert_failure 2
+  assert_output --partial 'could not create a temporary directory'
+}
+
 # --- G10: image scan -----------------------------------------------------------------------------------------
 
 # bats test_tags=slow

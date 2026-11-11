@@ -3,8 +3,10 @@
 # `make new-context group=<group> context=<context>`.
 #
 # The target rewrites `Cargo.toml` and `Cargo.lock` and creates `crates/bats-group/`. The test registers the two
-# files before it runs the target (`plant_replace`, `plant_keep`), and the teardown removes the crates, so the
-# output of `git status --porcelain` is the same before and after this file.
+# files and the two directories that a run can create before it runs the target (`plant_replace`, `plant_keep`,
+# `plant_tree`), so the restore of the harness, which also repairs an interrupted run, removes the crates and the
+# output of `git status --porcelain` is the same before and after this file. The tests that call `cargo` on the
+# host are skipped on a host without a Rust toolchain (container mode).
 
 bats_require_minimum_version 1.8.0
 load test_helper
@@ -19,20 +21,23 @@ setup() {
 
 teardown() {
   restore_planted
-  rm -rf -- "${group_dir:?}"
   [[ -z "${tmp:-}" ]] || rm -rf -- "${tmp}"
 }
 
-# Registers the files that the scaffolding rewrites. `Cargo.toml` is replaced by a copy of itself and
-# `Cargo.lock` is kept, both restored by the teardown.
-register_rewritten_files() {
+# Registers what the scaffolding changes. `Cargo.toml` is replaced by a copy of itself and `Cargo.lock` is kept, and
+# the two directories that a run can create (the second only if the refusal of an existing name regresses) are
+# registered as trees: the restore of the teardown, and of the next setup after an interrupted run, handles all four.
+register_scaffolding_effects() {
   cp Cargo.toml "${tmp}/Cargo.toml"
   plant_replace Cargo.toml "${tmp}/Cargo.toml"
   plant_keep Cargo.lock
+  plant_tree "${group_dir}"
+  plant_tree crates/other-bats-group
 }
 
 @test "new-context creates three crates and the gates of the workspace still pass" {
   require_docker
+  require_command cargo
   [[ ! -e "${group_dir}" ]] || skip "refusing to scaffold: ${group_dir} exists"
   local before protected_before
   local -a protected
@@ -40,7 +45,7 @@ register_rewritten_files() {
   # subject) must be exactly what it reports after the scaffolding: the new crates add no finding.
   run make --no-print-directory unused-dependencies
   local baseline_status="${status}" baseline_output="${output}"
-  register_rewritten_files
+  register_scaffolding_effects
   before="$(tree_status)"
   # Whole files only: an entry with `#` is a section or pointer item of a file that the scaffolding legitimately
   # rewrites (`Cargo.toml`); the guard below covers those.
@@ -98,8 +103,9 @@ register_rewritten_files() {
 }
 
 @test "new-context refuses a context name that already exists, in any group" {
+  require_command cargo
   [[ ! -e "${group_dir}" ]] || skip "refusing to scaffold: ${group_dir} exists"
-  register_rewritten_files
+  register_scaffolding_effects
   run cargo xtask new-context bats-group bats-context
   assert_success
   run cargo xtask new-context bats-group bats-context

@@ -142,6 +142,7 @@ graphql_without_field() {
 @test "G17: a changed OpenAPI snapshot staged in the index makes validate-contract-snapshots regenerate it and fail" {
   { cat "${OPENAPI_SNAPSHOT}"; echo '# planted change'; } >"${BATS_TEST_TMPDIR}/planted"
   plant_replace "${OPENAPI_SNAPSHOT}" "${BATS_TEST_TMPDIR}/planted"
+  plant_index "${OPENAPI_SNAPSHOT}"
   git add -- "${OPENAPI_SNAPSHOT}"
   run make --no-print-directory validate-contract-snapshots
   assert_failure
@@ -154,6 +155,7 @@ graphql_without_field() {
 @test "G17: a changed GraphQL snapshot staged in the index makes validate-contract-snapshots regenerate it and fail" {
   { cat "${GRAPHQL_SNAPSHOT}"; echo '# planted change'; } >"${BATS_TEST_TMPDIR}/planted"
   plant_replace "${GRAPHQL_SNAPSHOT}" "${BATS_TEST_TMPDIR}/planted"
+  plant_index "${GRAPHQL_SNAPSHOT}"
   git add -- "${GRAPHQL_SNAPSHOT}"
   run make --no-print-directory validate-contract-snapshots
   assert_failure

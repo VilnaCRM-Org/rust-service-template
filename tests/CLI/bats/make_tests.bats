@@ -16,9 +16,17 @@ setup() {
 
 teardown() {
   restore_planted
+  if [[ -n "${marker_database:-}" ]]; then
+    server_sql "$(scripts/with-env.sh .env -- printenv DB_USER)" "drop database if exists ${marker_database} with (force)" >/dev/null 2>&1 || true
+  fi
   if [[ -n "${marker_table:-}" ]]; then
     dev_sql "drop table if exists ${marker_table}" >/dev/null 2>&1 || true
   fi
+}
+
+# Runs a statement on the maintenance database of the server of the compose project ($1: user, $2: statement).
+server_sql() {
+  "${DOCKER:-docker}" compose exec -T database psql --quiet --no-psqlrc --tuples-only --no-align -U "$1" -d postgres -c "$2"
 }
 
 # Runs a statement against the development database `app` in the database container of the compose project.
@@ -46,6 +54,81 @@ dev_sql() {
   run dev_sql "select id from ${marker_table}"
   assert_success
   assert_output '7'
+}
+
+@test "setup-test-db refuses a database whose name does not end in _test, with status 2 and before it runs sqlx" {
+  local url
+  mkdir -p "${BATS_TEST_TMPDIR}/bin"
+  printf '#!/bin/sh\necho sqlx-was-called >>"%s/sqlx.calls"\n' "${BATS_TEST_TMPDIR}" >"${BATS_TEST_TMPDIR}/bin/sqlx"
+  chmod +x "${BATS_TEST_TMPDIR}/bin/sqlx"
+  for url in 'postgres://app:x@localhost:5432/app' 'postgres://app:x@localhost:5432/app_test_old' \
+    'postgres://app:x@localhost:5432/app?options=_test' 'postgres://app:x@localhost:5432' \
+    'postgres://app:x@localhost:5432/' 'postgres://app:x@localhost:5432/_test'; do
+    DATABASE_URL="${url}" PATH="${BATS_TEST_TMPDIR}/bin:${PATH}" run scripts/setup-test-db.sh
+    assert_failure 2
+    assert_output --partial 'refusing to reset the database'
+    assert_output --partial 'must end in _test'
+  done
+  assert_file_not_exists "${BATS_TEST_TMPDIR}/sqlx.calls"
+  run env -u DATABASE_URL PATH="${BATS_TEST_TMPDIR}/bin:${PATH}" scripts/setup-test-db.sh
+  assert_failure 2
+  assert_output --partial 'DATABASE_URL is not set'
+}
+
+@test "setup-test-db passes the name guard for a URL that ends in _test and reaches the reachability check" {
+  # Nothing listens on port 1; the stub of sleep makes the ten attempts instant.
+  mkdir -p "${BATS_TEST_TMPDIR}/bin"
+  printf '#!/bin/sh\nexit 0\n' >"${BATS_TEST_TMPDIR}/bin/sleep"
+  printf '#!/bin/sh\nexit 0\n' >"${BATS_TEST_TMPDIR}/bin/sqlx"
+  chmod +x "${BATS_TEST_TMPDIR}/bin/sleep" "${BATS_TEST_TMPDIR}/bin/sqlx"
+  DATABASE_URL='postgres://app:x@127.0.0.1:1/x_test?sslmode=disable' PATH="${BATS_TEST_TMPDIR}/bin:${PATH}" run scripts/setup-test-db.sh
+  assert_failure 2
+  refute_output --partial 'refusing to reset'
+  assert_output --partial 'the database did not accept connections after 10 attempts'
+}
+
+@test "the test targets take DATABASE_URL from .env.test even when the caller exports another one, and keep every other caller value" {
+  printf '%s\n' '.RECIPEPREFIX = >' 'probe:' "> @\$(TEST_ENV) printenv APP_ENV DATABASE_URL" >"${BATS_TEST_TMPDIR}/probe.mk"
+  DATABASE_URL=postgres://dev:dev@localhost:5432/app run make --no-print-directory -f Makefile -f "${BATS_TEST_TMPDIR}/probe.mk" probe
+  assert_success
+  assert_line --index 0 'test'
+  assert_line --index 1 --regexp '^postgres://[^@]+@[^/]+/[A-Za-z0-9_]+_test$'
+  # A caller value of any other variable still wins over both files.
+  APP_ENV=prod DATABASE_URL=postgres://dev:dev@localhost:5432/app run make --no-print-directory -f Makefile -f "${BATS_TEST_TMPDIR}/probe.mk" probe
+  assert_success
+  assert_line --index 0 'prod'
+  assert_line --index 1 --regexp '_test$'
+  # The files follow DB_PORT, so a private stack needs no DATABASE_URL of its own.
+  DB_PORT=25999 DATABASE_URL=postgres://dev:dev@localhost:5432/app run make --no-print-directory -f Makefile -f "${BATS_TEST_TMPDIR}/probe.mk" probe
+  assert_success
+  assert_line --index 1 --regexp ':25999/[A-Za-z0-9_]+_test$'
+}
+
+@test "setup-test-db leaves the database of a development DATABASE_URL in the caller's environment untouched" {
+  require_docker
+  require_host_mode "the exported DATABASE_URL does not reach the container"
+  local dev_db="bats_dev_${BASHPID}_${RANDOM}" user url
+  user="$(scripts/with-env.sh .env -- printenv DB_USER)"
+  run make --no-print-directory ensure-database
+  assert_success
+  marker_database="${dev_db}"
+  run server_sql "${user}" "create database ${dev_db}"
+  assert_success
+  url="$(scripts/with-env.sh .env -- bash -c "printf '%s' \"postgres://\${DB_USER}:\${DB_PASSWORD}@\${DB_HOST}:\${DB_PORT}/\$1\"" _ "${dev_db}")"
+  run "${DOCKER:-docker}" compose exec -T database psql --quiet --no-psqlrc --tuples-only --no-align -U "${user}" -d "${dev_db}" \
+    -c "create table bats_marker (id integer); insert into bats_marker values (7)"
+  assert_success
+
+  DATABASE_URL="${url}" run make --no-print-directory setup-test-db
+  assert_success
+
+  run "${DOCKER:-docker}" compose exec -T database psql --quiet --no-psqlrc --tuples-only --no-align -U "${user}" -d "${dev_db}" \
+    -c "select id from bats_marker"
+  assert_success
+  assert_output '7'
+  run server_sql "${user}" "select count(*) from pg_database where datname = 'app_test'"
+  assert_success
+  assert_output '1'
 }
 
 # --- G11: unit tests ---------------------------------------------------------------------------------------
@@ -143,6 +226,43 @@ dev_sql() {
   run --separate-stderr scripts/mutation-diff.sh HEAD --list -- printf '%s\n' one two
   assert_success
   assert_output '5'
+}
+
+@test "G15: the diff file is the same under a hostile git configuration" {
+  local config="${BATS_TEST_TMPDIR}/hostile.gitconfig" attributes="${BATS_TEST_TMPDIR}/attributes" plain
+  plant_append xtask/src/cli.rs "${BATS_TEST_DIRNAME}/fixtures/uncovered_function.rs.txt"
+  run scripts/mutation-diff.sh HEAD -- true
+  assert_success
+  plain="$(cat target/mutants.diff)"
+  [[ -n "${plain}" ]]
+  printf '*.rs diff=hostile\n' >"${attributes}"
+  cat >"${config}" <<EOF
+[diff]
+	mnemonicPrefix = true
+	noprefix = true
+	relative = true
+	renames = copies
+	context = 9
+	external = /bin/false
+[diff "hostile"]
+	textconv = tr a-z A-Z
+[color]
+	ui = always
+	diff = always
+[core]
+	quotePath = true
+	attributesFile = ${attributes}
+EOF
+  GIT_CONFIG_GLOBAL="${config}" GIT_DIFF_OPTS=-u9 run scripts/mutation-diff.sh HEAD -- true
+  assert_success
+  # Prefixes a/ and b/, no colour escape, the content as written, the same patch as without the configuration.
+  run grep -c -E '^(---|\+\+\+) [ab]/xtask/src/cli\.rs$' target/mutants.diff
+  assert_output '2'
+  run grep -c $'\033' target/mutants.diff
+  assert_output '0'
+  run grep -c 'fn planted' target/mutants.diff
+  assert_output '1'
+  assert_equal "$(cat target/mutants.diff)" "${plain}"
 }
 
 # --- G30: query metadata -----------------------------------------------------------------------------------

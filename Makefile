@@ -36,7 +36,9 @@ EXEC := $(DOCKER_COMPOSE) exec -T --user $(HOST_UID):$(HOST_GID) $(foreach v,$(E
 endif
 endif
 
-TEST_ENV = scripts/with-env.sh .env .env.test --
+# The test targets run on the test database of .env.test: a DATABASE_URL exported in the caller's shell (sqlx-cli users
+# often have one that names the development database) is removed first, every other caller value still wins.
+TEST_ENV = env -u DATABASE_URL scripts/with-env.sh .env .env.test --
 
 # Caller-settable variables (a value set by the caller always wins, FR64). `CARGO_BUILD_WARNINGS` is declared in
 # the header above and must stay undefined until then, because of the target-specific line for `ci`.
@@ -92,6 +94,17 @@ CI_DELIVERY_TARGETS := build-prod-image image-scan schemathesis-validate smoke-l
 CI_CLI_TARGETS := bats
 CI_GATES = $(CI_PREFLIGHT_TARGETS) $(CI_STATIC_ANALYSIS_TARGETS) $(CI_TESTS_TARGETS) $(CI_CONTRACTS_TARGETS) $(CI_MUTATION_TARGETS) $(CI_DELIVERY_TARGETS) $(CI_CLI_TARGETS)
 
+# A stage of `make ci` has no gate list of its own: its recipe is generated from the CI_*_TARGETS variable that
+# `ci-list`, the invariants check and AGENTS.md read. One recipe line per gate, so the first failing gate stops the stage.
+define NEWLINE
+
+
+endef
+# The make that runs this Makefile, handed to the doctor. The indirection keeps `make -n` from running the doctor
+# (a recipe line that names MAKE literally is executed even in a dry run).
+DOCTOR_MAKE = $(MAKE)
+STAGE_RECIPE = $(foreach gate,$(1),@$(MAKE) --no-print-directory $(gate)$(NEWLINE))
+
 # ---------------------------------------------------------------------------------------------------------------
 # Lifecycle
 # ---------------------------------------------------------------------------------------------------------------
@@ -102,17 +115,17 @@ help: ## Show this help
 	@grep -hE '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | LC_ALL=C sort -t: -k1,1 | awk 'BEGIN {FS = ":.*## "} {printf "%-28s %s\n", $$1, $$2}'
 
 doctor: ## Check host prerequisites and pinned tool versions
-	@scripts/doctor.sh
+	@MAKE_COMMAND="$(DOCTOR_MAKE)" scripts/doctor.sh
 
 bootstrap: ## Prepare a fresh clone: check, install tools, hooks, build, start, migrate
-	scripts/doctor.sh --prerequisites
+	MAKE_COMMAND="$(DOCTOR_MAKE)" scripts/doctor.sh --prerequisites
 ifeq ($(EXEC),)
 	@$(MAKE) --no-print-directory install
 else
 	scripts/install-bats.sh
 endif
 	@$(MAKE) --no-print-directory install-hooks
-	scripts/doctor.sh
+	MAKE_COMMAND="$(DOCTOR_MAKE)" scripts/doctor.sh
 	@$(MAKE) --no-print-directory start
 	@scripts/with-env.sh .env -- bash -c 'echo "Service:   http://localhost:$${APP_PORT}/ping"; echo "API docs:  http://localhost:$${APP_PORT}/api/docs"; echo "GraphQL:   http://localhost:$${APP_PORT}/api/graphql"; echo "Diagrams:  http://localhost:$${STRUCTURIZR_PORT}/workspace/1/diagrams (profile docs)"'
 
@@ -528,48 +541,24 @@ ci-list: ## Print the ordered gate targets of make ci, one per line
 	@printf '%s\n' $(CI_GATES)
 
 ci-preflight: ## Stage 1 of make ci: configuration, invariants, secrets, repository lint, model
-	@$(MAKE) --no-print-directory validate-configuration
-	@$(MAKE) --no-print-directory validate-invariants
-	@$(MAKE) --no-print-directory secrets-scan
-	@$(MAKE) --no-print-directory lint-repo
-	@$(MAKE) --no-print-directory lint-load-tests
-	@$(MAKE) --no-print-directory validate-architecture-model
+	$(call STAGE_RECIPE,$(CI_PREFLIGHT_TARGETS))
 
 ci-static-analysis: ## Stage 2 of make ci: formatting, manifest, analysis, complexity, security, docs
-	@$(MAKE) --no-print-directory format-check
-	@$(MAKE) --no-print-directory validate-manifest
-	@$(MAKE) --no-print-directory check-crate-isolation
-	@$(MAKE) --no-print-directory static-analysis
-	@$(MAKE) --no-print-directory complexity
-	@$(MAKE) --no-print-directory architecture
-	@$(MAKE) --no-print-directory check-security
-	@$(MAKE) --no-print-directory unused-dependencies
-	@$(MAKE) --no-print-directory check-requirements
-	@$(MAKE) --no-print-directory docs-check
+	$(call STAGE_RECIPE,$(CI_STATIC_ANALYSIS_TARGETS))
 
 ci-tests: ## Stage 3 of make ci: test database, query metadata, coverage, doc tests, end-to-end tests
-	@$(MAKE) --no-print-directory setup-test-db
-	@$(MAKE) --no-print-directory validate-sqlx-metadata
-	@$(MAKE) --no-print-directory tests-with-coverage
-	@$(MAKE) --no-print-directory doc-tests
-	@$(MAKE) --no-print-directory e2e-tests
+	$(call STAGE_RECIPE,$(CI_TESTS_TARGETS))
 
 ci-contracts: ## Stage 4 of make ci: contract snapshots, OpenAPI lint and diff, GraphQL diff
-	@$(MAKE) --no-print-directory validate-contract-snapshots
-	@$(MAKE) --no-print-directory validate-openapi-spec
-	@$(MAKE) --no-print-directory openapi-diff
-	@$(MAKE) --no-print-directory graphql-diff
+	$(call STAGE_RECIPE,$(CI_CONTRACTS_TARGETS))
 
 ci-mutation: ## Stage 5 of make ci: mutation testing of the changed code
-	@$(MAKE) --no-print-directory mutation-tests-diff
+	$(call STAGE_RECIPE,$(CI_MUTATION_TARGETS))
 
 ci-delivery: ## Stage 6 of make ci: production image, image scan, Schemathesis, smoke load tests
-	@$(MAKE) --no-print-directory build-prod-image
-	@$(MAKE) --no-print-directory image-scan
-	@$(MAKE) --no-print-directory schemathesis-validate
-	@$(MAKE) --no-print-directory smoke-load-tests
+	$(call STAGE_RECIPE,$(CI_DELIVERY_TARGETS))
 
 ci-cli: ## Stage 7 of make ci: the Makefile tests
-	@$(MAKE) --no-print-directory bats
+	$(call STAGE_RECIPE,$(CI_CLI_TARGETS))
 
 -include make/service.mk
