@@ -217,10 +217,10 @@ Local runs, on that machine:
 
 | Command | Date | Duration | Budget of the PRD | Budget met | Notes |
 | --- | --- | --- | --- | --- | --- |
-| `make bootstrap` | 2026-11-11 | 116 s (1 min 56 s) | `GET /ping` within 15 minutes | yes | clean clone, no build directory; `GET /ping` answered 200 right after the command returned; it compiled no tool and built no image (see the conditions) |
-| `make ci` | 2026-11-11 | 1482 s (24 min 42 s) | within 45 minutes on 4 vCPUs | yes | after `make bootstrap`, cold build directory; exit 0, 297 Bats tests, all `ok`; stages below |
+| `make bootstrap` | 2026-11-11 | 116 s (1 min 56 s) | `GET /ping` within 15 minutes | yes, without tool and image builds (see the conditions) | clean clone, no build directory; `GET /ping` answered 200 right after the command returned; it compiled no tool and built no image (see the conditions) |
+| `make ci` | 2026-11-11 | 1482 s (24 min 42 s) | within 45 minutes on 4 vCPUs | yes, without the production image build (see the conditions) | after `make bootstrap`, cold build directory; exit 0, 297 Bats tests, all `ok`; stages below |
 | `make start` | 2026-11-11 | 12 s | within 60 s with images and cache present | yes | after the `make ci` run, images and build output present, the stack stopped before |
-| `make ci base_ref=HEAD` (Story 10.4, for comparison) | 2026-11-11 | 1575 s (26 min 15 s) | within 45 minutes on 4 vCPUs | yes | warm compiler cache and build directory in the working tree, commit `ecbca71`, 295 Bats tests; this run was slower than the cold run above, so the cold build did not cost more than the warm one on this machine |
+| `make ci base_ref=HEAD` (Story 10.4, for comparison) | 2026-11-11 | 1575 s (26 min 15 s) | within 45 minutes on 4 vCPUs | yes | warm compiler cache and build directory in the working tree, commit `ecbca71`, 295 Bats tests; this run is not comparable with the cold run above: it used other cargo settings and ran beside other work |
 | `make mutation-tests` (Story 9.3, all 8 shards, one after the other) | 2026-11-11 | 339 s to 1146 s per shard, see below | none | not applicable | 665 mutants: 409 caught, 256 unviable, none missed or timed out |
 
 The budgets are the ones of the PRD. All three are met; no budget, threshold or timeout was changed.
@@ -252,7 +252,7 @@ The six Bats groups run one after the other inside stage 7, files in alphabetica
 
 The sum is two seconds above the stage because the first Bats line is counted from the start of the command.
 
-Mutation run of Story 9.3, on the same machine with its own PostgreSQL and LocalStack, the shards run one after the other with the mutation slot of the machine: 665 mutants in 8 shards of 84 (the last one 77), all of them tested, none missed, none timed out. The duration of a shard from its start to its exit, which includes waiting for a free slot and, for the first shard, the baseline build of 339 s:
+Mutation run of Story 9.3 on commit `3650cd4`, on the same machine with its own PostgreSQL and LocalStack, the shards run one after the other with the mutation slot of the machine: 665 mutants in 8 shards of 84 (the last one 77), all of them tested, none missed, none timed out. The duration of a shard from its start to its exit, which includes waiting for a free slot and the unmutated baseline build of the shard itself (339 s for the first shard, falling to 11 s for the last as the build directory warmed):
 
 | Shard | Mutants | Caught | Unviable | Duration |
 | --- | --- | --- | --- | --- |
@@ -265,7 +265,7 @@ Mutation run of Story 9.3, on the same machine with its own PostgreSQL and Local
 | 6/8 | 84 | 70 | 14 | 339 s |
 | 7/8 | 77 | 66 | 11 | 375 s |
 
-The hosted workflow divides the same 665 mutants into shards of 150, which gives 5 shards. The durations on 2026-11-11 for commit `d152806` are in the table of the pull-request jobs below. The planning job divides the mutants into shards of 150 (at least 1 and at most 8 shards); that divisor was not changed. The mean time per mutant was not computed: the local shards waited for slots and shared the machine, so a mean from them would not be a stable figure for the divisor.
+On the bootstrap pull request the hosted workflow counts 697 mutants for commit `d152806` (every file is new against `main`, which holds only the root commit) and divides them into shards of 150, which gives 5 shards. The 665 mutants above belong to the earlier commit `3650cd4`. The durations on 2026-11-11 for commit `d152806` are in the table of the pull-request jobs below. The planning job divides the mutants into shards of 150 (at least 1 and at most 8 shards); that divisor was not changed. The mean time per mutant was not computed: the local shards waited for slots and shared the machine, so a mean from them would not be a stable figure for the divisor.
 
 Smoke load test: the `health` profile ran inside `make ci` (stage 6) with a p99 of 14.79 ms against the budget of 500 ms (see `docs/load-testing.md`).
 
