@@ -308,9 +308,14 @@ STUB
   assert_success
 }
 
-@test "the production reference rendered with --env-file /dev/null fails and names DATABASE_URL" {
+@test "the production reference rendered with --env-file /dev/null fails and names each required variable" {
   require_docker
-  run render_production_reference
+  # Compose stops at the first missing variable and its order is not fixed, so each case leaves exactly one
+  # required variable unset.
+  run render_production_reference AWS_REGION=eu-west-1
   assert_failure
   assert_output --partial 'DATABASE_URL is required'
+  run render_production_reference DATABASE_URL=postgres://app:unused@db.example.invalid:5432/app
+  assert_failure
+  assert_output --partial 'AWS_REGION is required'
 }
