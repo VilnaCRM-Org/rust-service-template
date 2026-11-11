@@ -150,6 +150,40 @@ probe_makefile() {
   refute_output --partial 'compose exec'
 }
 
+@test "make -n build rebuilds the images without cache, and make -n start builds unless BUILD_IMAGE=0" {
+  local compose
+  compose="$(make_value DOCKER_COMPOSE)"
+  run make --no-print-directory -n build
+  assert_success
+  assert_line "${compose} build --pull --no-cache"
+  BUILD_IMAGE=1 run make --no-print-directory -n start
+  assert_success
+  assert_line "${compose} up --detach --wait --wait-timeout 900 --build"
+  BUILD_IMAGE=0 run make --no-print-directory -n start
+  assert_success
+  assert_line "${compose} up --detach --wait --wait-timeout 900 --no-build"
+}
+
+@test "every target is invoked by a Bats test or listed in the Make-target reference" {
+  local reference=docs/make-targets.md bt listed target missing=''
+  printf -v bt '\140'
+  # The backticked names of the gate table and of the section of targets without a Bats test.
+  listed="$(awk '/^## / {inside = ($0 == "## Gate targets: passing run and negative test" || $0 == "## Targets without a Bats test")} inside' "${reference}" |
+    grep -oE "${bt}[a-z][a-z0-9-]*${bt}" | tr -d "${bt}" | sort -u)"
+  [[ -n "${listed}" ]]
+  while IFS= read -r target; do
+    if grep -qxF -- "${target}" <<<"${listed}"; then
+      continue
+    fi
+    # An invocation: the word make, then options or other targets, then the target as a whole word.
+    if grep -qE -- "(^|[[:space:]\"'(])make([[:space:]]+[^[:space:]|;&]+)*[[:space:]]+${target}([[:space:]\"');]|\$)" tests/CLI/bats/*.bats; then
+      continue
+    fi
+    missing="${missing} ${target}"
+  done < <(make --no-print-directory help | awk 'NR > 3 {print $1}')
+  assert_equal "${missing}" ''
+}
+
 # --- the targets in the running development container ----------------------------------------------------------
 
 @test "RUN_IN_CONTAINER=1 make format-check succeeds in the running container" {
@@ -179,6 +213,20 @@ probe_makefile() {
   assert_success
   assert_line --index 0 'test'
   assert_line --index 1 --regexp '^postgres://[^@]+@database:5432/app_test$'
+}
+
+@test "inside the container the URLs use the in-network ports whatever .env publishes" {
+  # Host ports in .env that differ from the in-network ports 5432 and 4566. The container reads the bind-mounted
+  # .env, and compose gives it the in-network ports, which win over the file.
+  sed -e 's/^DB_PORT=.*/DB_PORT=15432/' -e 's/^LOCALSTACK_PORT=.*/LOCALSTACK_PORT=14566/' .env >"${tmp}/env"
+  run grep -c -E '^(DB_PORT=15432|LOCALSTACK_PORT=14566)$' "${tmp}/env"
+  assert_output '2'
+  plant_replace .env "${tmp}/env"
+  probe_makefile "scripts/with-env.sh .env .env.test -- printenv DATABASE_URL AWS_ENDPOINT_URL_SQS"
+  RUN_IN_CONTAINER=1 run make --no-print-directory -f Makefile -f "${tmp}/probe.mk" probe
+  assert_success
+  assert_line --index 0 --regexp '^postgres://[^@]+@database:5432/app_test$'
+  assert_line --index 1 'http://localstack:4566'
 }
 
 @test "TEST_SEED=7 reaches a command behind EXEC" {

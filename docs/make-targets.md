@@ -182,6 +182,7 @@ These steps of the hosted pipeline have no place in `make ci`. Each has a reason
 | CodeQL analysis and the SARIF upload | publications without a threshold of their own; no local runner exists |
 | The Codecov upload and the artifact uploads | publication, not verification |
 | The full sharded mutation run | `make mutation-tests` exists locally but is not part of `make ci`: it takes up to an hour, so CI runs it on `main` and on a schedule, and `make ci` runs `mutation-tests-diff` for the changed code |
+| The build of the development container definition (scheduled workflow) | it needs the devcontainers CLI through npx and builds an image for several minutes; FR95 asks for it on a schedule only and no gate of `make ci` covers it. The local command is the one of the workflow, `npx --yes @devcontainers/cli@<version> build --workspace-folder .`, with the version `DEVCONTAINER_CLI_VERSION` of `make/tool-versions.mk` |
 
 ## Gate targets: passing run and negative test
 
@@ -190,27 +191,27 @@ A gate target has its negative test in the Bats suite and no second passing run 
 | Gate | Target | Passing run | Negative test (Bats file) |
 | --- | --- | --- | --- |
 | G1 | `format-check` | stage 2 of `make ci` | `make_quality_gates.bats` (unformatted lines appended to `xtask/src/main.rs`) |
-| G2 | `static-analysis` | stage 2 | `make_quality_gates.bats` (an `unwrap`; a `SystemTime::now()` call) |
-| G3 | `complexity` | stage 2 | `make_quality_gates.bats` (a six-parameter function) |
+| G2 | `static-analysis` | stage 2 | `make_quality_gates.bats` (an `unwrap`; a `SystemTime::now()` call; a suppression without a reason; a broken intra-doc link, which rustdoc rejects) |
+| G3 | `complexity` | stage 2 | `make_quality_gates.bats` (one test per limit: a six-parameter function; a function over the line limit; a function nested six levels deep; a function over the cognitive-complexity limit) |
 | G4 | `architecture` | stage 2 | `make_quality_gates.bats` (the checker's fixture workspace) |
 | G5 | `validate-manifest` | stage 2 | `make_quality_gates.bats` (version changed without a lock update) |
 | G6 | `check-requirements` | stage 2 | `make_quality_gates.bats` (`DATABASE_URL=mysql://x`) |
 | G7 | `check-security` | stage 2 | `make_quality_gates.bats` (one test per policy) |
 | G8 | `unused-dependencies` | stage 2 | `make_quality_gates.bats` (a misplaced dependency) |
-| G9 | `secrets-scan` | stage 1 | `make_security.bats` (a key pair generated at test time) |
+| G9 | `secrets-scan` | stage 1 | `make_security.bats` (a key pair generated at test time; a key that exists only in the history) |
 | G10 | `image-scan` | stage 6 | `make_security.bats` (a vulnerable fixture image) |
-| G11 | `doc-tests`, `tests-with-coverage` | stage 3 | `make_tests.bats` (a failing test appended to `xtask`) |
+| G11 | `doc-tests`, `tests-with-coverage` | stage 3 | `make_tests.bats` (a failing test appended to `xtask`, run by `unit-tests`; a failing documentation example appended to the test-support crate, run by `doc-tests`) |
 | G12 | `tests-with-coverage` | stage 3 | `make_tests.bats` (a failing integration test) |
-| G13 | `e2e-tests` | stage 3 | `make_tests.bats` (a feature with an undefined step) |
+| G13 | `e2e-tests` | stage 3 | `make_tests.bats` (a feature with an undefined step; the same step in a scenario tagged `@allow.skipped`) |
 | G14 | `tests-with-coverage` | stage 3 | `make_tests.bats` (an uncovered function) |
 | G15 | `mutation-tests-diff` | stage 5 | `make_tests.bats` (an uncovered function: a `MISSED` line) |
 | G16 | `bats` | stage 7 | `make_general.bats` (a failing suite fixture) |
 | G17 | `validate-contract-snapshots` | stage 4 | `make_contracts.bats` (a changed snapshot per file) |
 | G18 | `validate-openapi-spec` | stage 4 | `make_contracts.bats` (an operation description removed) |
 | G19 | `openapi-diff` | stage 4 | `make_contracts.bats` (a required response property removed) |
-| G20 | `graphql-diff` | stage 4 | `make_contracts.bats` (a field removed) |
+| G20 | `graphql-diff` | stage 4 | `make_contracts.bats` (a field removed; the same change approved with `BREAKING_CHANGE_APPROVED=true`; a base ref that does not exist) |
 | G21 | `schemathesis-validate` | stage 6 | `make_contracts.bats` (an undocumented path added) |
-| G22 | `smoke-load-tests` | stage 6 | `make_load_tests.bats` (a budget that cannot be met) |
+| G22 | `smoke-load-tests` | stage 6 | `make_load_tests.bats` (a budget that cannot be met; a scenario whose check cannot pass) |
 | G23 | `lint-repo` | stage 1 | `make_repository.bats` (one test per linter) |
 | G24 | `lint-load-tests` | stage 1 | `make_load_tests.bats` (a script with `console.log` and `==`) |
 | G25 | `validate-configuration` | stage 1 | `make_quality_gates.bats` (a comment appended to `clippy.toml`) |
@@ -218,12 +219,12 @@ A gate target has its negative test in the Bats suite and no second passing run 
 | G27 | `validate-architecture-model` | stage 1 | `make_repository.bats` and `check_architecture_model.bats` |
 | G28 | `check-commit-message` | CI only (pull-request job `title`) | `make_hooks_and_commits.bats` (each rejected example) |
 | G29 | `check-crate-isolation` | stage 2 | `make_quality_gates.bats` (a function that breaks the build of one crate alone) |
-| G30 | `validate-sqlx-metadata` | stage 3 | `make_tests.bats` (one file of `.sqlx/` removed) |
+| G30 | `validate-sqlx-metadata` | stage 3 | `make_tests.bats` (one file of `.sqlx/` removed; a file of `.sqlx/` that no query generates, which `scripts/check-sqlx-metadata.sh` turns from a warning of `sqlx-cli` into a failure) |
 | G31 | `validate-invariants` | stage 1 | `make_repository.bats` and `check_invariants.bats` (one test per rule) |
 
 ## Targets without a Bats test
 
-The suite tests the targets that are not gates and the surface behaviour; the passing run of a gate is not repeated (see above). These targets have no Bats test, each with its reason.
+The suite tests the targets that are not gates and the surface behaviour; the passing run of a gate is not repeated (see above). These targets have no Bats test, each with its reason. A test of `make_execution_mode.bats` fails when a target of `make help` is neither invoked by a Bats test nor named in the gate table above or in this section.
 
 - `aws-load-tests` without local mode and `aws-load-tests-cleanup` against AWS: no credentials in CI. The LocalStack dry run is tested.
 - `average-load-tests`, `stress-load-tests`, `spike-load-tests` and `load-tests`: minutes of load. The shared runner path is tested through `smoke-load-tests` and `execute-load-tests-script`.
@@ -231,14 +232,15 @@ The suite tests the targets that are not gates and the surface behaviour; the pa
 - `coverage-xml` and `coverage-html`: a second and a third instrumented run of the suites. Their report commands are part of the tested `tests-with-coverage` sequence or differ from it in the output format only.
 - `bootstrap`: run by the scheduled workflow.
 - `update`: rewrites the lock file.
-- `build`: minutes of image build. Its command line is tested with a Make dry run (`-n`).
+- `build`: minutes of image build. Its command line is tested with a Make dry run (`-n`) in `make_execution_mode.bats`, together with the `--build` and `--no-build` forms of `start`.
+- `build-prod-image`: minutes of image build. Stage 6 of `make ci` runs it, and the hosted jobs build the production image with the cached build action instead.
 - `format`, `format-repo`, `static-analysis-fix`, `unused-dependencies-fix` and `sqlx-prepare`: fix-style targets that rewrite tracked files.
 - `ci` in full: tested with `CI_STAGES` and a Make dry run (`-n`).
 
 The aliases and helper targets have no test of their own either; the target they point at, or the target that calls them, carries the test:
 
 - Aliases: `up` (alias of `start`), `clean` (alias of `purge`), `test` (alias of `all-tests`), `all` and `ci-sequential` (aliases of `ci`).
-- Helper targets: `ensure-deps` and `ensure-database` (prerequisites of the tested targets that need services), `setup-load-test-db` (called by the isolated-environment wrapper), `bmalph-claude` and `bmalph-codex` (call `bmalph-install` with a fixed platform), the stage targets `ci-preflight`, `ci-static-analysis`, `ci-tests`, `ci-contracts`, `ci-mutation`, `ci-delivery` and `ci-cli` (each recipe is generated from its `CI_*_TARGETS` variable, one line per gate, so a failing gate stops its stage; a Bats test checks that a dry run of `make ci` runs exactly the sequence that `make ci-list` prints), `static-analysis-sarif` (writes the lint findings in a publication format; the gate is `static-analysis`), `lint-code` and `lint-rustdoc` (the two halves of `static-analysis`), `all-tests`, `unit-tests` and `integration-tests` (compositions of the suites that the gates G11 to G13 run), `install` (downloads tools; run by `bootstrap`), `pre-push` (runs `unit-tests`) and `sh` (opens an interactive shell).
+- Helper targets: `ensure-deps` and `ensure-database` (prerequisites of the tested targets that need services), `setup-load-test-db` (called by the isolated-environment wrapper), `check-security-offline` (a prerequisite of `pre-commit`; the offline subset of the tested `check-security`), `bmalph-claude` and `bmalph-codex` (call `bmalph-install` with a fixed platform), the stage targets `ci-preflight`, `ci-static-analysis`, `ci-tests`, `ci-contracts`, `ci-mutation`, `ci-delivery` and `ci-cli` (each recipe is generated from its `CI_*_TARGETS` variable, one line per gate, so a failing gate stops its stage; a Bats test checks that a dry run of `make ci` runs exactly the sequence that `make ci-list` prints), `static-analysis-sarif` (writes the lint findings in a publication format; the gate is `static-analysis`), `lint-code` and `lint-rustdoc` (the two halves of `static-analysis`), `all-tests`, `unit-tests` and `integration-tests` (compositions of the suites that the gates G11 to G13 run), `install` (downloads tools; run by `bootstrap`), `pre-push` (runs `unit-tests`) and `sh` (opens an interactive shell).
 
 ## Inputs that only a script reads
 
@@ -248,7 +250,6 @@ These inputs are not Make variables, so they are not in the environment referenc
 | --- | --- | --- |
 | `COMMIT_TITLE` | `check-commit-message` | the pull-request title to check; read from the environment so that a title cannot inject shell text into a recipe |
 | `COMMIT_MSG_FILE` | `check-commit-message` | the file of the commit message, set by the commit-msg hook |
-| `GITHUB_TOKEN` | the development image build | optional build secret that raises the rate limit of tool downloads |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION` | `aws-load-tests` | credentials of the cloud load run; the instance and bucket it creates cost money until `aws-load-tests-cleanup` removes them |
 | `MAKE_COMMAND` | `doctor` | the GNU Make that runs the Makefile, set by the `doctor` and `bootstrap` recipes; without it the doctor checks the `make` on `PATH` (on macOS, with Homebrew, run `gmake` or put its `gnubin` directory first on `PATH`) |
 | `MAKE` | the git hooks | the make the hooks run; without it they use `gmake` when it exists, else `make` |

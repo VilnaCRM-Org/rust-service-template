@@ -39,13 +39,14 @@ Cross-field rules checked at start-up: `HEALTH_PROBE_TIMEOUT >= DATABASE_ACQUIRE
 | --- | --- | --- | --- | --- | --- |
 | `DB_VERSION` | string | `16` | no | compose | `DB_VERSION` |
 | `DB_HOST` | host name | `localhost` | no | `.env` interpolation; compose sets `database` inside containers | host part of `DB_URL` |
-| `DB_PORT` | integer | `5432` | no | compose; `.env` interpolation | `DB_PORT` |
+| `DB_PORT` | integer | `5432` | no | compose (the host port of `database`); `.env` interpolation; compose sets `5432`, the port inside the compose network, in the `app` and `migrate` containers, so a changed host port does not change their URL | `DB_PORT` |
 | `DB_NAME` | string | `app` | no | compose; `.env` interpolation | `DB_NAME` |
 | `DB_USER` | string | `app` | no | compose; `.env` interpolation | `DB_USER` |
 | `DB_PASSWORD` | string | `local-dev-only` | no | compose; `.env` interpolation | `DB_PASSWORD` |
 | `LOCALSTACK_HOST` | host name | `localhost` | no | `.env` interpolation; compose sets `localstack` inside containers | `AWS_SQS_ENDPOINT_BASE` |
-| `LOCALSTACK_PORT` | integer | `4566` | no | compose; `.env` interpolation | `LOCALSTACK_PORT` |
+| `LOCALSTACK_PORT` | integer | `4566` | no | compose (the host port of `localstack`); `.env` interpolation; compose sets `4566`, the port inside the compose network, in the `app` container | `LOCALSTACK_PORT` |
 | `STRUCTURIZR_PORT` | integer | `8080` | no | compose | `STRUCTURIZR_PORT` |
+| `GITHUB_TOKEN` | token | unset | no | compose: the source of the build secret `github_token` of the development image; raises the rate limit of the tool downloads | none |
 
 ## Test seeds
 
@@ -113,7 +114,7 @@ Every variable a caller may set, except `PROJECT_NAME` (see below the table), is
 | `BMALPH_PLATFORM` | `claude-code` | parameter of the bmalph targets (`claude-code` or `codex`) | none |
 | `BMALPH_DRY_RUN` | `false` | `true`: the bmalph targets preview without changing files | none |
 
-Four names that the `Makefile` computes are not rows of the table, because the drift check keeps the table equal to the `?=` declarations. `PROJECT_NAME` is the Compose project name and the prefix of the image names: the caller's `COMPOSE_PROJECT_NAME` when set, else the checkout directory name, lower-cased with characters outside `a-z0-9_-` replaced by `-`; a value from the command line or the environment wins. `EXEC` is the prefix of every class TOOL command: empty, or `docker compose exec -T --user <uid>:<gid> -e … app`; it is computed and not meant to be set. `EXEC_ENV` lists the variables that `EXEC` forwards into the container (`TEST_SEED PROPTEST_RNG_SEED CONFIG_CHANGE_APPROVED CARGO_BUILD_WARNINGS DATABASE_STATEMENT_TIMEOUT`; the last one lets `DATABASE_STATEMENT_TIMEOUT=30m make migrate` reach the container). `TEST_ENV` is the prefix of commands that need the test configuration (`scripts/with-env.sh .env .env.test --`).
+Four names that the `Makefile` computes are not rows of the table, because the drift check keeps the table equal to the `?=` declarations. `PROJECT_NAME` is the Compose project name and the prefix of the image names: the caller's `COMPOSE_PROJECT_NAME` when set, else the checkout directory name, lower-cased with characters outside `a-z0-9_-` replaced by `-`; a value from the command line or the environment wins. `EXEC` is the prefix of every class TOOL command: empty, or `docker compose exec -T --user <uid>:<gid> -e … app`; it is computed and not meant to be set. `EXEC_ENV` lists the variables that `EXEC` forwards into the container (`TEST_SEED PROPTEST_RNG_SEED CONFIG_CHANGE_APPROVED CARGO_BUILD_WARNINGS DATABASE_STATEMENT_TIMEOUT`; the last one lets `DATABASE_STATEMENT_TIMEOUT=30m make migrate` reach the container). `TEST_ENV` is the prefix of commands that need the test configuration (`env -u DATABASE_URL scripts/with-env.sh .env .env.test --`): the caller's `DATABASE_URL` is removed first, so the test targets always use the database of `.env.test` (see "Committed environment files").
 
 ## PHP-to-Rust name mapping
 
@@ -133,7 +134,7 @@ PHP variables that are not carried over: `APP_SECRET`, `AWS_SQS_VERSION`, `EMAIL
 
 - `.env` holds the development defaults, for the compose stack and for `cargo run -p service -- serve`.
 - `.env.test` holds only the values that differ from `.env` (`APP_ENV=test`, `LOG_LEVEL=warn` and a `DATABASE_URL` that ends in `_test`), so each value is defined in one place. It is always read after `.env`.
-- `${NAME}` references are resolved by the service (`dotenvy`), by Docker Compose and by `scripts/with-env.sh`, and in all three a value already present in the process environment wins. That is how the same file works on a host (`localhost`) and inside a container, where compose sets `DB_HOST=database` and `LOCALSTACK_HOST=localstack`.
+- `${NAME}` references are resolved by the service (`dotenvy`), by Docker Compose and by `scripts/with-env.sh`, and in all three a value already present in the process environment wins. That is how the same file works on a host (`localhost`) and inside a container, where compose sets `DB_HOST=database` and `LOCALSTACK_HOST=localstack` and the in-network ports `DB_PORT=5432` and `LOCALSTACK_PORT=4566`, so a host port changed in `.env` changes only what compose publishes.
 - The test targets run with the variables of `.env` and then of `.env.test` exported (`env -u DATABASE_URL scripts/with-env.sh .env .env.test --`); a variable the caller has already set overrides both, with one exception: `DATABASE_URL` is removed from the caller's environment first, so the test targets always use the `_test` database of `.env.test` and never the database that a `DATABASE_URL` exported in the shell names (for `sqlx-cli`, for example). To move the test database, set `DB_PORT`, `DB_HOST` or `DB_NAME`: the URL of `.env.test` is built from them. `scripts/setup-test-db.sh`, which drops and recreates its database, additionally refuses with status 2 any database whose name does not end in `_test`. The `Makefile` includes neither file.
 - `scripts/with-env.sh` reads a value like the service and Compose do, for the forms the three read the same way: `NAME=value`, a value in double quotes (`\"`, `\\` and `\n` are unescaped) or in single quotes (literal), and an inline comment after whitespace (`NAME=value # comment`). It refuses with status 2 the forms they read differently: an unquoted value that holds whitespace, a quote or a backslash, a `$` that does not start `${NAME}`, an unknown escape, a quote that does not close on its line, and a comment right after the `=`. Write such a value in quotes.
 - Sourcing a file in a shell (`set -a; . ./.env`) overrides the caller's values and must not be used.

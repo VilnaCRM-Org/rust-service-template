@@ -242,7 +242,7 @@ check-crate-isolation: ## Check that every crate builds alone, with each feature
 	$(EXEC) $(HACK_CMD)
 
 validate-sqlx-metadata: setup-test-db ## Check that the offline query metadata in .sqlx is current
-	$(EXEC) $(TEST_ENV) $(SQLX_CHECK_CMD)
+	$(EXEC) $(TEST_ENV) scripts/check-sqlx-metadata.sh $(SQLX_CHECK_CMD)
 
 check-requirements: ## Check that the service configuration is valid
 	$(EXEC) $(CHECK_CONFIG_CMD)

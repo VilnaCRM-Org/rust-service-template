@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use super::{PanicReport, TestRng, parse_seed};
 
-fn draw_ten(rng: &mut TestRng) -> Vec<u64> {
+fn draw_ten<W: Write>(rng: &mut TestRng<W>) -> Vec<u64> {
     (0..10).map(|_index| rng.rng().random::<u64>()).collect()
 }
 
@@ -133,4 +133,19 @@ fn dropping_while_panicking_does_not_abort() {
     });
 
     assert!(result.is_err());
+}
+
+#[test]
+fn a_generator_alive_at_the_panic_writes_its_seed_line() {
+    let out = Shared::default();
+    let sink = out.clone();
+
+    let result = std::panic::catch_unwind(move || {
+        let mut rng = TestRng::with_report(4321, sink);
+        let drawn = draw_ten(&mut rng);
+        assert!(drawn.is_empty(), "a test failure after the data was drawn");
+    });
+
+    assert!(result.is_err());
+    assert_eq!(out.text(), "TEST_SEED=4321\n");
 }

@@ -308,6 +308,18 @@ EOF
   assert_line --regexp '^\(2\) README\.md:[0-9]+: service migrate no-such-subcommand '
 }
 
+@test "rule 2: a command after service -- is checked" {
+  # The valid tree already cites `cargo run -p service -- serve`, which passes.
+  append README.md <<'EOF'
+Run `cargo run -p service -- no-such-command` or `cargo run --quiet -p service -- migrate no-such-subcommand`.
+EOF
+  check
+  assert_failure 1
+  assert_line --regexp '^\(2\) README\.md:[0-9]+: service no-such-command '
+  assert_line --regexp '^\(2\) README\.md:[0-9]+: service migrate no-such-subcommand '
+  refute_output --partial 'service serve'
+}
+
 @test "rule 2: a slash command without a file under .claude/commands is reported" {
   append README.md <<'EOF'
 Start with `/no-such-command` and then `/dev`.
@@ -458,6 +470,15 @@ EOF
   assert_line --regexp '^\(4\) docs/guide\.md:3: a fenced block cites 3 gate targets '
 }
 
+@test "rule 4: the markers in another file do not exempt a block" {
+  printf '%s\n' '# Guide' '' '<!-- verification:start -->' '' '```bash' 'make alpha' 'make beta' 'make gamma' '```' '' \
+    '<!-- verification:end -->' >"${tree}/docs/guide.md"
+  check
+  assert_failure 1
+  assert_line --regexp '^\(4\) docs/guide\.md:5: a fenced block cites 3 gate targets '
+  refute_line --regexp '^\(4\) AGENTS\.md'
+}
+
 @test "rule 4: a block with two gate targets and a numbered list of three are told apart" {
   cat >"${tree}/docs/guide.md" <<'EOF'
 # Guide
@@ -503,6 +524,21 @@ EOF
   check
   assert_failure 1
   assert_line --regexp '^\(5\) docs/environment\.md: NEW_SETTING '
+}
+
+@test "rule 5: a variable that a compose secret reads from the environment needs a row" {
+  append docker-compose.yml <<'EOF'
+secrets:
+  planted_token:
+    environment: PLANTED_TOKEN
+EOF
+  check
+  assert_failure 1
+  assert_line --regexp '^\(5\) docs/environment\.md: PLANTED_TOKEN is read by '
+  # With a row in the table of settings the tree passes again.
+  edit_file "${tree}/docs/environment.md" awk '{print} /TEST_SEED/ {print "| \140PLANTED_TOKEN\140 | none | a compose secret |"}'
+  check
+  assert_success
 }
 
 @test "rule 5: each of the five sources is read" {

@@ -69,11 +69,56 @@ FIXTURES="${BATS_TEST_DIRNAME}/fixtures"
 }
 
 # bats test_tags=slow
+@test "G2: static-analysis rejects a suppression without a reason" {
+  plant_append xtask/src/main.rs "${FIXTURES}/suppression_without_reason.rs.txt"
+  run make --no-print-directory static-analysis
+  assert_failure
+  assert_output --partial "\`expect\` attribute without specifying a reason"
+  assert_output --partial 'allow_attributes_without_reason'
+}
+
+# bats test_tags=slow
+@test "G2: static-analysis rejects a broken intra-doc link" {
+  # The plant is used and documented, so both clippy passes accept it and rustdoc is the pass that fails.
+  plant_append xtask/src/main.rs "${FIXTURES}/broken_doc_link.rs.txt"
+  run make --no-print-directory static-analysis
+  assert_failure
+  assert_output --partial "unresolved link to \`NoSuchPlantedItem\`"
+  assert_output --partial 'rustdoc::broken-intra-doc-links'
+}
+
+# bats test_tags=slow
 @test "G3: complexity rejects a function with six parameters" {
   plant_append xtask/src/main.rs "${FIXTURES}/too_many_arguments.rs.txt"
   run make --no-print-directory complexity
   assert_failure
   assert_output --partial 'too many arguments (6/5)'
+}
+
+# The recipe that make echoes names every lint of G3, so these tests assert clippy's own message instead.
+
+# bats test_tags=slow
+@test "G3: complexity rejects a function over the line limit" {
+  plant_append xtask/src/main.rs "${FIXTURES}/too_many_lines.rs.txt"
+  run make --no-print-directory complexity
+  assert_failure
+  assert_output --partial 'this function has too many lines (57/50)'
+}
+
+# bats test_tags=slow
+@test "G3: complexity rejects a function nested six levels deep" {
+  plant_append xtask/src/main.rs "${FIXTURES}/excessive_nesting.rs.txt"
+  run make --no-print-directory complexity
+  assert_failure
+  assert_output --partial 'this block is too nested'
+}
+
+# bats test_tags=slow
+@test "G3: complexity rejects a function over the cognitive-complexity limit" {
+  plant_append xtask/src/main.rs "${FIXTURES}/cognitive_complexity.rs.txt"
+  run make --no-print-directory complexity
+  assert_failure
+  assert_output --partial 'the function has a cognitive complexity of (11/8)'
 }
 
 @test "G4: architecture reports the violations of the checker's fixture workspace" {
@@ -92,7 +137,8 @@ FIXTURES="${BATS_TEST_DIRNAME}/fixtures"
   plant_replace Cargo.toml "${tmp}/Cargo.toml"
   run make --no-print-directory validate-manifest
   assert_failure
-  assert_output --partial -- '--locked'
+  # cargo's own message: the echoed recipe line also contains `--locked`, so it must not decide the test.
+  assert_output --regexp 'cannot update the lock file [^ ]*Cargo\.lock because --locked was passed'
 }
 
 @test "G6: check-requirements fails with status 2 and names DATABASE_URL" {

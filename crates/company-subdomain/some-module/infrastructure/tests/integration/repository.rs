@@ -14,9 +14,10 @@ use tokio::time::Instant;
 /// URL that nothing listens on: the "unreachable database" case. No container is stopped.
 const DEAD_DATABASE_URL: &str = "postgres://app:unused@127.0.0.1:1/app";
 
-fn resources(count: usize) -> Vec<ExampleApiResource> {
-    let mut rng = TestRng::from_env();
-    (0..count).map(|_| example_api_resource(&mut rng)).collect()
+/// Draws `count` resources from the generator of the test. Each test binds its generator as its first
+/// statement and keeps it until it ends, so a failing assertion prints `TEST_SEED=<seed>`.
+fn resources(rng: &mut TestRng, count: usize) -> Vec<ExampleApiResource> {
+    (0..count).map(|_| example_api_resource(rng)).collect()
 }
 
 fn same(left: &ExampleApiResource, right: &ExampleApiResource) -> bool {
@@ -27,8 +28,9 @@ fn same(left: &ExampleApiResource, right: &ExampleApiResource) -> bool {
 
 #[sqlx::test(migrator = "shared_infrastructure::persistence::MIGRATOR")]
 async fn a_saved_resource_is_found_by_its_id(pool: PgPool) {
+    let mut rng = TestRng::from_env();
     let repository = PgExampleApiResourceRepository::new(pool);
-    let resource = resources(1).remove(0);
+    let resource = resources(&mut rng, 1).remove(0);
 
     repository.save(&resource).await.unwrap();
     let found = repository.find_by_id(resource.id()).await.unwrap();
@@ -38,8 +40,9 @@ async fn a_saved_resource_is_found_by_its_id(pool: PgPool) {
 
 #[sqlx::test(migrator = "shared_infrastructure::persistence::MIGRATOR")]
 async fn an_unknown_id_is_not_found(pool: PgPool) {
+    let mut rng = TestRng::from_env();
     let repository = PgExampleApiResourceRepository::new(pool);
-    let mut stored = resources(2);
+    let mut stored = resources(&mut rng, 2);
     let unknown = stored.remove(1).id();
     repository.save(&stored[0]).await.unwrap();
 
@@ -50,8 +53,9 @@ async fn an_unknown_id_is_not_found(pool: PgPool) {
 
 #[sqlx::test(migrator = "shared_infrastructure::persistence::MIGRATOR")]
 async fn saving_the_same_id_twice_is_already_exists(pool: PgPool) {
+    let mut rng = TestRng::from_env();
     let repository = PgExampleApiResourceRepository::new(pool);
-    let resource = resources(1).remove(0);
+    let resource = resources(&mut rng, 1).remove(0);
     repository.save(&resource).await.unwrap();
 
     let error = repository.save(&resource).await.unwrap_err();
@@ -61,8 +65,9 @@ async fn saving_the_same_id_twice_is_already_exists(pool: PgPool) {
 
 #[sqlx::test(migrator = "shared_infrastructure::persistence::MIGRATOR")]
 async fn pages_are_ordered_by_id_descending_with_limit_and_offset(pool: PgPool) {
+    let mut rng = TestRng::from_env();
     let repository = PgExampleApiResourceRepository::new(pool);
-    let mut stored = resources(5);
+    let mut stored = resources(&mut rng, 5);
     for resource in &stored {
         repository.save(resource).await.unwrap();
     }
@@ -97,13 +102,14 @@ async fn pages_are_ordered_by_id_descending_with_limit_and_offset(pool: PgPool) 
 
 #[sqlx::test(migrator = "shared_infrastructure::persistence::MIGRATOR")]
 async fn a_stored_row_that_breaks_a_domain_invariant_is_unavailable(pool: PgPool) {
+    let mut rng = TestRng::from_env();
     sqlx::query(
         "ALTER TABLE example_api_resources DROP CONSTRAINT example_api_resources_name_check",
     )
     .execute(&pool)
     .await
     .unwrap();
-    let id = resources(1).remove(0).id();
+    let id = resources(&mut rng, 1).remove(0).id();
     sqlx::query(
         "INSERT INTO example_api_resources (id, name, description) VALUES ($1, '', 'text')",
     )
@@ -125,6 +131,7 @@ async fn a_stored_row_that_breaks_a_domain_invariant_is_unavailable(pool: PgPool
 
 #[tokio::test]
 async fn an_unreachable_database_is_unavailable_within_the_acquire_timeout() {
+    let mut rng = TestRng::from_env();
     let acquire_timeout = Duration::from_millis(500);
     let pool = connect_lazy(&PostgresSettings {
         url: DEAD_DATABASE_URL.to_owned(),
@@ -134,7 +141,7 @@ async fn an_unreachable_database_is_unavailable_within_the_acquire_timeout() {
     })
     .unwrap();
     let repository = PgExampleApiResourceRepository::new(pool);
-    let resource = resources(1).remove(0);
+    let resource = resources(&mut rng, 1).remove(0);
     let bound = acquire_timeout + Duration::from_secs(1);
 
     let started = Instant::now();

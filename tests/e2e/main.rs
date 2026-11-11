@@ -13,7 +13,9 @@ async fn main() {
     world::drop_leftover_databases().await;
     AppWorld::cucumber()
         .max_concurrent_scenarios(8)
-        .fail_on_skipped()
+        // Every skipped step fails the run, also in a scenario, rule or feature tagged `@allow.skipped`, which
+        // the plain `fail_on_skipped()` would let pass (FR55).
+        .fail_on_skipped_with(|_feature, _rule, _scenario| true)
         .after(|_feature, _rule, _scenario, _event, world| {
             Box::pin(async move {
                 if let Some(world) = world {

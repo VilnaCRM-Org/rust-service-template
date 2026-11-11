@@ -8,10 +8,18 @@ const SEED_VARIABLE: &str = "TEST_SEED";
 
 /// A generator whose seed is printed when a test panics, so the failure can be reproduced with
 /// `TEST_SEED=<seed>`.
+///
+/// The line is written when the generator is dropped while the test panics, so a test creates the
+/// generator as the first statement of the test function and keeps it until the test ends: helpers
+/// borrow it (`&mut TestRng`) and never create one of their own. A generator that a helper creates
+/// and drops before the assertions run is gone when an assertion fails, and the seed is not printed.
+///
+/// The type parameter is the writer of that line; outside this crate it is always the standard error
+/// stream.
 #[derive(Debug)]
-pub struct TestRng {
+pub struct TestRng<W: std::io::Write = std::io::Stderr> {
     rng: StdRng,
-    report: PanicReport<std::io::Stderr>,
+    report: PanicReport<W>,
 }
 
 impl TestRng {
@@ -37,9 +45,16 @@ impl TestRng {
     /// A generator with a known seed.
     #[must_use]
     pub fn from_seed(seed: u64) -> Self {
+        Self::with_report(seed, std::io::stderr())
+    }
+}
+
+impl<W: std::io::Write> TestRng<W> {
+    /// A generator with a known seed that writes the seed line to `out`.
+    pub(crate) fn with_report(seed: u64, out: W) -> Self {
         Self {
             rng: StdRng::seed_from_u64(seed),
-            report: PanicReport::new(seed, std::io::stderr()),
+            report: PanicReport::new(seed, out),
         }
     }
 

@@ -1,8 +1,11 @@
 #!/usr/bin/env bats
 # Tests of the test-level targets and their negative tests (architecture-delivery.md "CLI Tests (Bats)", file
-# make_tests.bats): gates G11 to G15 and G30, and the `setup-test-db` target.
+# make_tests.bats): gates G11 to G15 and G30, the seed of a failing randomised test (FR51) and the `setup-test-db`
+# target.
 #
-# Every plant goes into the leaf crate `xtask`, into `features/` or into `.sqlx/`, so only little is rebuilt. Make
+# Every plant goes into the leaf crate `xtask`, into `features/` or into `.sqlx/`, so only little is rebuilt; the
+# documentation example goes into the test-support crate and the randomised test into the integration tests of the
+# example repository, the one test target that draws seeded data from the database adapter. Make
 # reports every failed recipe with its own status 2, so these tests assert "non-zero" and the tool's own output.
 
 bats_require_minimum_version 1.8.0
@@ -140,6 +143,14 @@ dev_sql() {
   assert_output --partial 'planted_failing_unit_test'
 }
 
+@test "G11: a failing documentation example makes doc-tests fail" {
+  plant_append tests/support/src/lib.rs "${BATS_TEST_DIRNAME}/fixtures/failing_doc_test.rs.txt"
+  run make --no-print-directory doc-tests
+  assert_failure
+  assert_output --regexp 'tests/support/src/lib\.rs - planted_failing_doc_test \(line [0-9]+\)'
+  assert_output --partial 'test result: FAILED'
+}
+
 # --- G12: integration tests --------------------------------------------------------------------------------
 
 # bats test_tags=slow
@@ -151,12 +162,35 @@ dev_sql() {
   assert_output --partial 'planted_failing_integration_test'
 }
 
+# --- the seed of a failing randomised test (FR51, NFR29) ------------------------------------------------------
+
+# bats test_tags=slow
+@test "a failing randomised test prints TEST_SEED with the seed of the caller" {
+  require_docker
+  # 7 is not the seed recorded in .cargo/config.toml, so the line shows the seed that the caller set.
+  plant_append crates/company-subdomain/some-module/infrastructure/tests/integration/repository.rs \
+    "${BATS_TEST_DIRNAME}/fixtures/failing_seeded_test.rs.txt"
+  TEST_SEED=7 run make --no-print-directory integration-tests
+  assert_failure
+  assert_output --partial 'planted_failing_seeded_test'
+  assert_line --regexp '^[[:space:]]*TEST_SEED=7$'
+}
+
 # --- G13: end-to-end tests ---------------------------------------------------------------------------------
 
 # bats test_tags=slow
 @test "G13: a feature with an undefined step makes e2e-tests fail with the unmatched step" {
   require_docker
   plant_new features/planted_undefined_step.feature "${BATS_TEST_DIRNAME}/fixtures/undefined_step.feature.txt"
+  run make --no-print-directory e2e-tests
+  assert_failure
+  assert_output --partial "Step doesn't match any function"
+}
+
+# bats test_tags=slow
+@test "G13: an undefined step fails e2e-tests even in a scenario tagged @allow.skipped" {
+  require_docker
+  plant_new features/planted_undefined_step_allowed.feature "${BATS_TEST_DIRNAME}/fixtures/undefined_step_allowed.feature.txt"
   run make --no-print-directory e2e-tests
   assert_failure
   assert_output --partial "Step doesn't match any function"
@@ -276,4 +310,17 @@ EOF
   run make --no-print-directory validate-sqlx-metadata
   assert_failure
   assert_output --partial '.sqlx is missing one or more queries'
+}
+
+# bats test_tags=slow
+@test "G30: a file of .sqlx that no query generates makes validate-sqlx-metadata fail" {
+  require_docker
+  local -a files=(.sqlx/query-*.json)
+  local name
+  name="query-$(printf 'f%.0s' {1..64}).json"
+  plant_new ".sqlx/${name}" "${files[0]}"
+  run make --no-print-directory validate-sqlx-metadata
+  assert_failure
+  assert_output --partial 'potentially unused queries found in .sqlx'
+  assert_output --partial 'check-sqlx-metadata.sh: .sqlx holds a query file that no current query generates'
 }

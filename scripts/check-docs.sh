@@ -6,15 +6,18 @@
 # Reads every tracked Markdown file of <dir> (default: the current directory) except CHANGELOG.md and
 # specs/**, and applies seven rules. Every violation is one line `(<rule>) <file>:<line>: <message>`.
 #   (1) a cited `make <target>` must be a Make target;
-#   (2) a cited `service <command>` must be in the help of the binary, and a cited slash command must have a
-#       file under .claude/commands/;
+#   (2) a cited `service <command>` must be in the help of the binary (a `--` and option words between `service`
+#       and the command are skipped, so `cargo run -p service -- <command>` is checked too), and a cited slash
+#       command must have a file under .claude/commands/;
 #   (3) a backticked token that begins with the name of a tracked top-level file or directory, or of _bmad/,
 #       _bmad-output/, .ralph/ or bmalph/state/, must name a path that exists or that a git-ignore rule matches,
 #       checked up to its first placeholder or wildcard character;
 #   (4) the block between <!-- verification:start --> and <!-- verification:end --> in AGENTS.md must equal the
-#       output of `make ci-list`, and no other numbered list or fenced block may cite three or more gate targets;
+#       output of `make ci-list`, and no other numbered list or fenced block may cite three or more gate targets
+#       (the markers exempt a block in AGENTS.md only);
 #   (5) docs/environment.md must list exactly the union of: the variables in the help of `service serve`,
-#       `migrate` and `healthcheck`; the variables interpolated in the compose files; the names assigned or
+#       `migrate` and `healthcheck`; the variables interpolated in the compose files and the variables that their
+#       top-level `secrets:` read with `environment:`; the names assigned or
 #       referenced in .env and .env.test; the variables that the Makefile and make/*.mk declare with `?=`; the keys
 #       of [env] in .cargo/config.toml;
 #   (6) every Make target must appear in `make help` and in the table "All targets" of docs/make-targets.md (a
@@ -196,18 +199,23 @@ function cite_make(s, kind,    n, w, i, j, t) {
     }
   }
 }
-function cite_service(s,    n, w, i, t, u) {
+# `service <command> [<subcommand>]`; a `--` and option words after `service` (`cargo run -p service -- <command>`)
+# are skipped before the command is read.
+function cite_service(s,    n, w, i, k, t, u) {
   n = split(s, w, /[[:space:]]+/)
   for (i = 1; i < n; i++) {
     if (w[i] != "service") continue
-    t = w[i + 1]
+    k = i + 1
+    while (k <= n && w[k] ~ /^-/) k++
+    if (k > n) continue
+    t = w[k]
     if (t !~ /^[a-z][a-z-]*$/) continue
     if (!(t in C)) {
       violation_at(2, FNR, "service " t " is not a command of the binary (service --help)")
       continue
     }
-    if ((t in HASSUB) && i + 2 <= n) {
-      u = w[i + 2]
+    if ((t in HASSUB) && k + 1 <= n) {
+      u = w[k + 1]
       if (u ~ /^[a-z][a-z-]*$/ && !((t SUBSEP u) in SUB))
         violation_at(2, FNR, "service " t " " u " is not a subcommand of service " t)
     }
@@ -360,8 +368,9 @@ FNR == 1 {
     pend = 0
   }
   spans(line)
-  if (line ~ /<!-- verification:start -->/) block = 1
-  if (line ~ /<!-- verification:end -->/) block = 0
+  # Only the canonical list in AGENTS.md is exempt; the same markers in another file exempt nothing.
+  if (cf == "AGENTS.md" && line ~ /<!-- verification:start -->/) block = 1
+  if (cf == "AGENTS.md" && line ~ /<!-- verification:end -->/) block = 0
 }
 END {
   if (inlist) end_list()
@@ -440,6 +449,16 @@ else
       [[ -f "${root}/${file}" ]] || continue
       grep -oE '(^|[^$])\$\{[A-Za-z_][A-Za-z0-9_]*' "${root}/${file}" | sed -E 's/.*\$\{//' || true
       grep -oE '(^|[^$])\$[A-Za-z_][A-Za-z0-9_]*' "${root}/${file}" | sed -E 's/.*\$//' || true
+      # The variables that a top-level secret reads: `secrets:` / `  <name>:` / `    environment: NAME`.
+      awk -v quote="'" '/^secrets:[[:space:]]*$/ {inside = 1; next} /^[^[:space:]#]/ {inside = 0}
+        inside && /^[[:space:]]+environment:/ {
+          value = $0
+          sub(/^[[:space:]]+environment:[[:space:]]*/, "", value)
+          sub(/[[:space:]]*(#.*)?$/, "", value)
+          gsub(/"/, "", value)
+          gsub(quote, "", value)
+          if (value ~ /^[A-Za-z_][A-Za-z0-9_]*$/) print value
+        }' "${root}/${file}"
     done
     for file in .env .env.test; do
       [[ -f "${root}/${file}" ]] || continue
