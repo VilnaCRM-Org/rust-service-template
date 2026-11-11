@@ -219,13 +219,14 @@ run_hook() {
   # What rustup prints through the rustc proxy when the pinned toolchain is not installed: the text names the channel.
   printf '#!/bin/sh\necho "error: toolchain '"'"'%s-x86_64-unknown-linux-gnu'"'"' is not installed" >&2\nexit 1\n' "${channel}" >"${tmp}/bin/rustc"
   chmod +x "${tmp}/bin/rustup" "${tmp}/bin/cargo" "${tmp}/bin/rustc"
-  PATH="${tmp}/bin:${PATH}" run scripts/doctor.sh --prerequisites
+  # The container mode of the caller (RUN_IN_CONTAINER=1) would skip the toolchain check; the test is about the host.
+  PATH="${tmp}/bin:${PATH}" RUN_IN_CONTAINER='' run scripts/doctor.sh --prerequisites
   assert_failure 1
   assert_line "[MISSING] toolchain ${channel}: needed by every cargo target; run: rustup toolchain install ${channel}"
   refute_output --partial '[OK] cargo, toolchain'
   # The same stand-ins with a rustc that answers: the toolchain is reported as installed.
   printf '#!/bin/sh\necho "rustc %s (00000000 2026-01-01)"\n' "${channel}" >"${tmp}/bin/rustc"
-  PATH="${tmp}/bin:${PATH}" run scripts/doctor.sh --prerequisites
+  PATH="${tmp}/bin:${PATH}" RUN_IN_CONTAINER='' run scripts/doctor.sh --prerequisites
   assert_line "[OK] cargo, toolchain ${channel}"
   refute_output --partial '[MISSING] toolchain'
 }
@@ -234,8 +235,9 @@ run_hook() {
   local found
   # A chunk is a test or a function. A call of one of the tools in a chunk without `require_command <tool>` is
   # reported with file and line: the suite must run on a host with the documented prerequisites only (NFR37), and
-  # JSON is read with json_query of the helper instead.
-  found="$(awk -v tools=jq,python3,python '
+  # JSON is read with json_query of the helper instead. A call counts after any character that cannot be part of a
+  # name: a blank, an operator, a quote (bash -c 'jq ...'), a backquote or a path (/usr/bin/jq).
+  found="$(awk -v 'tools=jq,python3,python' '
     function flush(   i) {
       for (i = 1; i <= n; i++) if (!(pending_tool[i] in guarded)) print pending_where[i]
       n = 0
@@ -249,7 +251,7 @@ run_hook() {
       for (t = 1; t <= count; t++) {
         if (index($0, "require_command " tool[t]) > 0) {
           guarded[tool[t]] = 1
-        } else if ($0 ~ ("(^|[[:space:]|;&(!])" tool[t] "([[:space:]]|$)")) {
+        } else if ($0 ~ ("(^|[^[:alnum:]_.-])" tool[t] "([[:space:]]|$)")) {
           n++
           pending_tool[n] = tool[t]
           pending_where[n] = FILENAME ":" FNR ": " $0

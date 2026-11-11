@@ -221,12 +221,32 @@ listening_entries() {
 }
 
 @test "make start exits non-zero when the stack does not become healthy" {
-  # A third project whose database never passes its health check. app and migrate run the database image, so the
-  # test needs no service image and builds nothing (BUILD_IMAGE=0 gives `--no-build`); neither of them starts,
-  # because both wait for a healthy database.
+  # A third project whose app never passes its health check while every dependency is satisfied: only the wait of
+  # the recipe (`--wait`) turns that into a failure; without it `up --detach` succeeds once app has started. The
+  # services run the database image, so the test needs no service image and builds nothing (BUILD_IMAGE=0 gives
+  # `--no-build`): migrate exits 0 at once, LocalStack is a stand-in that is healthy at once, and app sleeps with a
+  # health check that always fails.
   cat >"${tmp}/unhealthy.yml" <<'OVERRIDE'
 services:
-  database:
+  migrate:
+    image: postgres:${DB_VERSION:-16}-alpine
+    entrypoint: ['true']
+    command: !reset null
+  localstack:
+    image: postgres:${DB_VERSION:-16}-alpine
+    entrypoint: ['sleep', '600']
+    stop_grace_period: 1s # sleep ignores the stop signal as process 1
+    healthcheck:
+      test: ['CMD', 'true']
+      interval: 1s
+      timeout: 1s
+      retries: 1
+      start_period: 0s
+      start_interval: 1s
+  app:
+    image: postgres:${DB_VERSION:-16}-alpine
+    entrypoint: ['sleep', '600']
+    stop_grace_period: 1s # sleep ignores the stop signal as process 1
     healthcheck:
       test: ['CMD', 'false']
       interval: 1s
@@ -234,10 +254,6 @@ services:
       retries: 1
       start_period: 0s
       start_interval: 1s
-  migrate:
-    image: postgres:${DB_VERSION:-16}-alpine
-  app:
-    image: postgres:${DB_VERSION:-16}-alpine
 OVERRIDE
   # Every published port is its own (the stack of the first test holds the others) and is drawn right before use.
   PROJECT_NAME="${SICK_PROJECT}" DB_PORT="$(free_port)" LOCALSTACK_PORT="$(free_port)" APP_PORT="$(free_port)" \
@@ -245,7 +261,7 @@ OVERRIDE
     COMPOSE_FILE="docker-compose.yml:docker-compose.override.yml:${tmp}/unhealthy.yml" BUILD_IMAGE=0 \
     run make --no-print-directory start
   assert_failure
-  assert_output --partial "dependency failed to start: container ${SICK_PROJECT}-database-1 is unhealthy"
+  assert_output --partial "container ${SICK_PROJECT}-app-1 is unhealthy"
   _remove_project "${SICK_PROJECT}"
   run docker ps --all --quiet --filter "label=com.docker.compose.project=${SICK_PROJECT}"
   assert_output ''

@@ -108,6 +108,10 @@ STUB
 @test "execute-load-tests-script writes health.html, removes the isolated project and leaves the development containers unchanged" {
   require_docker
   rm -f -- "${RESULTS_DIR}/health.html"
+  # The subject is the report, the removal of the project and the untouched development containers, not the
+  # latency: a budget no machine crosses (K6 times a request out after 60 s) keeps the test independent of the
+  # machine's speed. The shipped budget stays enforced by smoke-load-tests and the hosted job.
+  plant_smoke_budget 60000
   local before after
   before="$(development_containers)"
   run make --no-print-directory execute-load-tests-script scenario=health runAverage=false runStress=false runSpike=false
@@ -124,7 +128,7 @@ STUB
 
 @test "the profile runners pass their switches and report prefixes to the K6 run" {
   record_docker_calls
-  local runner expected
+  local runner smoke average stress spike dashboard expected
   # runner, then the switches (smoke average stress spike) and the dashboard of the health scenario it must give.
   for expected in \
     'run-smoke-load-tests.sh true false false false smoke-health.html' \
@@ -132,15 +136,13 @@ STUB
     'run-stress-load-tests.sh false false true false stress-health.html' \
     'run-spike-load-tests.sh false false false true spike-health.html' \
     'run-load-tests.sh true true true true all-health.html'; do
-    # shellcheck disable=SC2086 # the five words are split on purpose
-    set -- ${expected}
-    runner="$1"
+    read -r runner smoke average stress spike dashboard <<<"${expected}"
     rm -f -- "${BATS_TEST_TMPDIR}/calls"
     PATH="${BATS_TEST_TMPDIR}/bin:${PATH}" RECORD="${BATS_TEST_TMPDIR}/calls" run "tests/Load/${runner}"
     assert_success
-    run grep -c -F -- "K6_WEB_DASHBOARD_EXPORT=/loadTests/results/$6 " "${BATS_TEST_TMPDIR}/calls"
+    run grep -c -F -- "K6_WEB_DASHBOARD_EXPORT=/loadTests/results/${dashboard} " "${BATS_TEST_TMPDIR}/calls"
     assert_output '1'
-    run grep -c -F -- "/loadTests/scripts/health.js -e run_smoke=$2 -e run_average=$3 -e run_stress=$4 -e run_spike=$5" \
+    run grep -c -F -- "/loadTests/scripts/health.js -e run_smoke=${smoke} -e run_average=${average} -e run_stress=${stress} -e run_spike=${spike}" \
       "${BATS_TEST_TMPDIR}/calls"
     assert_output '1'
   done
@@ -226,7 +228,8 @@ STUB
   require_docker
   rm -f -- "${RESULTS_DIR}/smoke-health.html"
   plant_smoke_budget 0.001
-  run make --no-print-directory smoke-load-tests
+  # The isolated stack takes LOG_LEVEL from the shell; info pins the level that writes the `listening` entry.
+  LOG_LEVEL=info run make --no-print-directory smoke-load-tests
   assert_failure
   assert_output --regexp 'thresholds on metrics .* have been crossed'
   assert_file_exists "${RESULTS_DIR}/smoke-health.html"
@@ -243,8 +246,10 @@ STUB
   require_docker
   local planted=planted_failing_check
   plant_new "tests/Load/scripts/${planted}.js" "${BATS_TEST_DIRNAME}/fixtures/failing_check_scenario.js.txt"
-  # The planted scenario gets the profiles and budgets of the health scenario.
-  json_query "(data.endpoints.${planted} = data.endpoints.health, data)" <tests/Load/config.json.dist \
+  # The planted scenario gets the profiles of the health scenario and a smoke budget no machine crosses (K6 times
+  # a request out after 60 s), so only the checks threshold can fail, however busy the machine is.
+  json_query "(data.endpoints.${planted} = { ...data.endpoints.health, smoke: { ...data.endpoints.health.smoke, threshold: 60000 } }, data)" \
+    <tests/Load/config.json.dist \
     >"${BATS_TEST_TMPDIR}/config.json"
   plant_new tests/Load/config.json "${BATS_TEST_TMPDIR}/config.json"
   run make --no-print-directory execute-load-tests-script "scenario=${planted}" runAverage=false runStress=false runSpike=false

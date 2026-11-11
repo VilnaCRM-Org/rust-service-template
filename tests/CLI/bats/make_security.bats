@@ -144,15 +144,22 @@ STUB
   cp scripts/secrets-scan.sh "${repo}/scripts/"
   cp .gitleaks.toml "${repo}/"
   : >"${repo}/.gitleaksignore"
-  git -C "${repo}" init --quiet
-  git -C "${repo}" add -- .
-  git -C "${repo}" -c user.name=bats -c user.email=bats@example.invalid commit --quiet -m 'scanner'
+  # Git of the throw-away repository reads no configuration of the caller: a global signing setting, commit hook
+  # or ignore file (core.excludesFile, or the default ignore file of XDG_CONFIG_HOME) would make a step fail.
+  repo_git() {
+    GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "${repo}" -c user.name=bats \
+      -c user.email=bats@example.invalid -c commit.gpgsign=false -c core.hooksPath=/dev/null \
+      -c core.excludesFile=/dev/null "$@"
+  }
+  repo_git init --quiet
+  repo_git add -- .
+  repo_git commit --quiet -m 'scanner'
   # The key is generated at test time, committed, and removed again in the next commit: only the history has it.
   openssl genrsa -out "${repo}/history_key.pem" 2048 2>/dev/null
-  git -C "${repo}" add -- history_key.pem
-  git -C "${repo}" -c user.name=bats -c user.email=bats@example.invalid commit --quiet -m 'add a key'
-  git -C "${repo}" rm --quiet -- history_key.pem
-  git -C "${repo}" -c user.name=bats -c user.email=bats@example.invalid commit --quiet -m 'remove the key'
+  repo_git add -- history_key.pem
+  repo_git commit --quiet -m 'add a key'
+  repo_git rm --quiet -- history_key.pem
+  repo_git commit --quiet -m 'remove the key'
   assert_file_not_exists "${repo}/history_key.pem"
   GITLEAKS_IMAGE="${image}" run "${repo}/scripts/secrets-scan.sh"
   assert_failure 1
