@@ -119,7 +119,9 @@ The runner reads the AWS credentials from the environment of the host and never 
 | --- | --- |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | the access key of a user or role allowed to manage the resources listed below |
 | `AWS_SESSION_TOKEN` | only with temporary credentials |
-| `AWS_REGION` | the region, when the parameter `region` is not given |
+| `AWS_REGION` | the region, when the parameter `region` (option `-r`) is not given |
+
+The region is taken from the `region` Make parameter (option `-r`) first, then from the `AWS_REGION` variable of the caller's environment, then `us-east-1`; a value in `.env` is not read for it. The cleanup uses the region recorded in `tests/Load/aws-run.env`, whatever the parameter or the environment say.
 
 Without them (and without local mode) the script stops and names the variables. Export them in the shell, or let a profile tool export them; do not put them in `.env`. The identity needs permissions for EC2 (run and terminate instances, security groups), S3 (bucket, objects, bucket policy), IAM (role, instance profile, managed policy) and the SSM parameter read; use a sandbox account.
 

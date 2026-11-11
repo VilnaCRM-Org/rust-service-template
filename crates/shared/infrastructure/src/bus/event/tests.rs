@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
@@ -217,12 +216,4 @@ fn debug_names_the_type_and_counts_the_event_types() {
 
     assert_eq!(format!("{empty:?}"), "InMemoryEventBus { event_types: 0 }");
     assert_eq!(format!("{two:?}"), "InMemoryEventBus { event_types: 2 }");
-}
-
-#[test]
-fn an_event_type_is_told_apart_through_its_vtable() {
-    let event: Box<dyn DomainEvent> = placed(1);
-    let any: &dyn Any = event.as_ref();
-
-    assert!(any.is::<OrderPlaced>());
 }

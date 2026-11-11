@@ -4,7 +4,7 @@ Planning decisions: AD-03 (bounded-context isolation and the architecture gate),
 
 ## Context
 
-Cargo enforces that a crate uses only what its manifest lists, but not which crates it may list, nor that two bounded contexts stay apart. Adding a context must not require editing a rule file, and the rule files themselves must not be loosened silently to make a build pass.
+Cargo enforces that a crate uses only what its manifest lists, but not which crates it may list, nor that two bounded contexts stay apart. Adding a context must not require editing a rule file, and the rule files themselves must not be loosened silently to get a build to pass.
 
 ## Decision
 

@@ -25,7 +25,7 @@ The version follows the conventional commit types of the squashed commits:
 | --- | --- |
 | `fix` | patch release |
 | `feat` | minor release |
-| footer `BREAKING CHANGE:` or `!` after the type | major release; below `1.0.0` the minor number is raised instead |
+| footer `BREAKING CHANGE:` | major release; below `1.0.0` the minor number is raised instead |
 | `build`, `chore`, `ci`, `docs`, `perf`, `refactor`, `style`, `test` | no release |
 
 Rules that follow from this:

@@ -95,7 +95,7 @@ The ordered list of gate targets is not repeated here. It lives in one place, th
 | `purge` | HOST | none | no | Remove generated reports and load-test results |
 | `schemathesis-validate` | HOST | the isolated environment (the target starts and removes it) | yes (G21) | Test the production image against the OpenAPI snapshot with Schemathesis |
 | `secrets-scan` | HOST | none | yes (G9) | Scan the history and the working files for secrets |
-| `setup-load-test-db` | HOST | the isolated environment (the target starts and removes it) running | via the wrapper | Drop, create and migrate the database of the isolated load-test environment |
+| `setup-load-test-db` | HOST | the isolated environment already running (the target neither starts nor removes it) | via the wrapper | Drop, create and migrate the database of the isolated load-test environment |
 | `setup-test-db` | TOOL | database | yes | Drop, create and migrate the test database |
 | `sh` | HOST | app | no | Open a shell in the development container |
 | `smoke-load-tests` | HOST | the isolated environment (the target starts and removes it) | yes (G22) | Run every load scenario with the smoke profile |

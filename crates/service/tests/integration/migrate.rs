@@ -11,6 +11,8 @@ use crate::support::{DEAD_DATABASE_URL, Scratch, database_url, silent_listener, 
 
 const TABLE_EXISTS: &str = "SELECT to_regclass('example_api_resources') IS NOT NULL";
 const VERSION: &str = "20261110000000";
+/// What a process start and the output handling may add to a wait that is bounded by its timeout.
+const MARGIN: Duration = Duration::from_millis(700);
 
 async fn table_exists(pool: &PgPool) -> bool {
     sqlx::query_scalar(TABLE_EXISTS)
@@ -105,6 +107,7 @@ fn an_unreachable_database_is_retried_once_per_second_and_then_fails() {
         "the password is not printed: {log}"
     );
     assert!(elapsed >= Duration::from_secs(1), "{elapsed:?}");
+    assert!(elapsed < Duration::from_secs(2) + MARGIN, "{elapsed:?}");
 }
 
 #[test]
@@ -128,23 +131,9 @@ fn a_wait_shorter_than_a_second_still_makes_one_attempt() {
 
 #[test]
 fn a_database_that_accepts_but_never_answers_is_a_failed_attempt_after_the_acquire_timeout() {
-    let listener = silent_listener();
-    let url = format!(
-        "postgres://app:unused@127.0.0.1:{}/app",
-        listener.local_addr().unwrap().port()
-    );
+    let (log, status, _elapsed) = migrate_against_a_silent_database("1s", "300ms");
 
-    let output = Scratch::new().run(
-        &["migrate"],
-        &[
-            ("DATABASE_URL", &url),
-            ("DATABASE_WAIT_TIMEOUT", "1s"),
-            ("DATABASE_ACQUIRE_TIMEOUT", "300ms"),
-        ],
-    );
-
-    let log = stderr(&output);
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(status, Some(1));
     assert_eq!(log.lines().count(), 2, "{log}");
     assert!(
         log.starts_with("waiting for database (attempt 1): "),
@@ -153,6 +142,73 @@ fn a_database_that_accepts_but_never_answers_is_a_failed_attempt_after_the_acqui
     assert!(
         log.contains("the connection attempt timed out\nerror: "),
         "{log}"
+    );
+}
+
+/// Runs `service migrate` against a listener that never answers, and returns the log, the status
+/// and the time the whole command took.
+fn migrate_against_a_silent_database(wait: &str, acquire: &str) -> (String, Option<i32>, Duration) {
+    let listener = silent_listener();
+    let url = format!(
+        "postgres://app:unused@127.0.0.1:{}/app",
+        listener.local_addr().unwrap().port()
+    );
+    let started = Instant::now();
+
+    let output = Scratch::new().run(
+        &["migrate"],
+        &[
+            ("DATABASE_URL", &url),
+            ("DATABASE_WAIT_TIMEOUT", wait),
+            ("DATABASE_ACQUIRE_TIMEOUT", acquire),
+        ],
+    );
+
+    (stderr(&output), output.status.code(), started.elapsed())
+}
+
+#[test]
+fn an_attempt_is_cut_at_the_time_left_of_the_wait() {
+    let (log, status, elapsed) = migrate_against_a_silent_database("1500ms", "2s");
+
+    assert_eq!(status, Some(1));
+    assert_eq!(log.lines().count(), 2, "{log}");
+    assert!(
+        log.starts_with("waiting for database (attempt 1): "),
+        "{log}"
+    );
+    assert!(elapsed >= Duration::from_millis(1500), "{elapsed:?}");
+    assert!(
+        elapsed < Duration::from_millis(1500) + MARGIN,
+        "the attempt ran past the timeout: {elapsed:?}"
+    );
+}
+
+#[test]
+fn the_whole_wait_ends_within_the_timeout_and_no_attempt_starts_after_it() {
+    let (log, status, elapsed) = migrate_against_a_silent_database("2500ms", "2s");
+
+    assert_eq!(status, Some(1));
+    assert_eq!(log.lines().count(), 2, "{log}");
+    assert!(log.contains("timed out\nerror: "), "{log}");
+    assert!(elapsed >= Duration::from_millis(2500), "{elapsed:?}");
+    assert!(
+        elapsed < Duration::from_millis(2500) + MARGIN,
+        "the wait ran past the timeout: {elapsed:?}"
+    );
+}
+
+#[test]
+fn a_silent_database_is_attempted_again_while_time_is_left() {
+    let (log, status, elapsed) = migrate_against_a_silent_database("3s", "1s");
+
+    assert_eq!(status, Some(1));
+    assert_eq!(log.lines().count(), 3, "{log}");
+    assert!(log.contains("(attempt 2): "), "{log}");
+    assert!(log.contains("timed out\nerror: "), "{log}");
+    assert!(
+        elapsed < Duration::from_secs(3) + MARGIN,
+        "the wait ran past the timeout: {elapsed:?}"
     );
 }
 

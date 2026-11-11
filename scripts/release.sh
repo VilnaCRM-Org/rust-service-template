@@ -50,7 +50,7 @@ if [[ -n "${explicit}" ]]; then
   bump=(--version "${explicit}")
 else
   # 1. Is there anything to release? cocogitto prints a sentence and exits 0 when nothing bumps.
-  next="$(cog bump --auto --dry-run 2>&1)" || {
+  next="$(cog bump --auto --dry-run)" || {
     echo "${next}" >&2
     exit 1
   }

@@ -144,7 +144,7 @@ render() {
   for pair in "$@"; do
     name=${pair%%=*}
     value=$(sed_escape "${pair#*=}")
-    expressions+=(-e "s|\\\$${name}\\b|${value}|g" -e "s|@@${name}@@|${value}|g")
+    expressions+=(-e "s|\\\$${name}|${value}|g" -e "s|@@${name}@@|${value}|g")
   done
   sed "${expressions[@]}" "${template}" >"${WORK_DIR}/${output}"
 }

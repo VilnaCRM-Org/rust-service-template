@@ -6,7 +6,7 @@
 #
 # Reads SPECTRAL_IMAGE and SPECTRAL_FLAGS from the environment (Make exports them); DOCKER overrides the
 # container engine command. Mounts are read-only and the container runs as the invoking user.
-# Exit status: 0 no findings; 1 findings; 2 snapshot or ruleset missing, or a variable unset.
+# Exit status: 0 no findings; 1 findings or an unset variable (the ${NAME:?} check); 2 snapshot or ruleset missing.
 set -euo pipefail
 
 : "${SPECTRAL_IMAGE:?SPECTRAL_IMAGE is not set; run through make}"

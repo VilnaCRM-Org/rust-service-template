@@ -8,7 +8,7 @@
 # BREAKING_CHANGE_APPROVED=true prints the findings and passes; DOCKER overrides the container engine
 # command. Mounts are read-only and the container runs as the invoking user.
 # Exit status: 0 compatible, no snapshot on the base ref (notice), or approved; 1 breaking change;
-# 2 base ref not resolvable, head snapshot missing, a variable unset, or the tool itself failed.
+# 2 base ref not resolvable, head snapshot missing, or the tool itself failed; an unset variable exits 1 (the ${NAME:?} check).
 set -euo pipefail
 
 : "${OPENAPI_DIFF_IMAGE:?OPENAPI_DIFF_IMAGE is not set; run through make}"

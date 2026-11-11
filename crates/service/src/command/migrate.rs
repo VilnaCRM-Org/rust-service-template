@@ -10,6 +10,7 @@ use shared_infrastructure::persistence::{MIGRATOR, connect_lazy};
 use sqlx::migrate::Migrate as _;
 use sqlx::{ConnectOptions as _, PgPool};
 use tokio::runtime::Runtime;
+use tokio::time::Instant;
 
 use crate::cli::{MigrateAction, MigrateArgs};
 use crate::command::{self, REJECTED};
@@ -68,6 +69,7 @@ fn execute(
     let pool = connect_lazy(&settings.database)?;
     let wait = Wait {
         attempts: settings.wait_timeout.as_secs().max(1),
+        timeout: settings.wait_timeout,
         limit: settings.database.acquire_timeout,
     };
     wait_for_database(&runtime, &pool, wait, stderr)?;
@@ -84,29 +86,45 @@ fn execute(
     Ok(())
 }
 
-/// Tries to open a connection up to `attempts` times, one per second, and reports every failed
-/// attempt on `stderr`. The error of the last attempt is returned.
+/// Tries to open a connection, one attempt per second, until the wait timeout has elapsed, and
+/// reports every failed attempt on `stderr`. The error of the last attempt is returned.
 ///
-/// An attempt is one connection, not a pool acquisition: a pool retries until its own timeout, so
-/// the attempts would no longer be a second apart. Each attempt lasts at most `limit`.
+/// The timeout is a deadline measured from the first attempt: an attempt is limited to the time left, and no attempt starts once
+/// the deadline has passed. A wait shorter than a second still makes one attempt. An attempt is one
+/// connection, not a pool acquisition: a pool retries until its own timeout, so the attempts would
+/// no longer be a second apart. Each attempt lasts at most `Wait::limit`.
 fn wait_for_database(
     runtime: &Runtime,
     pool: &PgPool,
     wait: Wait,
     stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn Error>> {
+    let started = Instant::now();
     for number in 1..wait.attempts {
-        if attempt(runtime, pool, wait.limit, number, stderr).is_ok() {
+        let limit = wait.limit.min(time_left(started, wait.timeout));
+        let Err(error) = attempt(runtime, pool, limit, number, stderr) else {
             return Ok(());
+        };
+        runtime.block_on(tokio::time::sleep(
+            ATTEMPT_INTERVAL.min(time_left(started, wait.timeout)),
+        ));
+        if time_left(started, wait.timeout).is_zero() {
+            return Err(error);
         }
-        runtime.block_on(tokio::time::sleep(ATTEMPT_INTERVAL));
     }
-    attempt(runtime, pool, wait.limit, wait.attempts, stderr)
+    let limit = wait.limit.min(time_left(started, wait.timeout));
+    attempt(runtime, pool, limit, wait.attempts, stderr)
+}
+
+fn time_left(started: Instant, timeout: Duration) -> Duration {
+    timeout.saturating_sub(started.elapsed())
 }
 
 #[derive(Clone, Copy)]
 struct Wait {
+    /// The most attempts that fit into `timeout`, one per second, and at least one.
     attempts: u64,
+    timeout: Duration,
     limit: Duration,
 }
 

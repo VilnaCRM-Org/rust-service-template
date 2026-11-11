@@ -51,7 +51,7 @@ Both flavours do the same thing and would open competing pull requests. Keep one
 
 A repository created from a template shares no history with it, so the sync action merges without a common ancestor and resolves every difference in favour of the template. A file that a service extends would lose the service's additions, so `.templatesyncignore` lists these files and the sync never touches them. A change that the template makes to such a file does not arrive; apply it by hand.
 
-The ignored files are the service-owned files (`README.md`, `CHANGELOG.md`, `Cargo.toml`, `Cargo.lock`, `.sqlx/`, `migrations/`, the contract snapshots, `workspace.dsl`, `bmalph/config.json`, `specs/`, the example context `crates/company-subdomain/`, its features, `tests/Load/config.json.dist`, `docs/requests.http`) and the template-owned files that a service extends:
+The ignored files are the service-owned files (`README.md`, `CHANGELOG.md`, `Cargo.toml`, `Cargo.lock`, `.sqlx/`, `migrations/`, the contract snapshots, `workspace.dsl`, `bmalph/config.json`, `specs/`, the example context `crates/company-subdomain/`, the feature files `features/api_docs.feature`, `features/example_api_resource.feature`, `features/graphql.feature` and `features/http_errors.feature`, `tests/Load/config.json.dist`, `docs/requests.http`) and the template-owned files that a service extends:
 
 | File | What a service adds | What does not arrive |
 | --- | --- | --- |

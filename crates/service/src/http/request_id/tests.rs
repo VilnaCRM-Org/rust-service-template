@@ -52,7 +52,7 @@ async fn echoes_an_acceptable_id_unchanged(#[case] value: Vec<u8>) {
 #[case::space_and_bang(b"bad value!".to_vec())]
 #[case::empty(Vec::new())]
 #[case::slash(b"a/b".to_vec())]
-#[case::non_ascii("caf\u{e9}".as_bytes().to_vec())]
+#[case::non_ascii("\u{e9}t\u{e9}".as_bytes().to_vec())]
 #[tokio::test]
 async fn replaces_an_unacceptable_id_with_a_uuid(#[case] value: Vec<u8>) {
     let id = echoed(Some(&value)).await;

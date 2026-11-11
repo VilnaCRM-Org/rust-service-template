@@ -37,7 +37,7 @@ Every gate target below is a Make target, run as `make <target>`; `make ci-list`
 | G20 | 0 unapproved GraphQL breaking changes | `graphql-diff` | `scripts/graphql-diff.sh` |
 | G21 | 0 failed Schemathesis checks | `schemathesis-validate` | `make/gates.mk` |
 | G22 | p99 within budget, checks above 99% | `smoke-load-tests` | `tests/Load/config.json.dist` |
-| G23 | 0 repository lint findings | `lint-repo` | `.yamllint.yml`, `.markdownlint-cli2.yaml`, `.hadolint.yaml`, `_typos.toml`, `taplo.toml` |
+| G23 | 0 repository lint findings | `lint-repo` | `.yamllint.yml`, `.markdownlint-cli2.yaml`, `.hadolint.yaml`, `_typos.toml`, `taplo.toml`, `.github/zizmor.yml`, `.prettierrc.yml`, `.prettierignore` |
 | G24 | 0 load-script lint findings | `lint-load-tests` | `tests/Load/eslint.config.js` |
 | G25 | 0 unapproved protected changes, 0 missing directories | `validate-configuration` | `protected-config.toml` |
 | G26 | 0 documentation-drift violations | `docs-check` | `scripts/check-docs.sh` |
