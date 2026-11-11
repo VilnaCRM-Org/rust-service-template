@@ -193,7 +193,7 @@ run_hook() {
 @test "G16: make bats fails on a copy of the failing fixture suite" {
   require_docker
   cp tests/CLI/bats/fixtures/failing_suite/failing.bats.txt "${tmp}/failing.bats"
-  run make --no-print-directory bats BATS_PATH="${tmp}"
+  run make --no-print-directory bats BATS_PATH="${tmp}" BATS_ARGS=
   assert_failure
   assert_output --partial 'not ok 1 a planted failure is reported'
 }

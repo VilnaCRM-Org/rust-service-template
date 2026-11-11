@@ -54,7 +54,10 @@ _refuse_if_dirty() {
 _backup() {
   local kind="$1" rel="$2" n backup
   mkdir -p "$(_restore_dir)/files"
-  n="$(wc -l <"$(_manifest)" 2>/dev/null || echo 0)"
+  n=0
+  if [[ -f "$(_manifest)" ]]; then
+    n="$(wc -l <"$(_manifest)")"
+  fi
   backup="files/${n// /}"
   cp --preserve=mode "${REPO_ROOT}/${rel}" "$(_restore_dir)/${backup}"
   printf '%s\t%s\t%s\n' "${kind}" "${rel}" "${backup}" >>"$(_manifest)"

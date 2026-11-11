@@ -277,13 +277,10 @@ fn a_dev_dependency_adds_nothing_to_the_reach() {
 
     // `billing-application` has a dev-dependency on a stand-in that depends on `sqlx`, and on
     // `test-support`.
-    let billing = find(&members, "billing-application");
-    assert!(!reach_names(billing).contains(&"sqlx"), "{billing:?}");
-    assert!(!reach_names(billing).contains(&"rstest"), "{billing:?}");
-    assert!(
-        !reach_names(billing).contains(&"test-support"),
-        "{billing:?}"
-    );
+    let member = find(&members, "billing-application");
+    assert!(!reach_names(member).contains(&"sqlx"), "{member:?}");
+    assert!(!reach_names(member).contains(&"rstest"), "{member:?}");
+    assert!(!reach_names(member).contains(&"test-support"), "{member:?}");
     assert_eq!(reach_names(find(&members, "stray")), Vec::<&str>::new());
 }
 

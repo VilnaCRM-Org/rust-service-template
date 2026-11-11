@@ -65,7 +65,8 @@ fn violations_exit_with_status_one_and_are_printed_to_stdout() {
         run.stdout
     );
     assert!(run.stdout.ends_with("layer(s) checked\n"), "{}", run.stdout);
-    assert!(!run.stdout.contains("::error"), "{}", run.stdout);
+    // No annotation without the flag depends on `GITHUB_ACTIONS`: tested with a cleared environment
+    // in `xtask/tests/integration/arch.rs` (`github_actions_adds_one_annotation_per_violation`).
     assert_eq!(run.stderr, "");
 }
 
@@ -359,7 +360,7 @@ fn the_approval_is_true_false_or_empty_and_nothing_else() {
 }
 
 #[test]
-fn the_approval_flag_parses_bare_and_with_a_value_and_defaults_to_not_approved() {
+fn the_approval_flag_parses_bare_and_with_a_value() {
     use clap::Parser as _;
 
     use super::{Cli, Command};
@@ -372,7 +373,8 @@ fn the_approval_flag_parses_bare_and_with_a_value_and_defaults_to_not_approved()
         })
     };
 
-    assert_eq!(approved(&[]).ok(), Some(Some(false)));
+    // The default (not approved) depends on `CONFIG_CHANGE_APPROVED`: tested with a cleared
+    // environment in `xtask/tests/integration/config_guard.rs`.
     for (flag, expected) in [
         ("--config-change-approved", true),
         ("--config-change-approved=true", true),

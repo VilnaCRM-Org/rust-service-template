@@ -424,6 +424,11 @@ EOF
   append docker-compose.yml "    image: postgres:\${DB_VERSION:-16}-alpine"
   check
   assert_violation b 'docker-compose.yml:[0-9]+: image postgres:.*DB_VERSION.*has no digest'
+  # The exempt line of the database service is not reported: only the appended line is.
+  local database_line
+  database_line="$(grep -n 'image: postgres:.*DB_VERSION' "${tree}/docker-compose.yml" | head -n 1 | cut -d: -f1)"
+  [[ -n "${database_line}" ]]
+  refute_line --regexp "^\\(b\\) docker-compose.yml:${database_line}:"
 }
 
 @test "(b) a development-container feature referenced by tag is refused" {

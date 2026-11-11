@@ -81,14 +81,29 @@ plant_smoke_budget() {
   require_docker
   run make --no-print-directory start-deps DEPS=localstack
   assert_success
-  run make --no-print-directory aws-load-tests LOCAL_MODE_ENV=true
+  # The branch is given: a pull-request job checks out a detached HEAD, which the script refuses on purpose.
+  run make --no-print-directory aws-load-tests LOCAL_MODE_ENV=true branch=load-dry-run
   assert_success
+  assert_output --partial 'Repository branch: load-dry-run'
   assert_output --partial 'Launched instance'
   assert_output --partial 'You can access the S3 bucket here'
   assert_file_exists tests/Load/aws-run.env
   run make --no-print-directory aws-load-tests-cleanup LOCAL_MODE_ENV=true
   assert_success
   assert_file_not_exists tests/Load/aws-run.env
+}
+
+@test "aws-load-tests refuses a detached HEAD without a branch and exits 2 before any container or AWS call" {
+  require_command docker
+  require_command git
+  # A throw-away clone with a detached HEAD: the checkout of the developer is never touched.
+  git clone --quiet --local --no-hardlinks "${REPO_ROOT}" "${BATS_TEST_TMPDIR}/clone"
+  git -C "${BATS_TEST_TMPDIR}/clone" remote set-url origin https://example.org/org/service.git
+  git -C "${BATS_TEST_TMPDIR}/clone" checkout --quiet --detach
+  run env LOCAL_MODE_ENV=true "${BATS_TEST_TMPDIR}/clone/tests/Load/aws-execute-load-tests.sh"
+  assert_failure 2
+  assert_output --partial 'Error: HEAD is detached; give the branch with -b (make aws-load-tests branch=<name>).'
+  assert_file_not_exists "${BATS_TEST_TMPDIR}/clone/tests/Load/aws-run.env"
 }
 
 @test "lint-prettier, lint-yaml and lint-toml pass with generated load-test files present" {
