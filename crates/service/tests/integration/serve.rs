@@ -116,9 +116,10 @@ fn the_start_up_entry_names_the_mode() {
     }
 }
 
-/// Returns when the service has accepted the connection opened by `begin`, however slow the
-/// machine is. A service accepts connections in the order they were made, so an answered request
-/// on a later connection proves that the earlier one was accepted.
+/// Returns when the service has accepted the connection opened by `begin` and handed it to its
+/// task. A service accepts connections in the order they were made, so an answered request on a
+/// later connection proves that the earlier one was accepted. It does not prove that the task of
+/// the earlier connection has already been polled.
 fn wait_until_accepted(server: &Server) {
     assert_eq!(server.get("/ping").status, 200);
 }

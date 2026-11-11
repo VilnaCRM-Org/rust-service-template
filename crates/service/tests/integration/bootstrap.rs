@@ -1,6 +1,8 @@
 //! The production wiring in process: `Adapters::connect` and `bootstrap::router` against the
 //! compose services, dispatched without a socket.
 
+use std::time::Duration;
+
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
 use clap::Parser as _;
@@ -14,11 +16,20 @@ use tower::ServiceExt as _;
 
 use crate::support::{database_url, silent_listener};
 
+/// The configuration as the binary reads it from the environment, with long budgets for what must
+/// succeed: the tests prove the wiring, not how fast a loaded machine opens the first connection.
+/// The order the configuration requires holds (request > probe >= acquire and operation).
 fn config() -> Config {
     let Command::Serve(args) = Cli::parse_from(["service", "serve"]).command else {
         panic!("`serve` arguments expected");
     };
-    Config::from_args(args).unwrap()
+    let mut config = Config::from_args(args).unwrap();
+    config.database.acquire_timeout = Duration::from_secs(30);
+    config.sqs.connect_timeout = Duration::from_secs(10);
+    config.sqs.operation_timeout = Duration::from_secs(30);
+    config.health_probe_timeout = Duration::from_secs(40);
+    config.request_timeout = Duration::from_secs(60);
+    config
 }
 
 /// Builds a new application instance from the production wiring and sends one request to it.

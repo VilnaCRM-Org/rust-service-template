@@ -130,7 +130,9 @@ pub(crate) fn stack_variable(name: &str) -> String {
 }
 
 /// The variables that let `serve` start against the compose services: the AWS ones of the test
-/// stack and the given database URL.
+/// stack and the given database URL, with long budgets so that a request that must succeed does
+/// not depend on how fast a loaded machine opens its first connection (request > probe >=
+/// acquire and operation, as the configuration requires).
 pub(crate) fn stack_with(database_url: &str) -> Vec<(&'static str, String)> {
     vec![
         ("DATABASE_URL", database_url.to_owned()),
@@ -144,6 +146,11 @@ pub(crate) fn stack_with(database_url: &str) -> Vec<(&'static str, String)> {
             "AWS_SECRET_ACCESS_KEY",
             stack_variable("AWS_SECRET_ACCESS_KEY"),
         ),
+        ("DATABASE_ACQUIRE_TIMEOUT", "30s".to_owned()),
+        ("SQS_CONNECT_TIMEOUT", "10s".to_owned()),
+        ("SQS_OPERATION_TIMEOUT", "30s".to_owned()),
+        ("HEALTH_PROBE_TIMEOUT", "40s".to_owned()),
+        ("HTTP_REQUEST_TIMEOUT", "60s".to_owned()),
     ]
 }
 
