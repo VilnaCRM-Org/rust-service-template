@@ -1,0 +1,93 @@
+#!/usr/bin/env bats
+# Tests of scripts/validate-architecture-model.sh, the architecture-model gate G27 (FR120): the script passes on a
+# fixture workspace with two components and the matching crate list on standard input, and six variants derived
+# from the fixture with sed each exit 1 and name the view kind or the component
+# (architecture-delivery.md "CLI Tests (Bats)", file check_architecture_model.bats; "Architecture Model").
+
+bats_require_minimum_version 1.8.0
+load test_helper
+
+# bats file_tags=repository
+
+setup() {
+  _common_setup
+  require_docker
+  STRUCTURIZR_IMAGE="$(pinned_value STRUCTURIZR_IMAGE)"
+  NODE_IMAGE="$(pinned_value NODE_IMAGE)"
+  export STRUCTURIZR_IMAGE NODE_IMAGE
+  fixture="${REPO_ROOT}/tests/CLI/bats/fixtures/architecture_model.dsl.txt"
+  tmp="$(mktemp -d)"
+  # The output of `cargo tree --workspace --depth 0 --prefix none`: the tooling crates are not modelled.
+  crates="$(printf 'alpha-crate v0.1.0 (/work/alpha)\n\nbeta-crate v0.1.0 (/work/beta)\nxtask v0.1.0 (/work/xtask)\ntest-support v0.1.0 (/work/ts)\ne2e-tests v0.1.0 (/work/e2e)\n')"
+}
+
+teardown() {
+  restore_planted
+  [[ -z "${tmp:-}" ]] || rm -rf -- "${tmp}"
+}
+
+# Runs the script on a DSL file with the crate list on standard input.
+check_model() {
+  run scripts/validate-architecture-model.sh "$1" - <<<"${crates}"
+}
+
+@test "the fixture with two components matches the crate list" {
+  check_model "${fixture}"
+  assert_success
+  assert_output --partial 'architecture model OK: 2 components match the workspace crates'
+}
+
+@test "a model without the system-context view exits 1 and names the view" {
+  sed '/^        systemContext /,/^        }/d' "${fixture}" >"${tmp}/variant.dsl"
+  check_model "${tmp}/variant.dsl"
+  assert_failure 1
+  assert_output --partial 'missing view: no system-context view'
+  refute_output --partial 'no container view'
+  refute_output --partial 'no component view'
+}
+
+@test "a model without the container view exits 1 and names the view" {
+  sed '/^        container system /,/^        }/d' "${fixture}" >"${tmp}/variant.dsl"
+  check_model "${tmp}/variant.dsl"
+  assert_failure 1
+  assert_output --partial 'missing view: no container view'
+  refute_output --partial 'no system-context view'
+}
+
+@test "a model without the component view exits 1 and names the view" {
+  sed '/^        component system.service /,/^        }/d' "${fixture}" >"${tmp}/variant.dsl"
+  check_model "${tmp}/variant.dsl"
+  assert_failure 1
+  assert_output --partial 'missing view: no component view'
+  assert_output --partial 'missing component: alpha-crate'
+}
+
+@test "a workspace crate that is missing from the model exits 1 and names the component" {
+  sed -e '/beta = component/d' -e '/alpha -> beta/d' "${fixture}" >"${tmp}/variant.dsl"
+  check_model "${tmp}/variant.dsl"
+  assert_failure 1
+  assert_output --partial 'missing component: beta-crate'
+  refute_output --partial 'alpha-crate'
+}
+
+@test "a component that is not a workspace crate exits 1 and names the component" {
+  sed '/beta = component/a\                gamma = component "gamma-crate" "Third component." "Rust crate"' "${fixture}" >"${tmp}/variant.dsl"
+  check_model "${tmp}/variant.dsl"
+  assert_failure 1
+  assert_output --partial 'extra component: gamma-crate'
+}
+
+@test "a component excluded from the component view exits 1 and names the component" {
+  sed '/^        component system.service /,/^        }/ s/include \*/include *\n            exclude system.service.beta/' \
+    "${fixture}" >"${tmp}/variant.dsl"
+  check_model "${tmp}/variant.dsl"
+  assert_failure 1
+  assert_output --partial 'missing component: beta-crate'
+  refute_output --partial 'alpha-crate'
+}
+
+@test "a usage error exits 2" {
+  run scripts/validate-architecture-model.sh
+  assert_failure 2
+  assert_output --partial 'usage: scripts/validate-architecture-model.sh'
+}
