@@ -209,17 +209,65 @@ CI installs the cargo tools with `taiki-e/install-action`, pinned by commit, wit
 
 ## First measurements
 
-These tables record what the first runs cost, so that later changes can be judged against them. The values are entered once the first complete run exists (Story 10.5 enters the local values; the hosted-runner values follow the first pipeline run). An empty cell means that nothing has been measured yet.
+These tables record what the first runs cost, so that later changes can be judged against them. The local values were entered by Story 10.5; the hosted-runner values follow the first pipeline runs, and an empty cell means that nothing has been measured yet.
 
-Local runs, on one named machine:
+Conditions of the local runs, 2026-11-11: a virtual machine with 4 vCPUs, 15 GB of memory and Linux 6.18, a fresh clone in a temporary directory (project name `service-clone`), no build directory and no compiler cache. Cargo ran with `CARGO_INCREMENTAL=0` and `CARGO_PROFILE_DEV_DEBUG=0`, the two settings the hosted runners also use, and everything else at its default. The pinned tools were already installed on the machine, so `make bootstrap` did not compile them. Both container images were built beforehand from the same commit and the runs used `BUILD_IMAGE=0`, so the image builds are not part of any duration below. The development image had been built earlier the same day, and its inputs (`make/tool-versions.mk`, `scripts/install-tools.sh`, `scripts/install-bats.sh` and the base image) had not changed since. The machine was shared with other work (load average 3.84 at the start of `make bootstrap`). The commit is `d152806`.
 
-| Command | Machine (CPU cores, memory, OS) | Date | Duration | Notes |
+Local runs, on that machine:
+
+| Command | Date | Duration | Budget of the PRD | Budget met | Notes |
+| --- | --- | --- | --- | --- | --- |
+| `make bootstrap` | 2026-11-11 | 116 s (1 min 56 s) | `GET /ping` within 15 minutes | yes | clean clone, no build directory; `GET /ping` answered 200 right after the command returned; it compiled no tool and built no image (see the conditions) |
+| `make ci` | 2026-11-11 | 1482 s (24 min 42 s) | within 45 minutes on 4 vCPUs | yes | after `make bootstrap`, cold build directory; exit 0, 297 Bats tests, all `ok`; stages below |
+| `make start` | 2026-11-11 | 12 s | within 60 s with images and cache present | yes | after the `make ci` run, images and build output present, the stack stopped before |
+| `make ci base_ref=HEAD` (Story 10.4, for comparison) | 2026-11-11 | 1575 s (26 min 15 s) | within 45 minutes on 4 vCPUs | yes | warm compiler cache and build directory in the working tree, commit `ecbca71`, 295 Bats tests; this run was slower than the cold run above, so the cold build did not cost more than the warm one on this machine |
+| `make mutation-tests` (Story 9.3, all 8 shards, one after the other) | 2026-11-11 | 339 s to 1146 s per shard, see below | none | not applicable | 665 mutants: 409 caught, 256 unviable, none missed or timed out |
+
+The budgets are the ones of the PRD. All three are met; no budget, threshold or timeout was changed.
+
+Stages of the `make ci` run, from the timestamps of the log (the stage that was running was sampled every 2 s, so each boundary is accurate to about 2 s):
+
+| Stage | Duration |
+| --- | --- |
+| 1 `ci-preflight` | 50 s |
+| 2 `ci-static-analysis` | 3 min 53 s |
+| 3 `ci-tests` | 3 min 11 s |
+| 4 `ci-contracts` | 28 s |
+| 5 `ci-mutation` | 2 s (empty diff, no mutants) |
+| 6 `ci-delivery` | 54 s |
+| 7 `ci-cli` | 15 min 24 s |
+| Total | 24 min 42 s (1482 s) |
+
+The six Bats groups run one after the other inside stage 7, files in alphabetical order. The duration of a test is the time between its result line and the one before it, so the first test of a file also carries its `setup_file`. Each file belongs to the group of its `file_tags` line.
+
+| Group | Tests | Duration |
+| --- | --- | --- |
+| `surface` | 78 | 6 min 9 s |
+| `repository` | 144 | 3 min 0 s |
+| `load` | 24 | 2 min 22 s |
+| `tests` | 16 | 1 min 53 s |
+| `quality` | 24 | 1 min 5 s |
+| `contracts` | 11 | 57 s |
+| Total | 297 | 15 min 26 s |
+
+The sum is two seconds above the stage because the first Bats line is counted from the start of the command.
+
+Mutation run of Story 9.3, on the same machine with its own PostgreSQL and LocalStack, the shards run one after the other with the mutation slot of the machine: 665 mutants in 8 shards of 84 (the last one 77), all of them tested, none missed, none timed out. The duration of a shard from its start to its exit, which includes waiting for a free slot and, for the first shard, the baseline build of 339 s:
+
+| Shard | Mutants | Caught | Unviable | Duration |
 | --- | --- | --- | --- | --- |
-| `make bootstrap` | | | | clean clone, no cache |
-| `make ci` | | | | after `make bootstrap` |
-| `make mutation-tests` | | | | number of mutants, seconds per mutant |
+| 0/8 | 84 | 47 | 37 | 1146 s |
+| 1/8 | 84 | 38 | 46 | 819 s |
+| 2/8 | 84 | 30 | 54 | 556 s |
+| 3/8 | 84 | 58 | 26 | 358 s |
+| 4/8 | 84 | 30 | 54 | 371 s |
+| 5/8 | 84 | 70 | 14 | 433 s |
+| 6/8 | 84 | 70 | 14 | 339 s |
+| 7/8 | 77 | 66 | 11 | 375 s |
 
-Mutation run: the first full run on `main` also records the number of mutants, the mean seconds per mutant and the time of each shard, because the planning job divides the mutants into shards of 150 (at least 1 and at most 8 shards) and the divisor is revised from that measurement.
+The hosted workflow divides the same 665 mutants into shards of 150, which gives 5 shards. The durations on 2026-11-11 for commit `d152806` are in the table of the pull-request jobs below. The planning job divides the mutants into shards of 150 (at least 1 and at most 8 shards); that divisor was not changed. The mean time per mutant was not computed: the local shards waited for slots and shared the machine, so a mean from them would not be a stable figure for the divisor.
+
+Smoke load test: the `health` profile ran inside `make ci` (stage 6) with a p99 of 14.79 ms against the budget of 500 ms (see `docs/load-testing.md`).
 
 Pull-request jobs on a hosted runner:
 
@@ -229,7 +277,7 @@ Pull-request jobs on a hosted runner:
 | `static-analysis` | | | |
 | `tests` | | | |
 | `e2e-tests` | | | |
-| `mutation-shard` (longest shard) | | | |
+| `mutation-shard` (longest shard) | 2026-11-11 | 15 min 32 s | shard 1/5 of commit `d152806`; the other four took 5 min 28 s, 7 min 32 s, 7 min 49 s and 9 min 0 s |
 | `bats-group` (longest group) | | | |
 | `schemathesis` | | | |
 | `smoke-load-tests` | | | |

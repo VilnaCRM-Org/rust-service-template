@@ -30,7 +30,7 @@ The budgets of the `health` scenario (`GET /api/health`, checked for status 204)
 | `stress` | 1000 |
 | `spike` | 5000 |
 
-Each health request makes one `SELECT 1` and one `ListQueues` call to LocalStack, and that was not measured under load. Until a measurement exists, a value below the ceiling would be a guess and a source of flaky pull requests, so the ceilings stand.
+Each health request makes one `SELECT 1` and one `ListQueues` call to LocalStack, and that was not measured under load. The first local measurement of the `smoke` profile is in the table below (p99 14.79 ms against the budget of 500 ms: 100 requests at 10 per second for 10 s, none failed). It is not a hosted-runner value, so the budget stays at its ceiling; the other profiles have no measurement. Until a hosted-runner measurement exists, a value below the ceiling would be a guess and a source of flaky pull requests, so the ceilings stand.
 
 The four budget values are protected configuration: changing one needs the label `approved-config-change` on the pull request. The rest of the file changes freely. The success-rate threshold of the checks (above 99%) lives in `tests/Load/utils/thresholdsBuilder.js`, which is a protected file in its entirety.
 
@@ -57,7 +57,7 @@ One row per measurement. Add a row for every new measurement; do not overwrite o
 
 | Scenario | Profile | Environment | Date | Measured p99 (ms) | Budget derived (ms) | Budget in `config.json.dist` (ms) |
 | --- | --- | --- | --- | --- | --- | --- |
-| `health` | `smoke` | local (isolated environment) | | | | 500 |
+| `health` | `smoke` | local, 4 vCPU virtual machine, inside `make ci` after a clean clone, production image, `BUILD_IMAGE=0` (details in `docs/operations.md`) | 2026-11-11 | 14.79 | not derived; the rule uses the hosted-runner value | 500 |
 | `health` | `smoke` | GitHub-hosted runner, 4 vCPU | | | | 500 |
 | `health` | `average` | | | | | 200 |
 | `health` | `stress` | | | | | 1000 |
