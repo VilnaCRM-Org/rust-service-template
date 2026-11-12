@@ -1544,6 +1544,17 @@ EOF
   assert_output ''
 }
 
+@test "(d) make after an exec word with two operands or after a word ending in exec is not a make command" {
+  # An exec word reaches make across option words and at most one operand (`this and` are two), and exec must be a
+  # whole word (`my-exec` is another command).
+  replace .github/workflows/tests.yml '      - run: echo done' '      - run: |
+          echo please exec this and make extra-gate
+          my-exec app make extra-gate'
+  check
+  assert_success
+  assert_output ''
+}
+
 @test "(d) a tree without workflow files is refused" {
   rm -rf "${tree}/.github/workflows"
   check
