@@ -5,7 +5,7 @@
 #
 # Every plant goes into the leaf crate `xtask`, into `features/` or into `.sqlx/`, so only little is rebuilt; the
 # documentation example goes into the test-support crate and the randomised test into the integration tests of the
-# example repository, the one test target that draws seeded data from the database adapter. Make
+# health-check probes, a template-owned test binary that depends on the seeded generator of test-support. Make
 # reports every failed recipe with its own status 2, so these tests assert "non-zero" and the tool's own output.
 
 bats_require_minimum_version 1.8.0
@@ -172,12 +172,15 @@ dev_sql() {
 # bats test_tags=slow
 @test "a failing randomised test prints TEST_SEED with the seed of the caller" {
   require_docker
-  # 7 is not the seed recorded in .cargo/config.toml, so the line shows the seed that the caller set.
-  plant_append crates/company-subdomain/some-module/infrastructure/tests/integration/repository.rs \
+  # The plant goes into an integration test binary that the template owns and synchronises and that depends on
+  # test-support; it names nothing of the example context, which a service changes or removes (FR100). 7 is not the
+  # seed recorded in .cargo/config.toml, so the line shows the seed that the caller set.
+  plant_append crates/internal/health-check/infrastructure/tests/integration/main.rs \
     "${BATS_TEST_DIRNAME}/fixtures/failing_seeded_test.rs.txt"
   TEST_SEED=7 run make --no-print-directory integration-tests
   assert_failure
   assert_output --partial 'planted_failing_seeded_test'
+  assert_output --partial 'planted by the Bats negative test (seed 7)'
   assert_line --regexp '^[[:space:]]*TEST_SEED=7$'
 }
 

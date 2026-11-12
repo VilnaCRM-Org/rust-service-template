@@ -33,7 +33,16 @@ The workflow runs on the first day of every month at 00:00 UTC (`0 0 1 * *`) and
 
 ## `.templatesyncignore`
 
-The file `.templatesyncignore` at the root of the repository lists the paths that the sync never touches, one per line, in the `.gitignore` format, without comments. The template ships it with two groups: the files that belong to the service, and the template-owned files that a service extends. Add a path to keep it out of the sync; remove a path to receive the template's version of it. A file that exists only in your repository is never touched by a sync. Everything else is synchronised: the shared crates, the `xtask` crate, the workflows, the `Makefile` and `make/`, the scripts, the Bats suite, the guidance and the skills.
+The file `.templatesyncignore` at the root of the repository lists the paths that the sync never touches. The sync action drops every blank line and everything from a `#` to the end of a line, and hands each remaining entry to `git reset --` (the function `handle_templatesyncignore` in `src/sync_template.sh` of the pinned `AndreasAugustin/actions-template-sync` v2.6.0, lines 477 to 490). Each entry is therefore a git pathspec relative to the root of the repository, not a `.gitignore` pattern:
+
+- A name without a slash, such as `Cargo.toml`, is the file at the root only. `crates/service/Cargo.toml` needs a line of its own, and so does every other file below the root.
+- An entry that ends in a slash, such as `migrations/`, is everything below that directory.
+- `*` also matches `/`: `crates/*.rs` is every Rust file at any depth below `crates/`.
+- An entry never starts with `/` and never contains `..`: git refuses a path outside the repository, and the sync stops with an error. Do not anchor an entry with a leading slash as you would in a `.gitignore` file.
+
+To see whether a path is ignored, run `sed 's/#.*//' .templatesyncignore | xargs -r git ls-files -- | grep -Fx -- <path>`: it prints the path once an entry covers it.
+
+The template ships the file without comments and with two groups: the files that belong to the service, and the template-owned files that a service extends. Add a path to keep it out of the sync; remove a path to receive the template's version of it. A file that exists only in your repository is never touched by a sync. Everything else is synchronised: the shared crates with their manifests, the `xtask` crate, the workflows, the `Makefile` and `make/`, the scripts, the Bats suite, the guidance and the skills.
 
 ## The label for protected configuration
 
@@ -45,7 +54,7 @@ Both flavours do the same thing and would open competing pull requests. Keep one
 
 1. Delete the workflow file of the other flavour, `template-sync-app.yml` in `.github/workflows`, and its guide, `TEMPLATE_SYNC_APP.md` in `.github`. Both are named here without their directory on purpose: the documentation check (`make docs-check`) reports a citation of a path that does not exist, and this guide is synchronised from the template, so an edit that removes the citation would come back with the next sync.
 2. Delete the secrets that only the removed flavour used.
-3. Open the deletion as a normal pull request. The sync would restore a deleted file, so add the deleted paths to `.templatesyncignore`.
+3. Open the deletion as a normal pull request. The sync would restore a deleted file, so add the deleted paths to `.templatesyncignore`, each with its directory: a bare file name is a file at the root only.
 4. Search your own documents (`README.md`, for example) for citations of the deleted files and name them without their directory, as this guide does.
 
 ## The template changes that do not propagate

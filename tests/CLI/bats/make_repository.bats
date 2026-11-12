@@ -1,10 +1,11 @@
 #!/usr/bin/env bats
 # Negative tests of the repository gates: one test per linter of G23 (lint-repo), and the Make-level tests of the
 # documentation-drift gate G26, the architecture-model gate G27 and the invariants gate G31. There is no passing-run
-# test of a gate: the passing run of lint-repo is the gate itself (DD-02, DD-07). The template-sync check of the
-# synchronised Rust files has no Make target, so its passing run is a test here, next to its negative
-# (architecture-delivery.md "CLI Tests (Bats)", file make_repository.bats). The same holds for the check of the home
-# directory of the development stage of the Dockerfile (FR95).
+# test of a gate: the passing run of lint-repo is the gate itself (DD-02, DD-07). The template-sync checks (the
+# synchronised Rust files, Bats files and fixtures, and the sync ignore list read as the sync action reads it) have no
+# Make target, so their passing runs are tests here, next to their negatives (architecture-delivery.md "CLI Tests
+# (Bats)", file make_repository.bats). The same holds for the check of the home directory of the development stage of
+# the Dockerfile (FR95).
 #
 # A violation is planted under a name that the linter picks up (the fixtures keep the extension .txt and are excluded
 # from every linter) and is removed by restore_planted, which the teardown calls.
@@ -136,18 +137,129 @@ teardown() {
   assert_output --partial 'Code style issues found'
 }
 
-# --- Template sync: synchronised tests stay free of the example context -------------------------------------
+# --- Template sync: synchronised tests stay free of what a service owns --------------------------------------
+#
+# A sync restores the template's copy of every file that the ignore list does not name, so a synchronised test must
+# not depend on what a service owns, changes or removes (FR100). The names of the example context are assembled at
+# run time below, so that this file passes its own checks.
 
-# The Rust files a commit would contain (tracked, or untracked and not ignored by git) that name the example
-# context or build the `Adapters` literal and that the template sync does not ignore. A sync restores the
-# template's copy of such a file, so it must not depend on what a service changes (FR100).
+# The entries of a sync ignore list ($1, default .templatesyncignore) as the sync action reads them: carriage returns
+# removed, comments and blank lines dropped, one entry per line.
+sync_ignore_entries() {
+  tr -d '\r' <"${1:-.templatesyncignore}" | sed '/^[[:blank:]]*#/d;s/#.*//' |
+    awk '{ for (i = 1; i <= NF; i++) print $i }'
+}
+
+# The files a commit would contain (tracked, or untracked and not ignored by git) that the sync leaves alone, for the
+# ignore list $1 (default .templatesyncignore). The pinned sync action hands every entry to `git reset --`
+# (handle_templatesyncignore in src/sync_template.sh of AndreasAugustin/actions-template-sync v2.6.0, lines 477 to
+# 490), so an entry is a git pathspec from the root of the repository, not a .gitignore pattern: `Cargo.toml` is the
+# root manifest only, `dir/` is everything below that directory and `*` also matches `/`. An entry that git refuses
+# fails this function, as it aborts the sync.
+sync_ignored_files() {
+  local files
+  files="$(tr -d '\r' <"${1:-.templatesyncignore}" | sed '/^[[:blank:]]*#/d;s/#.*//' | awk NF |
+    xargs -r git ls-files --cached --others --exclude-standard --)" || return 1
+  [[ -z "${files}" ]] || printf '%s\n' "${files}" | LC_ALL=C sort -u
+}
+
+# The names of the example context that a synchronised Bats file or fixture must not contain.
+example_context_names() {
+  printf '%s\n' "company""-subdomain" "some""-module" "some""_module" "example""_api_resource" "Example""ApiResource"
+}
+
+# The Rust files a commit would contain that name the example context or build the `Adapters` literal and that the
+# sync does not leave alone.
 synchronised_rust_files_naming_the_example() {
-  local -a naming=()
-  mapfile -t naming < <(git ls-files -z --cached --others --exclude-standard -- '*.rs' |
-    xargs -0 grep -l -s -E 'example_api_resources|ExampleApiResource|some_module|Adapters \{' -- | sort -u)
-  ((${#naming[@]} > 0)) || return 0
-  comm -23 <(printf '%s\n' "${naming[@]}") \
-    <(git ls-files --cached --others --ignored --exclude-from=.templatesyncignore -- "${naming[@]}" | sort -u)
+  local pattern='example''_api_resources|Example''ApiResource|some''_module|Adapters \{' naming
+  naming="$(git ls-files -z --cached --others --exclude-standard -- '*.rs' |
+    xargs -0 -r grep -l -s -E "${pattern}" -- | LC_ALL=C sort -u)"
+  [[ -n "${naming}" ]] || return 0
+  LC_ALL=C comm -23 <(printf '%s\n' "${naming}") <(sync_ignored_files)
+}
+
+# The synchronised Bats files and fixtures (the files *.bats and *.bash of tests/CLI/bats and every file below its
+# fixtures/ that a commit would contain, minus the files that the ignore list $1 leaves out of the sync) that depend on
+# what a service owns or extends, one line `<file>:<line>: <reason>` each:
+# - a line that names the example context;
+# - a command line (continuation lines joined, comments skipped) that runs `diff` or `cmp` and names both a path that
+#   the sync leaves alone and the fixtures: a stored copy of a file that a service extends, which fails as soon as the
+#   service extends the file.
+synchronised_test_files_depending_on_service_state() {
+  local list="${1:-.templatesyncignore}" ignored files file
+  local -a scanned=()
+  ignored="$(sync_ignored_files "${list}")" || return 1
+  files="$(git ls-files --cached --others --exclude-standard -- 'tests/CLI/bats/*.bats' 'tests/CLI/bats/*.bash' \
+    'tests/CLI/bats/fixtures/' | LC_ALL=C sort -u | LC_ALL=C comm -23 - <(printf '%s\n' "${ignored}"))"
+  [[ -n "${files}" ]] || return 0
+  while IFS= read -r file; do
+    scanned+=("${file}")
+  done <<<"${files}"
+  awk -v names="$(example_context_names | tr '\n' ' ')" '
+    function path_char(c) {
+      return c != "" && index("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._/-", c) > 0
+    }
+    function mentions(text, name,    start, at) {
+      start = 1
+      while ((at = index(substr(text, start), name)) > 0) {
+        at += start - 1
+        if (!path_char(at > 1 ? substr(text, at - 1, 1) : "") && !path_char(substr(text, at + length(name), 1))) {
+          return 1
+        }
+        start = at + 1
+      }
+      return 0
+    }
+    BEGIN { count = split(names, name, " ") }
+    FILENAME == ARGV[1] { if ($0 != "") ignored[++known] = $0; next }
+    FNR == 1 { pending = "" }
+    {
+      for (i = 1; i <= count; i++) {
+        if (index($0, name[i]) > 0) { print FILENAME ":" FNR ": names the example context (" name[i] ")"; break }
+      }
+      if (pending == "") first = FNR
+      if ($0 ~ /\\$/) { pending = pending substr($0, 1, length($0) - 1) " "; next }
+      command = pending $0
+      pending = ""
+      if (command ~ /^[[:space:]]*#/) next
+      if (command !~ /(^|[^A-Za-z0-9_-])(diff|cmp)([^A-Za-z0-9_-]|$)/ || tolower(command) !~ /fixtures/) next
+      gsub(/[$][{]?REPO_ROOT[}]?\//, "", command)
+      for (i = 1; i <= known; i++) {
+        if (mentions(command, ignored[i])) {
+          print FILENAME ":" first ": compares " ignored[i] " with a stored copy under fixtures/"
+          break
+        }
+      }
+    }' <(printf '%s\n' "${ignored}"; sync_ignore_entries "${list}" | sed 's,/$,,' | grep -v '[*?[]') "${scanned[@]}"
+}
+
+# The entries of the ignore list $1 (default .templatesyncignore) that are not paths relative to the root of the
+# repository: git refuses an entry with a leading `/` or a `..` component as outside the repository, and the sync
+# aborts.
+sync_ignore_entries_outside_the_root() {
+  sync_ignore_entries "$@" | awk '/^\// || /(^|\/)\.\.(\/|$)/'
+}
+
+# The files that the ignore list $1 (default .templatesyncignore) keeps out of the sync although the template owns
+# them and no entry names them: everything below crates/shared/, xtask/, tests/CLI/ and .github/workflows/,
+# docs/README.md, and every Cargo manifest and lock file other than the root files, crates/service/Cargo.toml and
+# those of the service-owned crates (the example context, tests/support/, tests/e2e/). An entry that names a file is a
+# decision of the repository (a service that uses an extension seam adds each synchronised file it changes), while a
+# directory or a pattern that reaches such a file withholds template changes that nobody chose to withhold.
+template_owned_files_kept_out_of_sync() {
+  local list="${1:-.templatesyncignore}" ignored
+  ignored="$(sync_ignored_files "${list}")" || return 1
+  [[ -n "${ignored}" ]] || return 0
+  awk -v owned="crates/company""-subdomain/ tests/support/ tests/e2e/" '
+    BEGIN { count = split(owned, crate, " ") }
+    FILENAME == ARGV[1] { named[$0] = 1; next }
+    ($0 in named) { next }
+    /^(crates\/shared|xtask|tests\/CLI|\.github\/workflows)\// || $0 == "docs/README.md" { print; next }
+    /(^|\/)Cargo\.(toml|lock)$/ {
+      if ($0 == "Cargo.toml" || $0 == "Cargo.lock" || $0 == "crates/service/Cargo.toml") next
+      for (i = 1; i <= count; i++) if (index($0, crate[i]) == 1) next
+      print
+    }' <(sync_ignore_entries "${list}") <(printf '%s\n' "${ignored}")
 }
 
 @test "no synchronised Rust file names the example context or builds the Adapters literal" {
@@ -157,11 +269,135 @@ synchronised_rust_files_naming_the_example() {
 }
 
 @test "a planted synchronised test that names the example table is reported" {
-  printf 'const TABLE: &str = "example_api_resources";\n' >"${tmp}/planted.rs"
+  printf 'const TABLE: &str = "%s";\n' "example""_api_resources" >"${tmp}/planted.rs"
   plant_new crates/shared/infrastructure/tests/integration/planted_example_table.rs "${tmp}/planted.rs"
   run synchronised_rust_files_naming_the_example
   assert_success
   assert_output 'crates/shared/infrastructure/tests/integration/planted_example_table.rs'
+}
+
+@test "no synchronised Bats file or fixture names the example context or compares a service-extended file with a stored copy" {
+  run synchronised_test_files_depending_on_service_state
+  assert_success
+  assert_output ''
+}
+
+@test "a planted synchronised Bats file or fixture that names the example context is reported" {
+  printf '@test "planted" {\n  plant_append crates/%s/domain/src/lib.rs x.txt\n}\n' "company""-subdomain" \
+    >"${tmp}/planted.bats"
+  printf 'use %s_domain::Planted;\n' "some""_module" >"${tmp}/planted.rs.txt"
+  plant_new tests/CLI/bats/planted_example_context.bats "${tmp}/planted.bats"
+  plant_new tests/CLI/bats/fixtures/planted_example_context.rs.txt "${tmp}/planted.rs.txt"
+  run synchronised_test_files_depending_on_service_state
+  assert_success
+  assert_output "$(printf '%s\n' \
+    "tests/CLI/bats/fixtures/planted_example_context.rs.txt:1: names the example context (some""_module)" \
+    "tests/CLI/bats/planted_example_context.bats:2: names the example context (company""-subdomain)")"
+}
+
+@test "a planted synchronised Bats file that compares a sync-ignored file with a stored copy is reported" {
+  local run_diff="d""iff" run_cmp="c""mp"
+  printf '@test "planted" {\n%s\n%s\n%s\n}\n' \
+    "  sed '/^allow-registry = /s/=.*/= []/' deny.toml | ${run_diff} - \"\${FIXTURES}/deny.toml.txt\"" \
+    "  ${run_cmp} -s \\" \
+    "    .env.test \"\${FIXTURES}/env.txt\"" >"${tmp}/planted.bats"
+  plant_new tests/CLI/bats/planted_stored_copy.bats "${tmp}/planted.bats"
+  run synchronised_test_files_depending_on_service_state
+  assert_success
+  assert_output "$(printf '%s\n' \
+    'tests/CLI/bats/planted_stored_copy.bats:2: compares deny.toml with a stored copy under fixtures/' \
+    'tests/CLI/bats/planted_stored_copy.bats:3: compares .env.test with a stored copy under fixtures/')"
+}
+
+@test "a Bats file that the sync ignore list leaves out of the sync is not checked" {
+  printf '  plant_append crates/%s/domain/src/lib.rs x.txt\n' "company""-subdomain" >"${tmp}/planted.bats"
+  plant_new tests/CLI/bats/planted_service_test.bats "${tmp}/planted.bats"
+  cp .templatesyncignore "${tmp}/list"
+  printf 'tests/CLI/bats/planted_service_test.bats\n' >>"${tmp}/list"
+  run synchronised_test_files_depending_on_service_state "${tmp}/list"
+  assert_success
+  assert_output ''
+}
+
+@test "the sync ignore list is read as git pathspecs from the root, as the sync action applies it" {
+  local repo="${tmp}/repo" path expected
+  local -a paths=(Cargo.toml Cargo.lock README.md docs/README.md crates/app/Cargo.toml crates/app/src/lib.rs
+    tests/support/Cargo.toml tests/support/src/lib.rs)
+  git init -q "${repo}"
+  for path in "${paths[@]}"; do
+    mkdir -p "${repo}/$(dirname "${path}")"
+    printf 'template\n' >"${repo}/${path}"
+  done
+  printf '%s\n' '# service-owned files' 'Cargo.toml' 'README.md' '' \
+    'crates/*.rs  # every Rust file below crates/, because * also matches /' 'tests/support/' \
+    >"${repo}/.templatesyncignore"
+  expected="$(printf '%s\n' Cargo.toml README.md crates/app/src/lib.rs tests/support/Cargo.toml tests/support/src/lib.rs)"
+  cd "${repo}" || return 1
+  run sync_ignored_files
+  assert_success
+  assert_output "${expected}"
+  # The command of the pinned action (src/sync_template.sh, line 484) after a change of every file: the files it
+  # unstages are the files that the sync leaves alone.
+  git add -A
+  git -c user.name=bats -c user.email=bats@localhost -c commit.gpgsign=false commit -q --no-verify -m template
+  for path in "${paths[@]}"; do
+    printf 'service\n' >>"${path}"
+  done
+  git add -A
+  tr -d '\r' <.templatesyncignore | sed '/^[[:blank:]]*#/d;s/#.*//' | awk NF | xargs -r git reset -q --
+  run git -c core.quotePath=false diff --no-color --name-only
+  assert_output "${expected}"
+  # Read as .gitignore patterns, the same list names other files (docs/README.md and crates/app/Cargo.toml, but not
+  # crates/app/src/lib.rs), so this fixture tells the two readings apart.
+  run git ls-files --cached --ignored --exclude-from=.templatesyncignore
+  assert_output "$(printf '%s\n' Cargo.toml README.md crates/app/Cargo.toml docs/README.md tests/support/Cargo.toml \
+    tests/support/src/lib.rs)"
+  cd "${REPO_ROOT}" || return 1
+}
+
+@test "every sync ignore entry is a root-relative pathspec" {
+  run sync_ignore_entries_outside_the_root
+  assert_success
+  assert_output ''
+}
+
+@test "a sync ignore entry with a leading slash or a parent-directory component is reported, and git refuses it" {
+  cp .templatesyncignore "${tmp}/list"
+  printf '/Cargo.toml\n../Cargo.toml  # outside\n' >>"${tmp}/list"
+  run sync_ignore_entries_outside_the_root "${tmp}/list"
+  assert_success
+  assert_output "$(printf '%s\n' /Cargo.toml ../Cargo.toml)"
+  run sync_ignored_files "${tmp}/list"
+  assert_failure
+  assert_output --partial "is outside repository"
+}
+
+@test "the sync ignore list keeps no template-owned manifest out of the sync" {
+  run template_owned_files_kept_out_of_sync
+  assert_success
+  assert_output ''
+}
+
+@test "a pattern or a directory entry that keeps template-owned files out of the sync is reported, a named file is not" {
+  cp .templatesyncignore "${tmp}/pattern"
+  printf '*Cargo.toml\n' >>"${tmp}/pattern"
+  run template_owned_files_kept_out_of_sync "${tmp}/pattern"
+  assert_success
+  assert_line 'crates/shared/infrastructure/Cargo.toml'
+  assert_line 'xtask/Cargo.toml'
+  refute_line 'crates/service/Cargo.toml'
+  refute_line 'Cargo.toml'
+  cp .templatesyncignore "${tmp}/directory"
+  printf 'crates/shared/\n' >>"${tmp}/directory"
+  run template_owned_files_kept_out_of_sync "${tmp}/directory"
+  assert_success
+  assert_line 'crates/shared/infrastructure/Cargo.toml'
+  assert_line 'crates/shared/infrastructure/src/cache.rs'
+  cp .templatesyncignore "${tmp}/named"
+  printf 'crates/shared/infrastructure/Cargo.toml\ncrates/shared/infrastructure/src/cache.rs\n' >>"${tmp}/named"
+  run template_owned_files_kept_out_of_sync "${tmp}/named"
+  assert_success
+  assert_output ''
 }
 
 # --- FR95: the home directory of the development stage ------------------------------------------------------

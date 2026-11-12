@@ -1,7 +1,6 @@
 
 #[test]
 fn planted_failing_seeded_test() {
-    let mut rng = TestRng::from_env();
-    let drawn = resources(&mut rng, 1);
-    assert_eq!(drawn.len(), 0, "planted by the Bats negative test");
+    let rng = test_support::seed::TestRng::from_env();
+    panic!("planted by the Bats negative test (seed {})", rng.seed());
 }
