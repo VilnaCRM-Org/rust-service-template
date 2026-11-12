@@ -1497,13 +1497,42 @@ EOF
 }
 
 @test "(d) a quoted message that contains exec make is not a make command" {
+  # The lines with a word after the target need the single quotes removed: without the word, the only word after
+  # make ends in a quote and is dropped anyway.
   replace .github/workflows/tests.yml '      - run: echo done' "      - run: |
           target='devcontainers exec make extra-gate'
           echo 'make extra-gate failed'
+          target='devcontainers exec make extra-gate now'
+          echo 'cleanup done; make extra-gate twice'
           echo \"the step failed; make extra-gate ran \\\"exec make extra-gate\\\"\" >&2"
   check
   assert_success
   assert_output ''
+}
+
+@test "(d) make in a comment of a run line is not a make command" {
+  replace .github/workflows/tests.yml '      - run: echo done' '      - run: make fmt # then make extra-gate later'
+  check
+  assert_success
+  assert_output ''
+}
+
+@test "(d) a make command after an escaped quote outside quotes is refused" {
+  replace .github/workflows/tests.yml '      - run: echo done' "      - run: echo it\\'s ready; make extra-gate"
+  check
+  assert_violation d 'a workflow runs make extra-gate, which is not a gate target of make ci-list'
+}
+
+@test "(d) a # inside a word does not start a comment of a run line" {
+  replace .github/workflows/tests.yml '      - run: echo done' "      - run: echo \${#GROUP} groups; make extra-gate"
+  check
+  assert_violation d 'a workflow runs make extra-gate, which is not a gate target of make ci-list'
+}
+
+@test "(d) a target outside make ci-list run through exec with a NAME=value word is refused" {
+  replace .github/workflows/tests.yml '      - run: echo done' '      - run: exec env A=1 make extra-gate'
+  check
+  assert_violation d 'a workflow runs make extra-gate, which is not a gate target of make ci-list'
 }
 
 @test "(d) make as a word of an echo or of a variable assignment is not a make command" {
