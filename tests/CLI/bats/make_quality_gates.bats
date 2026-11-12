@@ -88,6 +88,29 @@ FIXTURES="${BATS_TEST_DIRNAME}/fixtures"
 }
 
 # bats test_tags=slow
+@test "G2: static-analysis rejects an unused import in test code" {
+  # The plant sits in the cfg(test) module of xtask/src/cli.rs, which the production pass does not compile: the
+  # production pass passes and the pass over all targets fails, and cargo names the test build of xtask.
+  plant_append xtask/src/cli/tests.rs "${FIXTURES}/unused_import_in_test.rs.txt"
+  run make --no-print-directory static-analysis
+  assert_failure
+  assert_output --partial 'unused import'
+  assert_output --partial 'xtask/src/cli/tests.rs'
+  assert_output --partial "could not compile \`xtask\` (bin \"xtask\" test)"
+}
+
+# bats test_tags=slow
+@test "G2: static-analysis rejects an unsafe block" {
+  # The block is documented, and the expectation on the function would lift any level of unsafe_code but forbid,
+  # so the test also fails when the workspace level is weakened.
+  plant_append xtask/src/main.rs "${FIXTURES}/unsafe_block.rs.txt"
+  run make --no-print-directory static-analysis
+  assert_failure
+  assert_output --partial "usage of an \`unsafe\` block"
+  assert_output --partial 'incompatible with previous forbid'
+}
+
+# bats test_tags=slow
 @test "G3: complexity rejects a function with six parameters" {
   plant_append xtask/src/main.rs "${FIXTURES}/too_many_arguments.rs.txt"
   run make --no-print-directory complexity
@@ -169,21 +192,28 @@ FIXTURES="${BATS_TEST_DIRNAME}/fixtures"
 
 # --- G7: one negative test per policy of cargo-deny --------------------------------------------------------
 
+# The variants are derived from the current deny.toml at test time, so the dated exceptions that a service adds to
+# the file stay in them; each test checks that the policy it targets is the one that changed.
+
 @test "G7: check-security rejects every licence when the allow-list is empty" {
-  # The fixture is a copy of deny.toml with one policy changed: fail when deny.toml was edited since.
   sed '/^\[licenses\]/,/^\[/ { /^allow = \[$/,/^\]$/c\
 allow = []
-}' deny.toml | diff - "${FIXTURES}/deny_no_licences.toml.txt"
-  plant_replace deny.toml "${FIXTURES}/deny_no_licences.toml.txt"
+}' deny.toml >"${tmp}/deny.toml"
+  run ! cmp -s deny.toml "${tmp}/deny.toml"
+  run sed -n '/^\[licenses\]$/,/^\[/ { /^allow = /p; }' "${tmp}/deny.toml"
+  assert_output 'allow = []'
+  plant_replace deny.toml "${tmp}/deny.toml"
   run make --no-print-directory check-security
   assert_failure
   assert_output --partial 'license is not explicitly allowed'
 }
 
 @test "G7: check-security rejects every registry when allow-registry is empty" {
-  # The fixture is a copy of deny.toml with one policy changed: fail when deny.toml was edited since.
-  sed '/^allow-registry = /s/=.*/= []/' deny.toml | diff - "${FIXTURES}/deny_no_registries.toml.txt"
-  plant_replace deny.toml "${FIXTURES}/deny_no_registries.toml.txt"
+  sed '/^allow-registry = /s/=.*/= []/' deny.toml >"${tmp}/deny.toml"
+  run ! cmp -s deny.toml "${tmp}/deny.toml"
+  run sed -n '/^allow-registry = /p' "${tmp}/deny.toml"
+  assert_output 'allow-registry = []'
+  plant_replace deny.toml "${tmp}/deny.toml"
   run make --no-print-directory check-security
   assert_failure
   assert_output --partial 'source-not-allowed'

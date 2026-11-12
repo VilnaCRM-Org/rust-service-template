@@ -89,7 +89,7 @@ One row per measurement. Add a row for every new measurement; do not overwrite o
 | `make stress-load-tests` | every scenario, stress profile |
 | `make spike-load-tests` | every scenario, spike profile |
 | `make load-tests` | every scenario, all four profiles |
-| `make execute-load-tests-script scenario=health runAverage=false runStress=false runSpike=false` | one scenario; every profile runs unless its switch (`runSmoke`, `runAverage`, `runStress`, `runSpike`) is set to `false`, so this example runs the smoke profile only |
+| `make execute-load-tests-script scenario=health runAverage=false runStress=false runSpike=false` | one scenario; every profile runs unless its switch (`runSmoke`, `runAverage`, `runStress`, `runSpike`) is set to `false`, so this example runs the smoke profile only; the selected profiles run one after the other with the pause `delayBetweenScenarios` between them, also when a profile in the middle is switched off |
 | `make lint-load-tests` | ESLint and Prettier on the load-test JavaScript |
 
 Every run writes one self-contained HTML dashboard to `tests/Load/results/<prefix><scenario>.html` and prints K6's end-of-run summary with the statistics `avg,min,med,max,p(95),p(99)`. The prefixes are `smoke-`, `average-`, `stress-`, `spike-` and `all-`; a run of `make execute-load-tests-script` has none. The directory is git-ignored apart from its `.gitignore`. CI uploads it as the artifact `load-test-results` (14 days).

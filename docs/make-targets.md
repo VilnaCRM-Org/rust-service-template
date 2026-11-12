@@ -191,7 +191,7 @@ A gate target has its negative test in the Bats suite and no second passing run 
 | Gate | Target | Passing run | Negative test (Bats file) |
 | --- | --- | --- | --- |
 | G1 | `format-check` | stage 2 of `make ci` | `make_quality_gates.bats` (unformatted lines appended to `xtask/src/main.rs`) |
-| G2 | `static-analysis` | stage 2 | `make_quality_gates.bats` (an `unwrap`; a `SystemTime::now()` call; a suppression without a reason; a broken intra-doc link, which rustdoc rejects) |
+| G2 | `static-analysis` | stage 2 | `make_quality_gates.bats` (an `unwrap`; a `SystemTime::now()` call; a suppression without a reason; a broken intra-doc link, which rustdoc rejects; an unused import in the test module of `xtask`, which only the pass over all targets analyses; an `unsafe` block under an expectation that only the `forbid` level of `unsafe_code` overrules) |
 | G3 | `complexity` | stage 2 | `make_quality_gates.bats` (one test per limit: a six-parameter function; a function over the line limit; a function nested six levels deep; a function over the cognitive-complexity limit) |
 | G4 | `architecture` | stage 2 | `make_quality_gates.bats` (the checker's fixture workspace) |
 | G5 | `validate-manifest` | stage 2 | `make_quality_gates.bats` (version changed without a lock update) |
@@ -213,7 +213,7 @@ A gate target has its negative test in the Bats suite and no second passing run 
 | G21 | `schemathesis-validate` | stage 6 | `make_contracts.bats` (an undocumented path added) |
 | G22 | `smoke-load-tests` | stage 6 | `make_load_tests.bats` (a budget that cannot be met; a scenario whose check cannot pass) |
 | G23 | `lint-repo` | stage 1 | `make_repository.bats` (one test per linter) |
-| G24 | `lint-load-tests` | stage 1 | `make_load_tests.bats` (a script with `console.log` and `==`) |
+| G24 | `lint-load-tests` | stage 1 | `make_load_tests.bats` (a script with `console.log` and `==`, which ESLint rejects; a script that ESLint accepts but that is not formatted, which Prettier rejects) |
 | G25 | `validate-configuration` | stage 1 | `make_quality_gates.bats` (a comment appended to `clippy.toml`) |
 | G26 | `docs-check` | stage 2 | `make_repository.bats` (an unknown target cited in `README.md`) |
 | G27 | `validate-architecture-model` | stage 1 | `make_repository.bats` and `check_architecture_model.bats` |
