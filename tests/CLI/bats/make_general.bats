@@ -67,11 +67,11 @@ run_hook() {
   local helped name missing=''
   assert_equal "${#names[@]}" 42
   assert_equal "$(printf '%s\n' "${names[@]}" | sort | uniq -d)" ''
-  run make --no-print-directory help
+  run --separate-stderr make --no-print-directory help
   assert_success
-  # The first column of every line after the three header lines is a target name.
+  # The first column of every line of standard output after the three header lines is a target name.
   helped="$(awk 'NR > 3 {print $1}' <<<"${output}")"
-  [[ -n "${helped}" ]]
+  [[ -n "${helped}" ]] || fail 'make help printed no targets'
   for name in "${names[@]}"; do
     grep -qxF -- "${name}" <<<"${helped}" || missing="${missing} ${name}"
   done
