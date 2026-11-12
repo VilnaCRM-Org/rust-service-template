@@ -321,7 +321,7 @@ The job `Development container build` (`devcontainer-build`) of the same run fai
 
 ## Build caches in CI
 
-Every job that compiles Rust code or builds an image restores a cache that a run on `main` saved; pull requests restore and never save (NFR40). The two exceptions are the `surface` Bats group, which compiles inside the development container, and the weekly `devcontainer-build` job, which builds without a layer cache on purpose. Images use the BuildKit layer cache of GitHub (`type=gha`, scopes `prod-image` and `dev-image`, written with `mode=max` on `main` only).
+Every job that compiles Rust code or builds an image restores a cache that a run on `main` saved; pull requests restore and never save (NFR40). NFR40 names two exceptions: the `surface` Bats group, which compiles inside the development container, and the weekly `devcontainer-build` job, which builds without a layer cache on purpose. The weekly job `Clean bootstrap and make ci` (`clean-bootstrap-ci`) of `scheduled.yml` restores no cache either, because FR95 and NFR34 require its `make bootstrap` and `make ci` to start from a clean checkout with no restored cache. Images use the BuildKit layer cache of GitHub (`type=gha`, scopes `prod-image` and `dev-image`, written with `mode=max` on `main` only).
 
 ### Rust caches
 
@@ -380,7 +380,7 @@ On the first push to `main` after a key was renamed:
 
 - `Mutation shard 0/<n>` (index 1), toolchain step: `No cache found.`. The mutation step's command ends in `--shard 0/<n> --in-place`. The step after it prints `Third-party crates compiled by cargo-mutants in this shard: <count>`, with a high count on this cold run. The post step of the toolchain action prints `... Saving cache ...` for `v0-rust-mutation-in-place-Linux-x64-<hash>`. The entry is far larger than the 121,575,024 bytes of the old `mutation` entry. The artifact `mutants-1` has no `Copied source tree` line in `debug.log`, and the `Compiling` lines of `log/baseline.log` name paths in the checkout.
 - `Bats: tests`: `No cache found.` for `v0-rust-bats-tests-in-place-Linux-x64-<hash>`, the TAP line `# G15: <count> third-party crates compiled by cargo-mutants (MUTANTS_IN_PLACE=1)`, and `... Saving cache ...` at the end.
-- A job that fails saves no cache: its post step does not run.
+- A saver job that fails or is cancelled still saves, unless its restore was an exact hit. The toolchain action passes its default `cache-on-failure: true` to rust-cache, so the post step of rust-cache also runs after a failure, a cancellation or the job timeout (`post-if: success() || env.CACHE_ON_FAILURE == 'true'`). A missed mutant leaves the entry complete, because cargo-mutants tests every mutant before it exits 2. A job that was cancelled or timed out, or whose baseline failed, saves only what it built until then, and an exact hit never refreshes that entry. So check that the first saver run after a rename got to the end. Its mutation step prints the cargo-mutants summary `<count> mutants tested in <time>: ...`, which comes only after the last mutant, and `Bats: tests` prints the TAP line of G15. If either is missing, rename the key again.
 
 On a rerun of an unchanged pull-request commit, started after that push:
 
