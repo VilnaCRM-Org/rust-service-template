@@ -97,6 +97,11 @@ editHistory:
       run for a newer template commit opens that commit's pull request and closes the older open sync pull
       requests in the same run (`is_pr_cleanup`), so no two are open at once; J5 step 2 says the same. No id
       changed.
+  - date: '2026-11-12'
+    changes: >-
+      Wording fix from the review of pull request #2: the rerun clause of NFR40 (0 third-party dependencies
+      recompiled) applies apart from its own fourth exception, the crates a pull-request mutation shard compiles
+      for packages outside the saver's selection. No id changed.
 author: BMad
 ---
 
@@ -814,7 +819,7 @@ Where a requirement says "ceiling", the architect records the final value at or 
 ### CI cost
 
 - NFR39: On 4-vCPU GitHub-hosted runners a pull request completes its last required check within 20 min of the push on warm caches and within 40 min on cold caches; the changed-code mutation check is outside these two figures and has its own timeout of at most 45 min; a documentation-only pull request completes within 5 min; 100% of jobs declare a timeout of at most 45 min, except the clean-clone job of FR95, whose timeout is at most 75 min; the Bats job completes within 20 min. Initial budgets, revised only with a recorded measurement. [NEW-26, NEW-28, P17; K-11]
-- NFR40: 100% of pull-request workflows cancel superseded runs of the same ref; 100% of jobs that compile Rust code or build an image restore a dependency and build cache or an image layer cache, except the `surface` Bats group and the weekly `devcontainer-build` job, the first two exceptions recorded in architecture-delivery.md, open item 5, and the weekly `clean-bootstrap-ci` job, which FR95 and NFR34 require to start without a restored cache, recorded there as the third exception, and, on a rerun of a pull-request commit, the third-party crates that a mutation shard compiles because its diff selects packages the saver shard on main did not build (measured 0 to 77 compile units per shard; the saver selection itself recompiles 0), recorded there as the fourth exception; on a rerun of an unchanged commit 0 third-party dependencies are recompiled and 0 unchanged image layers are rebuilt, verified by the readiness review from the log of one rerun; the image definition keeps dependencies in a layer separate from source, and the build context excludes version-control data, build output and test results. [NEW-25, NEW-26, CAP-DM-04, CAP-DM-06, P17]
+- NFR40: 100% of pull-request workflows cancel superseded runs of the same ref; 100% of jobs that compile Rust code or build an image restore a dependency and build cache or an image layer cache, except the `surface` Bats group and the weekly `devcontainer-build` job, the first two exceptions recorded in architecture-delivery.md, open item 5, and the weekly `clean-bootstrap-ci` job, which FR95 and NFR34 require to start without a restored cache, recorded there as the third exception, and, on a rerun of a pull-request commit, the third-party crates that a mutation shard compiles because its diff selects packages the saver shard on main did not build (measured 0 to 77 compile units per shard; the saver selection itself recompiles 0), recorded there as the fourth exception; on a rerun of an unchanged commit 0 third-party dependencies are recompiled, apart from the fourth exception, and 0 unchanged image layers are rebuilt, verified by the readiness review from the log of one rerun; the image definition keeps dependencies in a layer separate from source, and the build context excludes version-control data, build output and test results. [NEW-25, NEW-26, CAP-DM-04, CAP-DM-06, P17]
 - NFR41: Coverage is computed and uploaded by exactly 1 job; G11, G12 and G14 are reported from one execution of the suites, in CI and in `make ci`; apart from the determinism check of NFR7, each contract snapshot is generated once per workflow run; a job starts only the stack services it uses. [CAP-TQ-16, CAP-CI-04, P9, P17]
 - NFR42: The scheduled run on `main` executes at least weekly, and Dependabot checks each of its six ecosystems at least monthly. [NEW-29, CAP-CI-28, P18]
 
