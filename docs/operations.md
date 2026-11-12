@@ -369,13 +369,19 @@ rust-cache saves nothing when the restore was an exact hit (`Cache up-to-date.`)
 
 | Shared key | Saver (on `main`) | Other jobs that restore it |
 | --- | --- | --- |
-| `check` | `static-analysis` | `complexity`, `crate-isolation`, `code-scanning` (scheduled) |
-| `service-debug` | `check-requirements` | `query-metadata`, `contract-snapshots`, `docs-check` |
+| `check` | `static-analysis` | `complexity`, `code-scanning` (scheduled) |
+| `service-debug` | `check-requirements` | `contract-snapshots`, `docs-check` |
+| `crate-isolation` | `crate-isolation` | none |
+| `query-metadata` | `query-metadata` | none |
 | `xtask` | `architecture` | `validate-configuration`, `architecture-model` |
 | `tests` | `tests` | none |
 | `e2e` | `e2e-tests` | none |
 | `mutation-in-place` | `mutation-shard` with index 1, in `tests.yml` and `scheduled.yml` | `mutation-plan`, the other shards |
 | `bats-<group>`, for the group `tests` `bats-tests-in-place` | `bats-group`, one key per group | none |
+
+The jobs `crate-isolation` (`Crate isolation`) and `query-metadata` (`Persistence query metadata`) of `quality.yml` restored `check` and `service-debug` until pull request #2 and saved nothing. Their commands select other packages, features and targets than the savers of those keys, so they recompiled hundreds of third-party compile units on every run, a rerun of an unchanged commit included (see [the package selection](#what-a-restored-cache-cannot-cover-the-package-selection)). Each now saves a key of its own on `main`, and no other job restores it. The gate step writes its output to `target/crate-isolation.log` or `target/query-metadata.log` (with `set -o pipefail`, so the step keeps the status of the gate), and the step after it, which runs even when the gate failed, prints `Third-party crates compiled: <count>`: the `Compiling` and `Checking` lines without a path, after the colour codes are removed. rust-cache removes the files at the top of `target/` before it saves, so a restored entry never brings an old log back.
+
+Cost against the repository's cache quota of 10 GB: two more entries on `main`, one per key, so the workflows now use 14 Rust cache keys instead of 12. A new entry exists only after a push to `main` has saved it, so its size is to be measured after the merge of pull request #2. The neighbouring entries, as the toolchain step of the two jobs printed when it restored them: `check` `Cache Size: ~422 MB (442408998 B)` and `service-debug` `Cache Size: ~372 MB (390088549 B)` (jobs 131262929871 and 131262929917). If the two new entries are of the same order, they add about 0.8 GB; that is an estimate, not a measurement.
 
 ### Mutation testing builds in the checkout
 
@@ -412,18 +418,38 @@ The saver's own selections also go stale. When the mutant count moves the slice 
 
 This gap is the fourth recorded exception of NFR40, for its rerun clause: 0 to 77 third-party compile units per pull-request shard, against 321 to 345 before the switch, and 0 for the selections of the saver itself. A cache saved per pull request would close it, but each entry of about 800 MB would take a share of the repository's cache quota of 10 GB for every pull request and commit, and the quota would evict the entries of `main` that every other job restores.
 
+The same cause made two jobs of `quality.yml` recompile on every run while they restored the entry of another job:
+
+- `Crate isolation` restored `check`. Its saver, `static-analysis`, runs `cargo clippy --workspace --all-targets --all-features` once over the whole workspace, so cargo builds each third-party crate with the union of the features that the workspace asks for. `make check-crate-isolation` runs `cargo hack check --workspace --each-feature`, which checks each crate alone, once per feature set of the crate; the crates of the template declare no features of their own, so the hosted log shows one `cargo check --locked` per crate (`running ... on <crate> (1/13)` to `(13/13)`). Cargo resolves features per selection, so a third-party crate is built with the features that this one crate selects, without the other crates and without the dev-dependencies, and each such feature set is a compile unit of its own that the `check` entry does not hold.
+- `Persistence query metadata` restored `service-debug`. Its saver, `check-requirements`, builds only the `service` binary. `make validate-sqlx-metadata` runs `cargo sqlx prepare --workspace --check -- --all-targets --all-features`, which also builds the tests and the other targets of every crate, and with them the dev-dependencies, `cucumber` among them, that the `service-debug` entry does not hold.
+
+The third-party compile units of the gate step, counted in the hosted logs as the new count step counts them (the `Compiling` and `Checking` lines without a path, after the colour codes are removed):
+
+| Job | Commit | Restored entry | Third-party compile units |
+| --- | --- | --- | --- |
+| `Crate isolation` (job 130883700953) | `e9eef29` | `v0-rust-check-...`, `full match: true` | 224 (53 `Compiling`, 171 `Checking`) |
+| `Persistence query metadata` (job 130883700960) | `e9eef29` | `v0-rust-service-debug-...`, `full match: true` | 354 (55 `Compiling`, 299 `Checking`) |
+| `Crate isolation` (job 131262929871) | `6a9dd24` | the same entry of `check`, `full match: false` | 224 (50 `Compiling`, 174 `Checking`) |
+| `Persistence query metadata` (job 131262929917) | `6a9dd24` | the same entry of `service-debug`, `full match: false` | 354 (56 `Compiling`, 298 `Checking`) |
+
+On `e9eef29` the restore was an exact hit, so these are the counts that a rerun of an unchanged commit gave. On `6a9dd24` a manifest or the lock file had changed since the entry was saved (hash 2 of the key was `24b880c7`, that of the entry `f2938adc`), and the counts are the same: what the two jobs missed was their own selection, not a newer lock file. Unlike the mutation shards, each of the two jobs runs one fixed command on every run, so an entry that the job saves itself holds exactly what that command builds. Since pull request #2, each job saves a key of its own on `main` (see [the Rust caches](#rust-caches)).
+
 ### Checking the rerun clause on hosted runners
 
 The proof comes only from hosted logs. In the logs, `<hash>` stands for the two hashes of the key.
 
-On the first push to `main` after a key was renamed:
+On the first push to `main` after a key was renamed or added:
 
+- `Crate isolation`: toolchain step `No cache found.`. The step after `make check-crate-isolation` prints `Third-party crates compiled: <count>`, with a high count on this cold run. The post step of the toolchain action prints `... Saving cache ...` for `v0-rust-crate-isolation-Linux-x64-<hash>` and the size of the entry.
+- `Persistence query metadata`: the same lines for `v0-rust-query-metadata-Linux-x64-<hash>`, after `make validate-sqlx-metadata`.
 - `Mutation shard 0/<n>` (index 1), toolchain step: `No cache found.`. The mutation step's command ends in `--shard 0/<n> --in-place`. The step after it prints `Third-party crates compiled by cargo-mutants in this shard: <count>`, with a high count on this cold run. The post step of the toolchain action prints `... Saving cache ...` for `v0-rust-mutation-in-place-Linux-x64-<hash>`. The entry is far larger than the 121,575,024 bytes of the old `mutation` entry. The artifact `mutants-1` has no `Copied source tree` line in `debug.log`, and the `Compiling` lines of `log/baseline.log` name paths in the checkout.
 - `Bats: tests`: `No cache found.` for `v0-rust-bats-tests-in-place-Linux-x64-<hash>`, the TAP line `# G15: <count> third-party crates compiled by cargo-mutants (MUTANTS_IN_PLACE=1)`, and `... Saving cache ...` at the end.
-- A saver job that fails or is cancelled still saves, unless its restore was an exact hit. The toolchain action passes its default `cache-on-failure: true` to rust-cache, so the post step of rust-cache also runs after a failure, a cancellation or the job timeout (`post-if: success() || env.CACHE_ON_FAILURE == 'true'`). A missed mutant leaves the entry complete, because cargo-mutants tests every mutant before it exits 2. A job that was cancelled or timed out, or whose baseline failed, saves only what it built until then, and an exact hit never refreshes that entry. So check that the first saver run after a rename got to the end. Its mutation step prints the cargo-mutants summary `<count> mutants tested in <time>: ...`, which comes only after the last mutant, and `Bats: tests` prints the TAP line of G15. If either is missing, rename the key again.
+- A saver job that fails or is cancelled still saves, unless its restore was an exact hit. The toolchain action passes its default `cache-on-failure: true` to rust-cache, so the post step of rust-cache also runs after a failure, a cancellation or the job timeout (`post-if: success() || env.CACHE_ON_FAILURE == 'true'`). A missed mutant leaves the entry complete, because cargo-mutants tests every mutant before it exits 2. A job that was cancelled or timed out, or whose baseline failed, saves only what it built until then, and an exact hit never refreshes that entry. So check that the first saver run after a rename got to the end. Its mutation step prints the cargo-mutants summary `<count> mutants tested in <time>: ...`, which comes only after the last mutant, and `Bats: tests` prints the TAP line of G15. `Crate isolation` and `Persistence query metadata` got to the end when their gate step passed. If any of these is missing, rename the key again.
 
 On a rerun of an unchanged pull-request commit, started after that push:
 
+- `Crate isolation`: `Restored from cache key "v0-rust-crate-isolation-Linux-x64-<hash>" full match: true.` and `Third-party crates compiled: 0`.
+- `Persistence query metadata`: `Restored from cache key "v0-rust-query-metadata-Linux-x64-<hash>" full match: true.` and `Third-party crates compiled: 0`.
 - `Mutation plan` and every `Mutation shard k/n`: `Restored from cache key "v0-rust-mutation-in-place-Linux-x64-<hash>" full match: true.`. Each shard prints `Third-party crates compiled by cargo-mutants in this shard: 0` when its packages are among the saver's selections. Otherwise it prints the count of the table above for its selection, the same on the first attempt and on the rerun, because pull-request runs save nothing.
 - `Bats: tests`: `Restored from cache key "v0-rust-bats-tests-in-place-Linux-x64-<hash>" full match: true.` and `# G15: 0 third-party crates compiled by cargo-mutants (MUTANTS_IN_PLACE=1)`. The G15 selection is the same on every run.
 
@@ -439,6 +465,12 @@ Recorded on pull request #2, head `95547ba9506b6e54d04747203b1a1a06ba693904` (ru
 - `Bats: tests` (job 130902681311): `No cache found.` for the new key, the TAP line `# G15: 20 third-party crates compiled by cargo-mutants (MUTANTS_IN_PLACE=1)` followed by `ok 13 G15: a function whose tests miss a mutant makes mutation-tests-diff fail with a MISSED line`, and 24 of 24 tests `ok`.
 
 The count 0 on a rerun can be shown only after the merge. Before it, no saved entry has the new names, and pull requests do not save. Caches saved by a push to the pull request's branch are not visible to its `pull_request` runs. The rerun result is to be filled from run `<id>`: the rerun of one unchanged pull-request commit across all seven pull-request workflows, after the first push to `main` has saved the renamed keys, with the count line of every shard and the G15 TAP line of `Bats: tests`.
+
+The keys `crate-isolation` and `query-metadata` (pull request #2) are checked the same way, after the merge of pull request #2. Before it, the runs of the pull request find nothing under the two new names (`No cache found.`) and compile the selection of both jobs from nothing, so their count lines show cold counts. Check to run:
+
+1. The first push to `main` after the merge: in `Crate isolation` and `Persistence query metadata`, the gate step passed and the post step of the toolchain action printed `... Saving cache ...` for `v0-rust-crate-isolation-Linux-x64-<hash>` and `v0-rust-query-metadata-Linux-x64-<hash>`, each with its `Cache Size`. Result: to be measured after the merge of pull request #2.
+2. The rerun of one unchanged pull-request commit after that push, the run of the previous paragraph: both jobs print `Restored from cache key ... full match: true.` and `Third-party crates compiled: 0`. Result: to be measured after the merge of pull request #2.
+3. The quota: in the same rerun, every other job that restores a key still restores the entry that `main` saved. A `No cache found.` there means that the quota of 10 GB evicted an entry of `main`. Then the two keys cannot be kept within the quota, and the counts of the table in [the package selection](#what-a-restored-cache-cannot-cover-the-package-selection) are recorded as a fifth exception of NFR40 instead. Result: to be measured after the merge of pull request #2.
 
 ## Accepted findings: `.trivyignore` and `.gitleaksignore`
 
