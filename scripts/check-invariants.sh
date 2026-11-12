@@ -850,33 +850,65 @@ rule_c() {
 # (d) Gate set, Bats groups, required checks
 # ---------------------------------------------------------------------------------------------------------------
 # Make targets of the CI-only list of DD-02 and of the scheduled and release workflows: not gates of make ci.
-ci_only_targets=' ci bootstrap check-commit-message mutation-tests static-analysis-sarif start stop '
+# Scheduled-only steps are CI-only by the FR66(d) reading of architecture-delivery.md, readings item 11.
+# start-deps: run inside the development container by the dev-container step of DD-02 (FR118).
+ci_only_targets=' ci bootstrap check-commit-message mutation-tests static-analysis-sarif start stop start-deps '
 # Gates of make ci that the workflows reach without naming them in a make command: the test database through the
 # prerequisites of validate-sqlx-metadata, and the production image through the buildx step (DD-02, S5).
 indirect_targets=' setup-test-db build-prod-image '
 
-make_command_re='(^|[;&|(]|then|do)[[:space:]]*make[[:space:]]+(.*)$'
+# A make command: make at the start of a command (the start of the line, after ;, &, |, (, then or do), or behind
+# an exec word of the same command with option words and at most one operand between them, as in `npx ...
+# @devcontainers/cli@<v> exec --workspace-folder . make <t>` and `docker compose exec <service> make <t>`. An option
+# word starts with - and may take one argument word (`--user dev`), or it is a NAME=value word. The last group
+# holds the rest of the line after make.
+make_option_re='[[:space:]]+(-[^[:space:]]*([[:space:]]+[^-[:space:]][^[:space:]]*)?|[^-[:space:]][^[:space:]]*=[^[:space:]]*)'
+make_exec_re="(^|[[:space:];&|(])exec(${make_option_re})*([[:space:]]+[^-[:space:]][^[:space:]]*)?(${make_option_re})*[[:space:]]"
+make_command_re="(^|[;&|(]|then|do|${make_exec_re})[[:space:]]*make[[:space:]]+(.*)\$"
+
+# The run lines of a workflow as workflow_run_lines prints them, without quoted strings, escaped characters and
+# comments: a message or a variable value that names make is no make command.
+workflow_command_lines() {
+  workflow_run_lines "$1" | awk '
+    {
+      p = index($0, ":")
+      s = substr($0, p + 1)
+      n = length(s)
+      out = ""
+      q = ""
+      for (i = 1; i <= n; i++) {
+        c = substr(s, i, 1)
+        if (q == "\047") { if (c == "\047") q = ""; continue }
+        if (q == "\"") { if (c == "\\") i++; else if (c == "\"") q = ""; continue }
+        if (c == "\\") { i++; continue }
+        if (c == "\047" || c == "\"") { q = c; continue }
+        if (c == "#" && (i == 1 || substr(s, i - 1, 1) ~ /[[:space:]]/)) break
+        out = out c
+      }
+      print substr($0, 1, p) out
+    }
+  '
+  return 0
+}
 
 # Make targets named by the `make` commands of the run steps of the given workflows, one per line.
 workflow_make_targets() {
-  local file line text word
+  local file line text args word
   for file in "$@"; do
     while IFS= read -r line; do
       text=${line#*:}
-      text=${text%%#*}
-      [[ "${text}" =~ ${make_command_re} ]] || continue
-      text=${BASH_REMATCH[2]}
-      text=${text%%&&*}
-      text=${text%%||*}
-      text=${text%%|*}
-      text=${text%%;*}
-      text=${text%%[0-9]>*}
-      text=${text%%>*}
-      for word in ${text}; do
-        [[ "${word}" == -* || "${word}" == *=* || "${word}" == '$'* || "${word}" == *'"'* || "${word}" == *"'"* ]] && continue
-        printf '%s\n' "${word}"
+      # Each make command of the line: the rest after one make is searched again for the next.
+      while [[ "${text}" =~ ${make_command_re} ]]; do
+        text=${BASH_REMATCH[${#BASH_REMATCH[@]} - 1]}
+        args=${text%%[;&|]*}
+        args=${args%%[0-9]>*}
+        args=${args%%>*}
+        for word in ${args}; do
+          [[ "${word}" == -* || "${word}" == *=* || "${word}" == '$'* || "${word}" == *'"'* || "${word}" == *"'"* ]] && continue
+          printf '%s\n' "${word}"
+        done
       done
-    done < <(workflow_run_lines "${file}" | grep -E 'make' || true)
+    done < <(workflow_command_lines "${file}" | grep -E 'make' || true)
   done | LC_ALL=C sort -u
   return 0
 }
@@ -1103,15 +1135,34 @@ rule_g() {
   ((${#sources[@]} > 0)) || return 0
   emit < <(awk '
     function out(msg) { print "(g) " FILENAME ":" start ": " msg }
-    function is_root(path,   base, n, parts) {
+    # A crate root that cargo infers: lib.rs, main.rs and build.rs by name, and every direct *.rs child of the
+    # tests/, examples/ and benches/ directories of a package and of its src/bin/ (main.rs below them is caught by
+    # its name). A package is a directory with a Cargo.toml, so a module directory named tests or bin below src/
+    # holds module files, not crate roots.
+    function is_root(path,   base, n, parts, cut, dir, i, manifest, probe, found) {
       n = split(path, parts, "/")
       base = parts[n]
       if (base == "lib.rs" || base == "main.rs" || base == "build.rs") return 1
-      return 0
+      cut = 0
+      if (n >= 2 && (parts[n - 1] == "tests" || parts[n - 1] == "examples" || parts[n - 1] == "benches")) cut = n - 1
+      else if (n >= 3 && parts[n - 1] == "bin" && parts[n - 2] == "src") cut = n - 2
+      if (!cut) return 0
+      dir = ""
+      for (i = 1; i < cut; i++) dir = dir parts[i] "/"
+      manifest = dir "Cargo.toml"
+      found = ((getline probe < manifest) >= 0)
+      close(manifest)
+      return found
     }
     function strip_strings(s) { gsub(/"[^"]*"/, "", s); return s }
     BEGIN {
-      groups = "(warnings|unused|clippy::all|clippy::pedantic|clippy::nursery|clippy::cargo|clippy::restriction|clippy::complexity|clippy::style|clippy::perf|clippy::correctness|clippy::suspicious|rust_2018_idioms|future_incompatible|nonstandard_style)"
+      # The lint groups that `rustc -W help` of the pinned toolchain prints, the ten clippy groups and rustdoc::all.
+      groups = "(warnings|deprecated_safe|future_incompatible|keyword_idents|let_underscore|nonstandard_style"
+      groups = groups "|refining_impl_trait|rust_2018_compatibility|rust_2018_idioms|rust_2021_compatibility"
+      groups = groups "|rust_2024_compatibility|unknown_or_malformed_diagnostic_attributes|unused"
+      groups = groups "|clippy::all|clippy::cargo|clippy::complexity|clippy::correctness|clippy::nursery"
+      groups = groups "|clippy::pedantic|clippy::perf|clippy::restriction|clippy::style|clippy::suspicious"
+      groups = groups "|rustdoc::all)"
       group_re = "(^|[^A-Za-z0-9_:])" groups "([^A-Za-z0-9_]|$)"
     }
     # The checks of one suppression of the given kind.

@@ -1446,6 +1446,75 @@ EOF
   assert_success
 }
 
+@test "(d) a target outside make ci-list run through devcontainers exec is refused" {
+  replace .github/workflows/tests.yml '      - run: echo done' \
+    '      - run: npx --yes @devcontainers/cli@0.90.0 exec --workspace-folder . make extra-gate 2>&1 | tee x.log'
+  check
+  assert_violation d 'a workflow runs make extra-gate, which is not a gate target of make ci-list'
+}
+
+@test "(d) a target outside make ci-list run through docker compose exec is refused" {
+  replace .github/workflows/tests.yml '      - run: echo done' '      - run: |
+          docker compose exec -T app make extra-gate
+          docker compose exec --user dev -e A=1 app make other-gate'
+  check
+  assert_violation d 'a workflow runs make extra-gate, which is not a gate target of make ci-list'
+  assert_violation d 'a workflow runs make other-gate, which is not a gate target of make ci-list'
+}
+
+@test "(d) a target outside make ci-list after another make command on the same line is refused" {
+  replace .github/workflows/tests.yml '      - run: echo done' '      - run: make fmt && make extra-gate'
+  check
+  assert_violation d 'a workflow runs make extra-gate, which is not a gate target of make ci-list'
+}
+
+@test "(d) format-check and start-deps run through devcontainers exec are accepted" {
+  replace Makefile "@printf '%s\n' fmt lint bats" "@printf '%s\n' fmt format-check lint bats"
+  replace .github/workflows/quality.yml '      - run: make fmt' '      - run: make fmt format-check'
+  put .github/workflows/scheduled.yml <<'EOF'
+name: Scheduled
+on:
+  schedule:
+    - cron: '0 3 * * 1'
+permissions:
+  contents: read
+concurrency:
+  group: scheduled
+  cancel-in-progress: false
+jobs:
+  devcontainer-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - run: |
+          npx --yes @devcontainers/cli@0.90.0 exec --workspace-folder . make format-check 2>&1 | tee target/a.log
+          npx --yes @devcontainers/cli@0.90.0 exec --workspace-folder . make start-deps 2>&1 | tee target/b.log
+          docker compose exec -T app make fmt lint
+EOF
+  check
+  assert_success
+  assert_output ''
+}
+
+@test "(d) a quoted message that contains exec make is not a make command" {
+  replace .github/workflows/tests.yml '      - run: echo done' "      - run: |
+          target='devcontainers exec make extra-gate'
+          echo 'make extra-gate failed'
+          echo \"the step failed; make extra-gate ran \\\"exec make extra-gate\\\"\" >&2"
+  check
+  assert_success
+  assert_output ''
+}
+
+@test "(d) make as a word of an echo or of a variable assignment is not a make command" {
+  replace .github/workflows/tests.yml '      - run: echo done' '      - run: |
+          echo the next step runs make extra-gate
+          next=make extra-gate'
+  check
+  assert_success
+  assert_output ''
+}
+
 @test "(d) a tree without workflow files is refused" {
   rm -rf "${tree}/.github/workflows"
   check
@@ -1686,6 +1755,70 @@ fn extra() {}
 EOF
   check
   assert_violation g 'crates/a/src/extra.rs:1: an expect names a lint group'
+}
+
+@test "(g) a suppression that names a rustc or rustdoc lint group is refused" {
+  local group
+  for group in deprecated_safe keyword_idents let_underscore refining_impl_trait rust_2018_compatibility \
+    rust_2021_compatibility rust_2024_compatibility unknown_or_malformed_diagnostic_attributes rustdoc::all; do
+    put crates/a/src/extra.rs <<EOF
+#[expect(${group}, reason = "fixture")]
+fn extra() {}
+EOF
+    echo "group ${group}"
+    check
+    assert_violation g 'crates/a/src/extra.rs:1: an expect names a lint group'
+  done
+}
+
+@test "(g) #![expect( in a binary crate root src/bin/<name>.rs is refused" {
+  put crates/a/src/bin/seed.rs <<'EOF'
+#![expect(dead_code, reason = "fixture")]
+fn main() {}
+EOF
+  check
+  assert_violation g 'crates/a/src/bin/seed.rs:1: #!\[expect\( in a crate root'
+}
+
+@test "(g) #![expect( in an integration-test crate root tests/<name>.rs is refused" {
+  put crates/a/tests/smoke.rs <<'EOF'
+#![expect(dead_code, reason = "fixture")]
+EOF
+  check
+  assert_violation g 'crates/a/tests/smoke.rs:1: #!\[expect\( in a crate root'
+}
+
+@test "(g) #![expect( in an example or bench crate root is refused" {
+  put crates/a/examples/demo.rs <<'EOF'
+#![expect(dead_code, reason = "fixture")]
+fn main() {}
+EOF
+  put crates/a/benches/speed.rs <<'EOF'
+#![expect(dead_code, reason = "fixture")]
+fn main() {}
+EOF
+  check
+  assert_violation g 'crates/a/examples/demo.rs:1: #!\[expect\( in a crate root'
+  assert_violation g 'crates/a/benches/speed.rs:1: #!\[expect\( in a crate root'
+}
+
+@test "(g) #![expect( in a module file below tests/<dir>/ or src/<dir>/ is accepted" {
+  put crates/a/tests/integration/support.rs <<'EOF'
+#![expect(dead_code, reason = "fixture")]
+EOF
+  put crates/a/src/graphql/schema.rs <<'EOF'
+#![expect(clippy::useless_let_if_seq, reason = "fixture")]
+EOF
+  put crates/a/src/bin/seed/helper.rs <<'EOF'
+#![expect(dead_code, reason = "fixture")]
+EOF
+  # A module directory named tests below src/ is no tests/ directory of the package.
+  put crates/a/src/aggregate/tests/cases.rs <<'EOF'
+#![expect(dead_code, reason = "fixture")]
+EOF
+  check
+  assert_success
+  assert_output ''
 }
 
 @test "(g) a suppression that names a lint group on a later line is refused" {
