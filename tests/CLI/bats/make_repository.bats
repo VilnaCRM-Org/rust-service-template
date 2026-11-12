@@ -524,7 +524,7 @@ template_sync_input_findings() {
     if [[ ! -e "${workflow}" ]] && sync_ignore_entries | grep -qxF -- "${workflow}"; then
       continue
     fi
-    [[ -f "${workflow}" ]] || fail "FR100: ${workflow} is missing and the sync ignore list does not name it"
+    [[ -f "${workflow}" ]] || fail "FR100(b): ${workflow} is missing and the sync ignore list does not name it"
     run template_sync_input_findings "${workflow}"
     assert_success
     [[ -z "${output}" ]] || findings="${findings}"$'\n'"${workflow}: ${output}"

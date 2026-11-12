@@ -129,7 +129,7 @@ Without the App and its secrets the release job succeeds with a notice and nothi
 
 ## Review App
 
-`.coderabbit.yaml` configures the CodeRabbit review bot with the request-changes workflow (`reviews.request_changes_workflow: true`: the bot approves the pull request only once its comments are resolved). The file takes effect only once the CodeRabbit GitHub App is installed on the repository or its organisation; without the App the file is inert, and no workflow step reads it.
+`.coderabbit.yaml` configures the CodeRabbit review bot with the request-changes workflow (`reviews.request_changes_workflow: true`: the bot approves the pull request only once its comments are resolved). The file takes effect only once the CodeRabbit GitHub App is installed on the repository or its organisation; without the App the file is inert: no workflow step acts on its settings. The job `lint-repo` lints it like every YAML file, and the FR97 test below, which runs in the job `bats-group` (group `surface`), pins its content.
 
 The file is the PHP template's `.coderabbit.yaml` unchanged (FR97). The test "FR97: .coderabbit.yaml is the PHP template file with the request-changes workflow" of `make_general.bats` fails when the file is missing, when the line `request_changes_workflow: true` is not under `reviews:`, or when the file's SHA-256 differs from that of the PHP template's file. Change the file only together with the PHP template, and the hash in the test with it.
 
