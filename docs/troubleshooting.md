@@ -10,7 +10,7 @@ Each section names a symptom and what to do about it.
 | --- | --- | --- |
 | `[MISSING] <tool>: needed by <targets>; <how to install>` | the tool is absent | install it as the line says, then run `make doctor` again |
 | `[MISSING] toolchain <version>: needed by every cargo target; run: rustup toolchain install <version>` | the toolchain pinned in `rust-toolchain.toml` is not installed, and rustup does not install it on its own (automatic installation is off) or could not install it (for example without network access) | run the command the line names, then `rustup component add llvm-tools-preview --toolchain <version>` for the coverage targets (see [Prerequisites](getting-started.md#prerequisites)) |
-| `[OUTDATED] <tool>: found <v>, need <v>` | the tool is older than the minimum, or differs from the pinned version | update it; for a pinned cargo tool run `make install` |
+| `[OUTDATED] <tool>: found <v>, need <v>; needed by <targets>; <how to install>` | the tool is older than the minimum, or differs from the pinned version | update it; for a pinned cargo tool run `make install` |
 | `[OPTIONAL] <tool>` | only some targets need it (for example npm for the `bmalph-*` targets) | ignore it unless you use those targets |
 | `[SKIP] …` | container mode skips the toolchain checks | none; this is expected with `RUN_IN_CONTAINER=1` |
 

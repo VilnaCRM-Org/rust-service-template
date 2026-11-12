@@ -151,6 +151,9 @@ run_hook() {
 }
 
 @test "scripts/doctor.sh checks the make named by MAKE_COMMAND, not the one on PATH" {
+  local outdated
+  outdated='[OUTDATED] make: found 3.81, need 4.0; needed by every target; install GNU Make 4.0 or newer (on macOS: brew'
+  outdated+=" install make, then run gmake or put \$(brew --prefix)/opt/make/libexec/gnubin first on PATH)"
   mkdir -p "${tmp}/bin"
   printf '#!/bin/sh\necho "GNU Make 3.81"\n' >"${tmp}/bin/make"
   printf '#!/bin/sh\necho "GNU Make 3.81"\n' >"${tmp}/bin/oldmake"
@@ -160,14 +163,14 @@ run_hook() {
   PATH="${tmp}/bin:${PATH}" MAKE_COMMAND="${tmp}/bin/gmake" run scripts/doctor.sh
   assert_success
   assert_line '[OK] make 4.3'
-  # The same old make named explicitly is reported, with the macOS hint.
+  # The same old make named explicitly is reported with its targets and the macOS hint.
   MAKE_COMMAND="${tmp}/bin/oldmake" run scripts/doctor.sh
   assert_failure 1
-  assert_line --partial '[OUTDATED] make: found 3.81, need 4.0'
+  assert_line "${outdated}"
   # Without the variable the make on PATH is checked.
   PATH="${tmp}/bin:${PATH}" run scripts/doctor.sh
   assert_failure 1
-  assert_line --partial '[OUTDATED] make: found 3.81, need 4.0'
+  assert_line "${outdated}"
   MAKE_COMMAND="${tmp}/bin/missing" run scripts/doctor.sh
   assert_failure 1
   assert_line --partial '[MISSING] make: needed by every target; install GNU Make 4.0 or newer (on macOS: brew install make'
@@ -231,6 +234,25 @@ run_hook() {
   refute_output --partial '[MISSING] toolchain'
 }
 
+@test "doctor: an installed toolchain that differs from the pin is reported with its targets and the install command" {
+  local channel
+  channel="$(sed -n 's/^channel[[:space:]]*=[[:space:]]*"\(.*\)"/\1/p' rust-toolchain.toml | head -n 1)"
+  [[ -n "${channel}" ]]
+  [[ "${channel}" != 1.0.0 ]]
+  mkdir -p "${tmp}/bin"
+  printf '#!/bin/sh\necho "rustup 1.28.2 (e4f3ad6f8 2025-04-28)"\n' >"${tmp}/bin/rustup"
+  printf '#!/bin/sh\nexit 0\n' >"${tmp}/bin/cargo"
+  # A rustc that answers with another version than the pin (an override, or a rustc that is no rustup proxy).
+  printf '#!/bin/sh\necho "rustc 1.0.0 (00000000 2015-05-15)"\n' >"${tmp}/bin/rustc"
+  chmod +x "${tmp}/bin/rustup" "${tmp}/bin/cargo" "${tmp}/bin/rustc"
+  # The container mode of the caller (RUN_IN_CONTAINER=1) would skip the toolchain check; the test is about the host.
+  PATH="${tmp}/bin:${PATH}" RUN_IN_CONTAINER='' run scripts/doctor.sh --prerequisites
+  assert_failure 1
+  assert_line "[OUTDATED] toolchain: found 1.0.0, need ${channel}; needed by every cargo target; run: rustup toolchain install ${channel}"
+  refute_output --partial '[OK] cargo, toolchain'
+  refute_output --partial '[MISSING] toolchain'
+}
+
 @test "scripts/doctor.sh checks cocogitto at the pinned version that make_release.bats needs" {
   local pinned
   pinned="$(pinned_value COCOGITTO_VERSION)"
@@ -243,7 +265,7 @@ run_hook() {
   # The container mode of the caller (RUN_IN_CONTAINER=1) would skip the cargo tools; the test is about the host.
   PATH="${tmp}/bin:${PATH}" RUN_IN_CONTAINER='' run scripts/doctor.sh
   assert_failure 1
-  assert_line "[OUTDATED] cocogitto: found 6.5.0, need ${pinned}"
+  assert_line "[OUTDATED] cocogitto: found 6.5.0, need ${pinned}; needed by bats (make_release.bats); run: make install"
   printf '#!/bin/sh\necho "cog %s"\n' "${pinned}" >"${tmp}/bin/cog"
   PATH="${tmp}/bin:${PATH}" RUN_IN_CONTAINER='' run scripts/doctor.sh
   assert_line "[OK] cocogitto ${pinned}"
