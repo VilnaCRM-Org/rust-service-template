@@ -55,6 +55,66 @@ run_hook() {
   assert_equal "${missing}" ""
 }
 
+@test "FR62: the 42 PHP target names are targets of make help" {
+  # The 42 names of prd.md FR62, in its order: the targets of the PHP template that keep their name and capability.
+  local names=(
+    help start up build stop down sh logs new-logs purge clean install update setup-test-db setup-load-test-db
+    validate-configuration check-requirements check-security unit-tests integration-tests all-tests test bats
+    tests-with-coverage coverage-html coverage-xml generate-openapi-spec generate-graphql-spec validate-openapi-spec
+    openapi-diff schemathesis-validate smoke-load-tests average-load-tests stress-load-tests spike-load-tests load-tests
+    execute-load-tests-script aws-load-tests aws-load-tests-cleanup ci all ci-sequential
+  )
+  local helped name missing=''
+  assert_equal "${#names[@]}" 42
+  assert_equal "$(printf '%s\n' "${names[@]}" | sort | uniq -d)" ''
+  run --separate-stderr make --no-print-directory help
+  assert_success
+  # The first column of every line of standard output after the three header lines is a target name.
+  helped="$(awk 'NR > 3 {print $1}' <<<"${output}")"
+  [[ -n "${helped}" ]] || fail 'make help printed no targets'
+  for name in "${names[@]}"; do
+    grep -qxF -- "${name}" <<<"${helped}" || missing="${missing} ${name}"
+  done
+  [[ -z "${missing}" ]] || fail "FR62: PHP target names missing from make help:${missing}"
+}
+
+@test "FR55(a): features/health_check.feature is the PHP template file" {
+  # The SHA-256 of features/health_check.feature of the PHP template. The end-to-end gate runs that file unmodified
+  # (FR55(a), NFR30), so it changes only together with the PHP template; a service adds scenarios in a file of its own.
+  local file=features/health_check.feature expected=0ab4c4a9555c85800eeafd6136a368ed634a1166bb4d3190f43e7bc66bdb2818
+  local actual reason
+  reason="FR55(a), NFR30: ${file} must stay identical to the PHP template's file and changes only together with it"
+  [[ -f "${file}" ]] || fail "${reason}; the file is missing"
+  if command -v sha256sum >/dev/null 2>&1; then
+    actual="$(sha256sum "${file}" | cut -d ' ' -f 1)"
+  else
+    actual="$(shasum -a 256 "${file}" | cut -d ' ' -f 1)"
+  fi
+  [[ "${actual}" == "${expected}" ]] || fail "${reason}; its sha256 is ${actual}, the PHP file's is ${expected}"
+}
+
+@test "FR97: .coderabbit.yaml is the PHP template file with the request-changes workflow" {
+  # The CodeRabbit configuration of FR97 enables the request-changes workflow (`request_changes_workflow: true` under
+  # `reviews:`) and is the PHP template's .coderabbit.yaml, whose SHA-256 is below. The review App reads the file
+  # outside every workflow, so no other gate notices a missing file or another value.
+  local file=.coderabbit.yaml expected=f48b563190bff75997715046c487790732c2331e5206b2985a30c41641e78641
+  local actual reason setting='reviews.request_changes_workflow: true'
+  reason="FR97: ${file} must stay identical to the PHP template's file and changes only together with it"
+  [[ -f "${file}" ]] || fail "FR97: ${file} is missing"
+  awk '
+    /^reviews:$/ { inside = 1; next }
+    /^[^[:space:]#]/ { inside = 0 }
+    inside && /^  request_changes_workflow: true$/ { found = 1 }
+    END { exit !found }' "${file}" ||
+    fail "FR97: ${file} must set ${setting} (the line '  request_changes_workflow: true' under 'reviews:')"
+  if command -v sha256sum >/dev/null 2>&1; then
+    actual="$(sha256sum "${file}" | cut -d ' ' -f 1)"
+  else
+    actual="$(shasum -a 256 "${file}" | cut -d ' ' -f 1)"
+  fi
+  [[ "${actual}" == "${expected}" ]] || fail "${reason}; its sha256 is ${actual}, the PHP file's is ${expected}"
+}
+
 @test "make doctor passes and prints the platform line first" {
   run make --no-print-directory doctor
   assert_success
@@ -151,6 +211,9 @@ run_hook() {
 }
 
 @test "scripts/doctor.sh checks the make named by MAKE_COMMAND, not the one on PATH" {
+  local outdated
+  outdated='[OUTDATED] make: found 3.81, need 4.0; needed by every target; install GNU Make 4.0 or newer (on macOS: brew'
+  outdated+=" install make, then run gmake or put \$(brew --prefix)/opt/make/libexec/gnubin first on PATH)"
   mkdir -p "${tmp}/bin"
   printf '#!/bin/sh\necho "GNU Make 3.81"\n' >"${tmp}/bin/make"
   printf '#!/bin/sh\necho "GNU Make 3.81"\n' >"${tmp}/bin/oldmake"
@@ -160,14 +223,14 @@ run_hook() {
   PATH="${tmp}/bin:${PATH}" MAKE_COMMAND="${tmp}/bin/gmake" run scripts/doctor.sh
   assert_success
   assert_line '[OK] make 4.3'
-  # The same old make named explicitly is reported, with the macOS hint.
+  # The same old make named explicitly is reported with its targets and the macOS hint.
   MAKE_COMMAND="${tmp}/bin/oldmake" run scripts/doctor.sh
   assert_failure 1
-  assert_line --partial '[OUTDATED] make: found 3.81, need 4.0'
+  assert_line "${outdated}"
   # Without the variable the make on PATH is checked.
   PATH="${tmp}/bin:${PATH}" run scripts/doctor.sh
   assert_failure 1
-  assert_line --partial '[OUTDATED] make: found 3.81, need 4.0'
+  assert_line "${outdated}"
   MAKE_COMMAND="${tmp}/bin/missing" run scripts/doctor.sh
   assert_failure 1
   assert_line --partial '[MISSING] make: needed by every target; install GNU Make 4.0 or newer (on macOS: brew install make'
@@ -231,19 +294,58 @@ run_hook() {
   refute_output --partial '[MISSING] toolchain'
 }
 
-@test "no Bats file calls host jq or python3 outside a test guarded by require_command" {
-  local found
-  # A chunk is a test or a function. A call of one of the tools in a chunk without `require_command <tool>` is
-  # reported with file and line: the suite must run on a host with the documented prerequisites only (NFR37), and
-  # JSON is read with json_query of the helper instead. A call counts after any character that cannot be part of a
-  # name: a blank, an operator, a quote (bash -c 'jq ...'), a backquote or a path (/usr/bin/jq).
-  found="$(awk -v 'tools=jq,python3,python' '
+@test "doctor: an installed toolchain that differs from the pin is reported with its targets and the install command" {
+  local channel
+  channel="$(sed -n 's/^channel[[:space:]]*=[[:space:]]*"\(.*\)"/\1/p' rust-toolchain.toml | head -n 1)"
+  [[ -n "${channel}" ]]
+  [[ "${channel}" != 1.0.0 ]]
+  mkdir -p "${tmp}/bin"
+  printf '#!/bin/sh\necho "rustup 1.28.2 (e4f3ad6f8 2025-04-28)"\n' >"${tmp}/bin/rustup"
+  printf '#!/bin/sh\nexit 0\n' >"${tmp}/bin/cargo"
+  # A rustc that answers with another version than the pin (an override, or a rustc that is no rustup proxy).
+  printf '#!/bin/sh\necho "rustc 1.0.0 (00000000 2015-05-15)"\n' >"${tmp}/bin/rustc"
+  chmod +x "${tmp}/bin/rustup" "${tmp}/bin/cargo" "${tmp}/bin/rustc"
+  # The container mode of the caller (RUN_IN_CONTAINER=1) would skip the toolchain check; the test is about the host.
+  PATH="${tmp}/bin:${PATH}" RUN_IN_CONTAINER='' run scripts/doctor.sh --prerequisites
+  assert_failure 1
+  assert_line "[OUTDATED] toolchain: found 1.0.0, need ${channel}; needed by every cargo target; run: rustup toolchain install ${channel}"
+  refute_output --partial '[OK] cargo, toolchain'
+  refute_output --partial '[MISSING] toolchain'
+}
+
+@test "scripts/doctor.sh checks cocogitto at the pinned version that make_release.bats needs" {
+  local pinned
+  pinned="$(pinned_value COCOGITTO_VERSION)"
+  [[ -n "${pinned}" ]]
+  mkdir -p "${tmp}/bin"
+  # Stand-ins first on PATH: cargo exists (the cargo tools are checked only then) and cog prints another version.
+  printf '#!/bin/sh\nexit 0\n' >"${tmp}/bin/cargo"
+  printf '#!/bin/sh\necho "cog 6.5.0"\n' >"${tmp}/bin/cog"
+  chmod +x "${tmp}/bin/cargo" "${tmp}/bin/cog"
+  # The container mode of the caller (RUN_IN_CONTAINER=1) would skip the cargo tools; the test is about the host.
+  PATH="${tmp}/bin:${PATH}" RUN_IN_CONTAINER='' run scripts/doctor.sh
+  assert_failure 1
+  assert_line "[OUTDATED] cocogitto: found 6.5.0, need ${pinned}; needed by bats (make_release.bats); run: make install"
+  printf '#!/bin/sh\necho "cog %s"\n' "${pinned}" >"${tmp}/bin/cog"
+  PATH="${tmp}/bin:${PATH}" RUN_IN_CONTAINER='' run scripts/doctor.sh
+  assert_line "[OK] cocogitto ${pinned}"
+  refute_output --partial '] cocogitto: '
+}
+
+# Prints every call of host jq, python3 or python in the given Bats files that stands in a chunk (a test or a
+# function) without `require_command <tool>`, as <file>:<line>: <text>: the suite must run on a host with the
+# documented prerequisites only (NFR37), and JSON is read with json_query of the helper instead. A call is the
+# name after any character that cannot be part of a name (a blank, an operator, a quote as in bash -c 'jq ...', a
+# backquote or a path as in /usr/bin/jq) and before a blank, the end of the line, `)`, `;`, `|`, `&`, a quote or
+# a backquote (`$(... | jq)`, `jq;`). The names end the list with a comma, so the list itself is no call.
+host_tool_calls() {
+  awk '
     function flush(   i) {
       for (i = 1; i <= n; i++) if (!(pending_tool[i] in guarded)) print pending_where[i]
       n = 0
       split("", guarded)
     }
-    BEGIN { count = split(tools, tool, ",") }
+    BEGIN { count = split("jq,python3,python,", tool, ",") - 1 }
     FNR == 1 { flush() }
     /^@test / || /^[A-Za-z_][A-Za-z0-9_]*\(\)[[:space:]]*\{/ { flush(); next }
     /^[[:space:]]*#/ { next }
@@ -251,7 +353,7 @@ run_hook() {
       for (t = 1; t <= count; t++) {
         if (index($0, "require_command " tool[t]) > 0) {
           guarded[tool[t]] = 1
-        } else if ($0 ~ ("(^|[^[:alnum:]_.-])" tool[t] "([[:space:]]|$)")) {
+        } else if ($0 ~ ("(^|[^[:alnum:]_.-])" tool[t] "([[:space:]);|&\047\042\140]|$)")) {
           n++
           pending_tool[n] = tool[t]
           pending_where[n] = FILENAME ":" FNR ": " $0
@@ -259,8 +361,23 @@ run_hook() {
       }
     }
     END { flush() }
-  ' tests/CLI/bats/*.bats tests/CLI/bats/*.bash)"
-  assert_equal "${found}" ''
+  ' "$@"
+}
+
+@test "no Bats file calls host jq or python3 outside a test guarded by require_command" {
+  run host_tool_calls tests/CLI/bats/*.bats tests/CLI/bats/*.bash
+  assert_success
+  assert_output ''
+}
+
+@test "the scan for host jq and python3 reports every call form of its synthetic cases and nothing else" {
+  local fixture=tests/CLI/bats/fixtures/host_tool_calls.bats.txt expected
+  # The lines that must be reported end with the marker `# call`; every other line must not be reported.
+  expected="$(grep -n ' # call$' "${fixture}" | sed "s|^\([0-9]*\):|${fixture}:\1: |")"
+  [[ "$(grep -c ' # call$' "${fixture}")" -ge 12 ]]
+  run host_tool_calls "${fixture}"
+  assert_success
+  assert_output "${expected}"
 }
 
 # --- the assistant hook -------------------------------------------------------------------------------------------
@@ -480,6 +597,20 @@ PROBE
   # A denied spelling must not also be allowed or only asked about.
   run jq -r '[.permissions.allow[], .permissions.ask[]] | map(select(test("^Bash\\(git (commit|push|-c|config)"))) | .[]' .claude/settings.json
   assert_output ''
+}
+
+@test "every target of make ci-list runs without a prompt" {
+  require_command jq
+  local target missing=''
+  run make --no-print-directory ci-list
+  assert_success
+  [[ -n "${output}" ]]
+  # FR111: the assistant runs each gate of the verification list without a prompt.
+  for target in ${output}; do
+    jq -e --arg entry "Bash(make ${target}:*)" '.permissions.allow | index($entry) != null' .claude/settings.json >/dev/null \
+      || missing+=" ${target}"
+  done
+  assert_equal "${missing}" ''
 }
 
 @test "require_command skips with a reason" {

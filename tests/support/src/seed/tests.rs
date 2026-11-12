@@ -35,6 +35,29 @@ fn from_env_is_reproducible_and_reports_its_seed() {
 }
 
 #[test]
+fn a_usable_value_of_the_variable_is_the_seed() {
+    assert_eq!(TestRng::from_raw_seed(Some(" 42\n")).seed(), 42);
+}
+
+#[test]
+fn an_unusable_value_of_the_variable_panics_with_the_message_that_names_it() {
+    for (raw, expected) in [
+        (
+            None,
+            "TEST_SEED is not set; run through cargo or set TEST_SEED=<unsigned integer>",
+        ),
+        (Some("abc"), "TEST_SEED must be an unsigned 64-bit integer"),
+    ] {
+        let payload = std::panic::catch_unwind(|| TestRng::from_raw_seed(raw)).unwrap_err();
+
+        assert_eq!(
+            payload.downcast_ref::<String>().map(String::as_str),
+            Some(expected)
+        );
+    }
+}
+
+#[test]
 fn parses_an_unsigned_integer() {
     assert_eq!(parse_seed(Some("42")), Ok(42));
     assert_eq!(parse_seed(Some(" 7\n")), Ok(7));

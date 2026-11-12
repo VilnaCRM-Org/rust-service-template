@@ -41,9 +41,12 @@ RUN --mount=type=secret,id=github_token,env=GITHUB_TOKEN \
  && /tmp/tooling/scripts/install-bats.sh --prefix /opt/bats \
  && rm -rf /tmp/tooling "${CARGO_HOME}/registry"
 # Any uid may use the image: cargo state, the home directory and the build directory are world-writable
-# mount points outside /app, so nothing is created in a bind-mounted checkout.
+# mount points outside /app, so nothing is created in a bind-mounted checkout. The home directory has no sticky
+# bit: the common-utils feature of .devcontainer/ appends as root to the .bashrc it gave the user there, which
+# fs.protected_regular (set on hosted runners) refuses in a sticky world-writable directory owned by root.
 RUN mkdir -p /cargo /home/dev /cargo-target \
- && chmod 1777 /cargo /home/dev /cargo-target
+ && chmod 1777 /cargo /cargo-target \
+ && chmod 0777 /home/dev
 ENV CARGO_INCREMENTAL=1 \
     CARGO_HOME=/cargo \
     CARGO_TARGET_DIR=/cargo-target \

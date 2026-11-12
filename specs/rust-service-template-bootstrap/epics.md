@@ -252,7 +252,7 @@ How to read a story:
 - No community starter template is used (architecture "Starter Template Evaluation"): Story 1.1 creates the workspace by hand from the architecture.
 - No UX design document exists: the product has no user interface beyond the API documentation page and the development-only GraphQL explorer, both covered by FR8 and FR9.
 - Corrections of the architecture validation round that the stories apply: a create whose event publication fails after the save returns 201 and logs the failure; a forced end of the shutdown grace period exits non-zero; coverage counts the unit and integration suites only; every port trait has `Debug` as a supertrait; tests that spawn a binary forward `LLVM_PROFILE_FILE`; mutation runs unset `CARGO_BUILD_WARNINGS` and the shard count scales with the mutant count; the development stack creates no root-owned `./target`; the scaffolder refreshes the lock file; `service --help` hides environment values.
-- Corrections of the two architecture revisions that this version of the stories applies: no 409 and only two GraphQL error codes; page numbers without an upper bound; one K6 scenario (`health`) with the NFR1 ceilings as budgets; six Bats groups in sixteen files and no second passing run of a gate in the suite; `scripts/ci/mutation-plan.sh` with one shard per 150 mutants; the seeds `TEST_SEED` and `PROPTEST_RNG_SEED` recorded in `.cargo/config.toml`; the build directory of the development image at `/cargo-target`; the read-only static-analysis job with a separate upload job; no end-to-end JUnit file, no `migrate status`, no `docs/php-to-rust.md` and no `scripts/wait-for-service.sh`.
+- Corrections of the two architecture revisions that this version of the stories applies: no 409 and only two GraphQL error codes; page numbers without an upper bound; one K6 scenario (`health`) with the NFR1 ceilings as budgets; six Bats groups in eighteen files and no second passing run of a gate in the suite; `scripts/ci/mutation-plan.sh` with one shard per 150 mutants; the seeds `TEST_SEED` and `PROPTEST_RNG_SEED` recorded in `.cargo/config.toml`; the build directory of the development image at `/cargo-target`; the read-only static-analysis job with a separate upload job; no end-to-end JUnit file, no `migrate status`, no `docs/php-to-rust.md` and no `scripts/wait-for-service.sh`.
 - The stories are scheduled with one git worktree per story; section "Implementation Order and Parallel Tracks" states the waves, the rules for concurrent execution and the exclusive resources.
 - Model allocation (scope-decisions section 9): each story is implemented by one agent in one session and verified by an independent agent that runs the acceptance criteria.
 
@@ -489,7 +489,7 @@ Gates:
 - **Epic 6: Example Bounded Context** (Stories 6.1 to 6.4). The `ExampleApiResource` slice: domain, use cases, REST and GraphQL adapters, PostgreSQL repository. Requirements: FR19 to FR24, FR31, FR121.
 - **Epic 7: Service Runtime and Composition Root** (Stories 7.1 to 7.7). The binary and its commands, configuration, HTTP surface, contract snapshots, composition root, graceful shutdown, an early conformance run and the Gherkin suite. Requirements: FR1 to FR5, FR8 to FR12, FR18, FR55 to FR57, FR71 to FR73, FR126.
 - **Epic 8: AI Guidance and Documentation** (Stories 8.1 to 8.8). Entry files, skills, settings, bmalph integration, README and policies, in-repository documents, planning bundle. Requirements: FR97, FR101, FR104 to FR109, FR111 to FR118.
-- **Epic 9: Every Gate Proven Locally** (Stories 9.1 to 9.11). Isolated production-image stack with Schemathesis and smoke load, coverage, mutation testing, the Bats suite in sixteen files, the invariants and documentation-drift gates. Requirements: FR58, FR59, FR67, FR76, FR77, FR84, FR110, FR124, FR125.
+- **Epic 9: Every Gate Proven Locally** (Stories 9.1 to 9.11). Isolated production-image stack with Schemathesis and smoke load, coverage, mutation testing, the Bats suite in eighteen files, the invariants and documentation-drift gates. Requirements: FR58, FR59, FR67, FR76, FR77, FR84, FR110, FR124, FR125.
 - **Epic 10: Hosted CI, Release and Maintenance Automation** (Stories 10.1 to 10.5). Eleven workflows, Dependabot, the template-sync ignore list, the full local gate run and the clean-clone verification. Requirements: FR49, FR66, FR68, FR93 to FR96, FR99, FR100.
 
 ## Epic 1: Workspace Foundation and Command Surface
@@ -528,7 +528,7 @@ Verify: `cargo metadata --locked --format-version 1 > /dev/null`; `cargo check -
 
 **Given** the committed configuration files
 **When** each is compared with its listing in the architecture
-**Then** `rust-toolchain.toml` pins channel `1.99.1` with `rustfmt`, `clippy` and `llvm-tools-preview`; `.cargo/config.toml` sets the `xtask` alias and `[env]` `SQLX_OFFLINE = "true"`, `TEST_SEED = "20261110"` and `PROPTEST_RNG_SEED = "20261110"`; `rustfmt.toml`, `clippy.toml`, `deny.toml`, `.cargo/mutants.toml`, `.config/nextest.toml` and `architecture.toml` equal their listings; exactly one `clippy.toml` exists in the tree
+**Then** `rust-toolchain.toml` pins channel `1.99.1` with `rustfmt`, `clippy` and `llvm-tools-preview`; `.cargo/config.toml` sets the `xtask` alias and `[env]` `SQLX_OFFLINE = "true"`, `TEST_SEED = "20261110"`, `PROPTEST_RNG_SEED = "20261110"` and `SWAGGER_UI_DOWNLOAD_URL = "vendored-only"` (FR8); `rustfmt.toml`, `clippy.toml`, `deny.toml`, `.cargo/mutants.toml`, `.config/nextest.toml` and `architecture.toml` equal their listings; exactly one `clippy.toml` exists in the tree
 
 **Given** `protected-config.toml`
 **When** it is read
@@ -632,7 +632,7 @@ So that non-Rust files meet one standard and each linter can fail.
 
 Track: C.
 Depends on: 1.2, 1.3.
-Owns: `.yamllint.yml`, `.markdownlint-cli2.yaml`, `.hadolint.yaml`, `.prettierrc.yml`, `.prettierignore`, `taplo.toml`, `_typos.toml`, `.github/zizmor.yml`, `tests/Load/package.json`, `tests/Load/pnpm-lock.yaml`, `tests/Load/eslint.config.js`, `tests/Load/.gitignore`.
+Owns: `.yamllint.yml`, `.markdownlint-cli2.yaml`, `.hadolint.yaml`, `.prettierrc.yml`, `.prettierignore`, `taplo.toml`, `_typos.toml`, `.github/zizmor.yml`, `tests/Load/package.json`, `tests/Load/pnpm-workspace.yaml`, `tests/Load/pnpm-lock.yaml`, `tests/Load/eslint.config.js`, `tests/Load/.gitignore`.
 Touches: the TOML files created by Story 1.1 (whitespace only, to match `taplo fmt`; no key or value changes); `README.md` (final newline) and `CLAUDE.md` (the three table separator rows of the section "BMAD-METHOD Integration" get three dashes per column, the form markdownlint accepts; no other byte changes); `Makefile` (the `PNPM_INSTALL` variable gains `--store-dir`, so the pnpm store stays outside the repository; recorded as a deviation).
 Implements: FR43, FR69, FR83, NFR25, NFR38, G23.
 Reference: architecture-delivery.md "Repository Lint and Hygiene" (tool table and every configuration listing), "Load Testing" ("JavaScript lint"), DD-22, "Command Surface" (targets `install`, `doctor`, `lint-repo`, `lint-actions`, `lint-yaml`, `lint-markdown`, `lint-shell`, `lint-docker`, `lint-toml`, `lint-spelling`, `lint-prettier`, `lint-load-tests`, `format-repo`), "Delivery Validation" ("Measurement items and readings of requirement wording": item 10).
@@ -884,7 +884,7 @@ Verify: `make lint-docker`; `make lint-yaml`; `make lint-prettier`; `make build-
 
 **Given** the four compose files
 **When** `docker compose config --quiet`, the isolated combination of the Verify line and `docker compose --env-file /dev/null -f docker-compose.yml -f docker-compose.prod.yml config` are run
-**Then** the first two exit 0 and the third exits non-zero with messages that name `DATABASE_URL` and `AWS_REGION`
+**Then** the first two exit 0 and the third exits non-zero with messages that name `DATABASE_URL`, `AWS_REGION` or both (depending on the Compose version it names every missing variable or stops at the first, in no fixed order)
 **And** the rendered isolated combination publishes only `${LOAD_TEST_APP_PORT:-18081}` on `127.0.0.1`, sets `APP_ENV` to `test` and publishes no database or LocalStack port, and the rendered production reference (with both variables set) shows `read_only: true`, `cap_drop: [ALL]`, `no-new-privileges:true`, CPU, memory and process limits and `restart: unless-stopped` for `app`
 
 **Given** no container of the project is running
@@ -893,7 +893,7 @@ Verify: `make lint-docker`; `make lint-yaml`; `make lint-prettier`; `make build-
 
 **Given** the development override
 **When** `docker compose config` is rendered
-**Then** `app` and `migrate` use the `dev` target and run as `${HOST_UID}:${HOST_GID}`; `app` sets `IN_DEV_CONTAINER=1`, `DB_HOST=database` and `LOCALSTACK_HOST=localstack` and its rendered environment holds no `APP_ENV`, `LOG_LEVEL`, `DATABASE_URL` or `AWS_ENDPOINT_URL_SQS`; `app` has no `command` (the image's watchexec `CMD` watches `crates`, `migrations`, `Cargo.toml` and `Cargo.lock`); the volume `cargo_target` is mounted at `/cargo-target` and no mount lies below `/app`; `app`, `database`, `localstack` and `structurizr` publish on `127.0.0.1`
+**Then** `app` and `migrate` use the `dev` target and run as `${HOST_UID}:${HOST_GID}`; `app` sets `IN_DEV_CONTAINER=1`, `DB_HOST=database`, `DB_PORT=5432`, `LOCALSTACK_HOST=localstack` and `LOCALSTACK_PORT=4566` and its rendered environment holds no `APP_ENV`, `LOG_LEVEL`, `DATABASE_URL` or `AWS_ENDPOINT_URL_SQS`; `app` has no `command` (the image's watchexec `CMD` watches `crates`, `migrations`, `Cargo.toml` and `Cargo.lock`); the volume `cargo_target` is mounted at `/cargo-target` and no mount lies below `/app`; `app`, `database`, `localstack` and `structurizr` publish on `127.0.0.1`
 **And** `HOST_UID=12345 HOST_GID=12345 DEV_IMAGE=<development image> docker compose run --rm --no-deps app sh -c 'id -u && touch /cargo-target/.probe /cargo/.probe && cargo metadata --locked --no-deps --format-version 1 > /dev/null'` prints `12345` and exits 0, and afterwards `find . -xdev -uid 12345 -not -path './.git/*' -print -quit` prints nothing: any user id can use the image and nothing is created in the checkout, in particular no `./target` owned by another user
 
 **Given** `.devcontainer/devcontainer.json`
@@ -998,7 +998,7 @@ Verify: `make lint-load-tests`; `make lint-shell`; `make lint-prettier`; `tests/
 
 **Given** `tests/Load/config.json.dist`
 **When** it is compared with the listing in "`config.json.dist`"
-**Then** it is equal: one endpoint `health`, the PHP load shapes (smoke 10 requests per second for 10 s with 5 virtual users; average 25; stress 150; spike 200), the budgets 500, 200, 1000 and 5000 ms of DD-25 and `delayBetweenScenarios` 60
+**Then** it is equal: one endpoint `health`, the PHP load shapes (smoke 10 requests per second for 10 s with 5 virtual users; average 25; stress 150; spike 200), the budgets 50, 200, 1000 and 5000 ms of DD-25 (smoke derived from the hosted measurement) and `delayBetweenScenarios` 60
 
 **Given** `scripts/health.js`
 **When** it is compared with the PHP file
@@ -1076,7 +1076,7 @@ Verify: `COMMIT_TITLE='feat(#12): add health endpoint' make check-commit-message
 **And** for each of `feat: add x`, `feat(api): add x`, `feature(#12): add x`, `feat(#12):missing space` and `chore(release): v1.2.0 [skip ci]` it exits 1 and prints `The commit message should be in the format: feat|fix|refactor|build|chore|ci|docs|style|perf|test(#1): description` and `got: <subject>`; with neither `COMMIT_TITLE` nor `COMMIT_MSG_FILE` set it exits 2
 
 **Given** hook mode (`COMMIT_MSG_FILE` pointing at a message file)
-**When** the first non-comment line starts with `Merge `, `Revert "`, `fixup! `, `squash! ` or `amend! `
+**When** the first non-comment line starts with `Merge `, `Revert "`, `Reapply "`, `fixup! `, `squash! ` or `amend! `
 **Then** the script exits 0 without checking the pattern, and a non-matching ordinary subject still exits 1
 
 **Given** `make install-hooks` was run in a clone
@@ -1084,7 +1084,7 @@ Verify: `COMMIT_TITLE='feat(#12): add health endpoint' make check-commit-message
 **Then** the value is `.githooks`; each hook is an executable POSIX shell file that chooses the GNU Make to run (`$MAKE` when it is set, else `gmake` when it exists, else `make`) and calls only that make (`check-commit-message`, `pre-commit`, `pre-push`)
 **And** `make -n pre-commit` shows `format-check`, `lint-code`, `architecture`, `check-security-offline` and `unused-dependencies` and no target that needs a container or the network, and `make -n pre-push` shows `unit-tests`
 
-**Given** a temporary clone of the repository with a local bare remote, cocogitto 7.0.0 and a stub `gh` on `PATH`, and one new commit `feat(#1): first feature` (cocogitto is not installed by `make install`; where `cog --version` does not print `cog 7.0.0`, the story and the verifier install it with `cargo install cocogitto --version 7.0.0 --locked --root "$(mktemp -d)"` and put that `bin` first on `PATH`)
+**Given** a temporary clone of the repository with a local bare remote, cocogitto 7.0.0 and a stub `gh` on `PATH`, and one new commit `feat(#1): first feature` (`make install` installs cocogitto at `COCOGITTO_VERSION` of `make/tool-versions.mk` through `scripts/install-tools.sh`; `tests/CLI/bats/make_release.bats` runs these cases in such a clone)
 **When** `scripts/release.sh` is run in it
 **Then** it exits 0; the head of `main` on the remote has the subject `chore(release): v0.1.0 [skip ci]`; tag `v0.1.0` points to that commit; `CHANGELOG.md` contains a heading `## v0.1.0 (` with `### Features` and keeps its header; `Cargo.toml` and `Cargo.lock` state the version and `cargo metadata --locked` succeeds; the stub `gh` was called with `release create v0.1.0`
 **And** in a clone without any `v*` tag whose only new commit is `fix(#1): first fix`, `scripts/release.sh` also releases `v0.1.0` (the manifest version), and `scripts/release.sh --version 1.0.0` releases `v1.0.0`
@@ -1116,11 +1116,11 @@ Verify: `make validate-architecture-model`; `make lint-shell`; `git status --por
 
 **Given** `workspace.dsl` at the repository root
 **When** `make validate-architecture-model` is run
-**Then** it exits 0: the Structurizr image pinned in `make/tool-versions.mk` parses the file, the JSON export under `target/reports/structurizr/` contains `systemContextViews`, `containerViews` and `componentViews`, and the names of the elements shown in the component view, read from the export, equal the workspace crates that `cargo tree --locked --workspace --depth 0 --prefix none` lists on the script's standard input, minus `xtask`, `test-support` and `e2e-tests` (ten components)
+**Then** it exits 0: the Structurizr image pinned in `make/tool-versions.mk` parses the file, the JSON export under `target/reports/structurizr/` contains `systemContextViews`, `containerViews` and `componentViews`, and the names of the elements shown in the component view, read from the export, equal the workspace crates that `cargo tree --locked --workspace --depth 0 --prefix none` lists on the script's standard input, minus `xtask`, `test-support` and `e2e-tests` (ten components), and every workspace-internal dependency between two modelled crates has a relationship in the model (`architecture model OK: 10 components match the workspace crates; every dependency between them has a relationship`)
 
 **Given** the component `some-module-infrastructure` temporarily removed from `workspace.dsl`
 **When** `make validate-architecture-model` is run
-**Then** it exits non-zero and names the missing component; with a line that does not parse appended instead, it exits non-zero with the parser's error; `git checkout -- workspace.dsl` restores the file. The remaining rule kinds (each view kind missing, an extra component, a component excluded from the component view) are tested at script level in `check_architecture_model.bats` (Story 9.10)
+**Then** it exits non-zero and names the missing component; with a line that does not parse appended instead, it exits non-zero with the parser's error; `git checkout -- workspace.dsl` restores the file. The remaining rule kinds (each view kind missing, an extra component, a component excluded from the component view, a dependency between two modelled crates without a relationship) are tested at script level in `check_architecture_model.bats` (Story 9.10)
 
 **Given** the model
 **When** it is read
@@ -1937,7 +1937,7 @@ Verify: `cmp features/health_check.feature ${PHP_TEMPLATE_DIR}/features/health_c
 
 **Given** a temporary feature file with the step `Given something nobody implemented` planted under `features/`
 **When** `make e2e-tests` is run
-**Then** it exits non-zero and reports the step as unmatched (`fail_on_skipped`); after the file is removed the target exits 0
+**Then** it exits non-zero and reports the step as unmatched (`fail_on_skipped_with`, which also fails a skipped step in a scenario tagged `@allow.skipped`); after the file is removed the target exits 0
 
 **Given** the workspace
 **When** `cargo nextest run --locked --workspace --lib --bins` is run
@@ -2076,7 +2076,7 @@ Owns: `README.md` (existing one-line file, replaced), `CONTRIBUTING.md`, `SECURI
 Touches: none.
 Implements: FR97, FR113, FR114, FR115, FR116, NFR46, NFR47.
 Reference: architecture-delivery.md "AI Guidance and Documentation" ("Human documentation": rows `README.md`, `CONTRIBUTING.md`, `SECURITY.md`; the badge and licence paragraphs), "CI/CD Workflows" ("Dependabot, review bot and templates": `.coderabbit.yaml` and the template table), "Git Hooks and Commit Convention", DD-23; PRD assumption A-8.
-Verify: `make lint-markdown`; `make lint-yaml`; `make lint-prettier`; `make lint-spelling`; `cmp .coderabbit.yaml ${PHP_TEMPLATE_DIR}/.coderabbit.yaml`; `grep -n "TODO\|TBD\|example.com" SECURITY.md` (expected: no output).
+Verify: `make lint-markdown`; `make lint-yaml`; `make lint-prettier`; `make lint-spelling`; `cmp .coderabbit.yaml ${PHP_TEMPLATE_DIR}/.coderabbit.yaml`; `make bats BATS_ARGS="--filter FR97" BATS_PATH=tests/CLI/bats/make_general.bats`; `grep -n "TODO\|TBD\|example.com" SECURITY.md` (expected: no output).
 
 **Acceptance Criteria:**
 
@@ -2095,7 +2095,7 @@ Verify: `make lint-markdown`; `make lint-yaml`; `make lint-prettier`; `make lint
 
 **Given** the templates
 **When** they are read
-**Then** the bug report has label `bug` and asks for steps, expected and actual behaviour with status code, problem body, `x-request-id` and log lines, and environment, with no browser or device field; the feature request has label `enhancement`; the pull-request template has the checklist of the table; none contains an absolute link to a repository
+**Then** the bug report has label `bug` and asks for the endpoint (method and path), the request (headers and body, secrets removed), steps, expected and actual behaviour with status code, problem body, `x-request-id` and log lines, and environment, with no browser or device field; the feature request has label `enhancement`; the pull-request template has the checklist of the table; none contains an absolute link to a repository
 
 **Given** `.coderabbit.yaml`
 **When** it is compared with the PHP template's file
@@ -2416,7 +2416,7 @@ So that a gate which silently stops failing is detected.
 
 Track: E.
 Depends on: 2.4, 7.6, 7.7, 9.4.
-Owns: `tests/CLI/bats/make_quality_gates.bats`, `tests/CLI/bats/fixtures/badly_formatted.rs.txt`, `tests/CLI/bats/fixtures/unwrap_used.rs.txt`, `tests/CLI/bats/fixtures/banned_api.rs.txt`, `tests/CLI/bats/fixtures/too_many_arguments.rs.txt`, `tests/CLI/bats/fixtures/deny_no_licences.toml.txt`, `tests/CLI/bats/fixtures/deny_no_registries.toml.txt`, `tests/CLI/bats/fixtures/isolation_violation.rs.txt`.
+Owns: `tests/CLI/bats/make_quality_gates.bats`, `tests/CLI/bats/fixtures/badly_formatted.rs.txt`, `tests/CLI/bats/fixtures/unwrap_used.rs.txt`, `tests/CLI/bats/fixtures/banned_api.rs.txt`, `tests/CLI/bats/fixtures/too_many_arguments.rs.txt`, `tests/CLI/bats/fixtures/unused_import_in_test.rs.txt`, `tests/CLI/bats/fixtures/unsafe_block.rs.txt`, `tests/CLI/bats/fixtures/isolation_violation.rs.txt`.
 Touches: none.
 Implements: FR67, FR124, NFR21, NFR23, NFR28, G1, G2, G3, G4, G5, G6, G7, G8, G25, G29.
 Reference: architecture-delivery.md "CLI Tests (Bats)" (row `make_quality_gates.bats`), DD-02 (no second passing run of a gate), DD-07 (plants in the leaf crate `xtask`; test hooks `ARCH_ARGS`, `DENY_ARGS`); architecture.md "Quality Gates" ("Gate commands": the paragraph "Negative tests (NFR21)").
@@ -2439,7 +2439,7 @@ Verify: `make bats BATS_PATH=tests/CLI/bats/make_quality_gates.bats`; `make unus
 **Then** `validate-manifest` fails mentioning `--locked`, `check-requirements` fails with the status 2 of the command and names `DATABASE_URL`, and `unused-dependencies` exits non-zero naming the dependency and leaves the lock file as it found it
 
 **Given** the three negative tests for G7, one per policy
-**When** `deny.toml` is replaced by the fixture with an empty licence allow-list, by the fixture with `allow-registry = []`, and `DENY_ARGS` points at a project generated at test time whose lock file holds a crate version with a published advisory
+**When** `deny.toml` is replaced by a variant derived from it at test time with an empty licence allow-list, by one with `allow-registry = []`, and `DENY_ARGS` points at a project generated at test time whose lock file holds a crate version with a published advisory
 **Then** `check-security` exits non-zero each time with the licence, source and advisory diagnostic respectively, and no vulnerable manifest is committed
 
 **Given** the negative tests for G29 and G25
@@ -2483,6 +2483,7 @@ Verify: `make bats BATS_PATH="tests/CLI/bats/make_tests.bats tests/CLI/bats/make
 **Given** the negative tests for G11, G12 and G13
 **When** a failing test is appended to `xtask/src/cli/tests.rs`, a failing test to `xtask/tests/integration/main.rs`, and a feature with an undefined step is planted under `features/`
 **Then** `unit-tests`, `integration-tests` and `e2e-tests` exit non-zero, the last with the report of the unmatched step (`Step doesn't match any function`)
+**And** with both failing tests appended at once, `tests-with-coverage` exits non-zero and names both tests
 
 **Given** the negative tests for G14, G15 and G30
 **When** the fixture function `planted` (`fixtures/uncovered_function.rs.txt`) is appended to `xtask/src/cli.rs`, and one file of `.sqlx/` is removed
@@ -2509,7 +2510,7 @@ So that the delivery gates and the hardening claims are proven by commands, not 
 
 Track: E.
 Depends on: 3.2, 3.3, 3.5, 9.1, 9.4.
-Owns: `tests/CLI/bats/make_contracts.bats`, `tests/CLI/bats/make_load_tests.bats`, `tests/CLI/bats/make_security.bats`, `tests/CLI/bats/fixtures/bad_load_script.js.txt`.
+Owns: `tests/CLI/bats/make_contracts.bats`, `tests/CLI/bats/make_load_tests.bats`, `tests/CLI/bats/make_security.bats`, `tests/CLI/bats/fixtures/bad_load_script.js.txt`, `tests/CLI/bats/fixtures/unformatted_load_script.js.txt`, `tests/CLI/bats/fixtures/image_listing_planted.txt`.
 Touches: none.
 Implements: FR67, FR85, FR91, NFR3, NFR12, NFR21, G9, G10, G17, G18, G19, G20, G21, G22, G24.
 Reference: architecture-delivery.md "CLI Tests (Bats)" (rows `make_contracts.bats`, `make_load_tests.bats`, `make_security.bats`), DD-07, DD-19, DD-21, "Containers and Compose" (the table "Facts that follow from the files"), "Delivery Validation" ("Measurement items and readings of requirement wording": item 9, the snapshot gate regenerates in place).
@@ -2529,7 +2530,7 @@ Verify: `make bats BATS_PATH="tests/CLI/bats/make_contracts.bats tests/CLI/bats/
 **Given** the load tests
 **When** they run
 **Then** `execute-load-tests-script scenario=health runAverage=false runStress=false runSpike=false` writes `health.html`, removes the isolated project and leaves the development containers unchanged; `aws-load-tests LOCAL_MODE_ENV=true` prints `Launched instance` and `You can access the S3 bucket here`, and `aws-load-tests-cleanup LOCAL_MODE_ENV=true` succeeds; after these runs `lint-prettier`, `lint-yaml` and `lint-toml` still pass
-**And** G22: `smoke-load-tests` with a local budget of `0.001` fails the thresholds and `smoke-health.html` is written; with the budget `-1`, `tests/Load/execute-load-test.sh health` prints `Invalid threshold value` before any request; `execute-load-tests-script` without `scenario` fails with usage and starts nothing; G24: the planted script with `console.log` and `==` fails `lint-load-tests`
+**And** G22: `smoke-load-tests` with a local budget of `0.001` fails the thresholds and `smoke-health.html` is written; with the budget `-1`, `tests/Load/execute-load-test.sh health` prints `Invalid threshold value` before any request; `execute-load-tests-script` without `scenario` fails with usage and starts nothing; G24: the planted script with `console.log` and `==` fails `lint-load-tests`, and so does a planted script that ESLint accepts but Prettier does not
 
 **Given** the security tests
 **When** they run
@@ -2537,7 +2538,7 @@ Verify: `make bats BATS_PATH="tests/CLI/bats/make_contracts.bats tests/CLI/bats/
 
 **Given** the production image and the rendered production reference
 **When** the inspection tests run
-**Then** the image runs as uid `65532`, has no `/bin/sh`, is at most 100 MiB and becomes healthy through its own healthcheck (interval 10 s, timeout 3 s, 3 retries, start period at most 30 s) with a read-only root and no capabilities; the rendered reference has resource limits, a read-only root file system, all capabilities dropped and `no-new-privileges`; rendering it with `--env-file /dev/null` fails and names `DATABASE_URL`
+**Then** the image runs as uid `65532`, has no `/bin/sh`, holds no shell, package manager, compiler or test file (its `docker export` listing, which has no file or link named `sh`, `ash`, `bash`, `dash`, `ksh`, `mksh`, `zsh`, `busybox` or `toybox` in any directory; NFR12), is at most 100 MiB and becomes healthy through its own healthcheck (interval 10 s, timeout 3 s, 3 retries, start period at most 30 s) with a read-only root and no capabilities; the rendered reference has resource limits, a read-only root file system, all capabilities dropped and `no-new-privileges`; rendering it with `--env-file /dev/null` fails and names each required variable, `DATABASE_URL` and `AWS_REGION`, with one of them unset at a time (a Compose version may stop at the first missing variable, and its order is not fixed)
 
 **Given** the run of the Verify line
 **When** its TAP output is read
@@ -2554,7 +2555,7 @@ Depends on: 9.4.
 Owns: `scripts/check-invariants.sh`, `tests/CLI/bats/check_invariants.bats`.
 Touches: none.
 Implements: FR92, FR125, NFR13, NFR14, NFR16, NFR22, NFR36, NFR38, NFR47, G31.
-Reference: architecture-delivery.md "Command Surface" (script row `check-invariants.sh` and the rule table (a) to (h); target `validate-invariants`), DD-02 (CI-only list), DD-04, DD-08, DD-20, DD-23, "CLI Tests (Bats)" (row `check_invariants.bats`), "Delivery Validation" ("Measurement items and readings of requirement wording": items 6 and 7).
+Reference: architecture-delivery.md "Command Surface" (script row `check-invariants.sh` and the rule table (a) to (h); target `validate-invariants`), DD-02 (CI-only list), DD-04, DD-08, DD-20, DD-23, "CLI Tests (Bats)" (row `check_invariants.bats`), "Delivery Validation" ("Measurement items and readings of requirement wording": items 6, 7 and 11).
 Pitfalls: PF-44, PF-64.
 Verify: `make bats BATS_PATH=tests/CLI/bats/check_invariants.bats`; `make lint-shell`; `make validate-invariants 2>&1 | grep -E '^\((b|c|e|f|g|h)\)'` (expected: no output).
 
@@ -2615,7 +2616,7 @@ Verify: `make docs-check` (expected: exit 0, or only the rule (3) lines that the
 
 **Given** rule (2), rule (5) and rule (6)
 **When** the script needs the command list, the variable list and the target list
-**Then** it reads the help texts that the recipe wrote through `$(EXEC)` to `target/reports/docs-check/` (`--service-help <dir>`) and starts no cargo command itself; rule (5) compares `docs/environment.md` with the union of: the variables in the help of `service serve`, `migrate` and `healthcheck`; the variables interpolated in the four compose files; the names in `.env` and `.env.test`; the `?=` variables of the `Makefile` and its two fragments; and the `[env]` keys of `.cargo/config.toml`; rule (6) accepts a target of `make/service.mk` that is documented in `docs/make-targets-service.md`
+**Then** it reads the help texts that the recipe wrote through `$(EXEC)` to `target/reports/docs-check/` (`--service-help <dir>`) and starts no cargo command itself; rule (5) compares `docs/environment.md` with the union of: the variables in the help of `service serve`, `migrate` and `healthcheck`; the variables interpolated in the four compose files and the variables that their top-level `secrets:` read with `environment:`; the names in `.env` and `.env.test`; the `?=` variables of the `Makefile` and its two fragments; and the `[env]` keys of `.cargo/config.toml`; rule (6) accepts a target of `make/service.mk` that is documented in `docs/make-targets-service.md`
 
 **Given** the skills
 **When** rule (7) runs on the repository
@@ -2644,7 +2645,7 @@ Verify: `make bats BATS_PATH="tests/CLI/bats/make_repository.bats tests/CLI/bats
 
 **Given** the negative tests for G23, one per linter
 **When** they plant a workflow with a syntax error, a workflow with `uses: actions/checkout@v7`, a YAML file with a duplicate key, a Markdown file with a skipped heading level, a script with an unquoted expansion, `DOCKERFILES` pointing at the fixture with `latest`, an unformatted TOML file, a misspelt word and a misspelt file name, and an unformatted JSON file
-**Then** `lint-repo` (or the matching `lint-*` target) exits non-zero each time with the finding of actionlint, zizmor, yamllint, markdownlint, shellcheck, hadolint, taplo, typos and Prettier respectively; the row has no passing-run test, because the passing run of `lint-repo` is the gate itself
+**Then** `lint-repo` (or the matching `lint-*` target) exits non-zero each time with the finding of actionlint, zizmor, yamllint, markdownlint, shellcheck, hadolint, taplo, typos and Prettier respectively; the row has no passing-run test, because the passing run of `lint-repo` is the gate itself; a dry run `make -n lint-repo` prints the command of each of the nine tools, so no linter can be dropped from `lint-repo` unnoticed
 
 **Given** the negative tests for G26, G27 and G31
 **When** `make no-such-target` is added to `README.md`, a line that does not parse (`fixtures/broken_relationship.dsl.txt`) is appended to `workspace.dsl`, and `rust-toolchain.toml` is set to another version
@@ -2728,7 +2729,7 @@ Verify: `make lint-actions`; `make lint-yaml`; `make lint-prettier`; `make lint-
 
 **Given** `quality.yml`
 **When** its jobs are compared with the job table
-**Then** it has one job per gate with the check names of the table (G1, G2, G3, G4, G5, G29, G30, G6, G7, G8), each gate step is a `make <target>` call, tools are installed with `taiki-e/install-action` at the versions of `make/tool-versions.mk` and `fallback: none` (`sqlx-cli` and `clippy-sarif` in a second step with `fallback: cargo-binstall`), and each Rust cache key is saved by one job on `main` only
+**Then** it has one job per gate with the check names of the table (G1, G2, G3, G4, G5, G29, G30, G6, G7, G8), each gate step is a `make <target>` call (in `crate-isolation` and `query-metadata` written to `target/<job>.log` through `tee` behind `set -o pipefail`, and followed by the count step of NFR40), tools are installed with `taiki-e/install-action` at the versions of `make/tool-versions.mk` and `fallback: none` (`sqlx-cli` and `clippy-sarif` in a second step with `fallback: cargo-binstall`), and each Rust cache key is saved by one job on `main` only
 **And** the `static-analysis` job holds a read-only token, runs `make static-analysis-sarif` with `if: ${{ !cancelled() }}` and stores `target/sarif/clippy.sarif` as artifact `clippy-sarif`; the job `clippy-sarif-upload` (`contents: read`, `security-events: write`) downloads it and uploads it with category `clippy`, also when the gate failed, and skips with the notice of block D on fork and Dependabot pull requests, when `CODE_SCANNING_ENABLED` is `false`, and when it is unset in a repository that is not public
 
 **Given** `tests.yml`
@@ -2803,7 +2804,7 @@ Verify: `make lint-actions`; `make lint-yaml`; `make lint-prettier`; `make lint-
 
 **Given** `scheduled.yml`
 **When** it is read
-**Then** it runs on cron `23 4 * * 1` and on `workflow_dispatch`, never cancels, and has the jobs `clean-bootstrap-ci` (clean checkout, no restored cache, `make bootstrap` then `make ci`, timeout 75), `mutation-plan`, `mutation-shard` and `mutation-tests` (the full run, shards sized by `scripts/ci/mutation-plan.sh`), `security-gates` (G7, G9, G10), `code-scanning` and `devcontainer-build` (`@devcontainers/cli` at `DEVCONTAINER_CLI_VERSION`); workflow `env` sets `TEST_SEED` and `PROPTEST_RNG_SEED` to `${{ github.run_id }}` and the jobs that run tests print both in their summary; every job ends with a step that writes the failing target and its last output lines to the job summary on failure
+**Then** it runs on cron `23 4 * * 1` and on `workflow_dispatch`, never cancels, and has the jobs `clean-bootstrap-ci` (clean checkout, no restored cache, `make bootstrap`, then `make stop` and a timed `make start` that fails above 60 s, then `make ci`, then the step `Require a clean working tree`, which fails when `git status --porcelain` is not empty (FR68), timeout 75), `mutation-plan`, `mutation-shard` and `mutation-tests` (the full run, shards sized by `scripts/ci/mutation-plan.sh`), `security-gates` (G7, G9, G10), `code-scanning` and `devcontainer-build` (`@devcontainers/cli` at `DEVCONTAINER_CLI_VERSION`: the build, the start with `postCreateCommand`, and `docker info`, `make format-check` and `make start-deps` inside the container, FR118); workflow `env` sets `TEST_SEED` and `PROPTEST_RNG_SEED` to `${{ github.run_id }}` and `CARGO_INCREMENTAL` and `CARGO_PROFILE_DEV_DEBUG` to `'0'` and the jobs that run tests print both seeds in their summary; every job ends with a step that writes the failing target and its last output lines to the job summary on failure
 
 **Given** `release.yml`
 **When** it is read
@@ -2811,11 +2812,11 @@ Verify: `make lint-actions`; `make lint-yaml`; `make lint-prettier`; `make lint-
 
 **Given** the two sync workflows
 **When** they are read
-**Then** `template-sync-app.yml` runs on `0 9 * * MON` and `template-sync-pat.yml` on `0 0 1 * *`, both also manually; the first step of each ends the job with `Template sync skipped: this is the template repository` when `$GITHUB_REPOSITORY` equals the workflow-level `TEMPLATE_REPOSITORY`, which is the only occurrence of the repository name in the file; each skips with a notice when its credentials are absent and the PAT flavour also skips when both App secrets exist; both pass `pr_labels: template_sync`, `pr_title: 'chore(template): merge template changes'` and `is_force_push_pr: true`
+**Then** `template-sync-app.yml` runs on `0 9 * * MON` and `template-sync-pat.yml` on `0 0 1 * *`, both also manually; the first step of each ends the job with `Template sync skipped: this is the template repository` when `$GITHUB_REPOSITORY` equals the workflow-level `TEMPLATE_REPOSITORY`, which is the only occurrence of the repository name in the file; each skips with a notice when its credentials are absent and the PAT flavour also skips when both App secrets exist; both pass `pr_labels: template_sync`, `pr_title: 'chore(template): merge template changes'`, `is_force_push_pr: true`, `is_pr_cleanup: true` and `is_keep_branch_on_pr_cleanup: true`
 
 **Given** `.templatesyncignore`
 **When** it is compared with the listing
-**Then** it is equal: the service-owned block (`.templatesyncignore`, README, changelog, workspace manifest and lock file, `.sqlx/`, migrations, both snapshots, `workspace.dsl`, `bmalph/config.json`, `specs/`, `crates/company-subdomain/`, the four feature files other than the health feature, `tests/Load/config.json.dist`, `docs/requests.http`) and the block of template-owned files a service extends (`.env`, `.env.test`, `docs/adr/`, `docs/environment.md`, `.github/dependabot.yml`, the skill index, the policy and exception files, the health-check and `service` wiring files, the four `service` tests that build `Adapters` or name the example context (`src/http/router/tests.rs`, `tests/integration/bootstrap.rs`, `migrate.rs` and `serve.rs`), `tests/support/`, `tests/e2e/`)
+**Then** it is equal: the service-owned block (`.templatesyncignore`, README, changelog, workspace manifest and lock file, `.sqlx/`, migrations, both snapshots, `workspace.dsl`, `bmalph/config.json`, `specs/`, `crates/company-subdomain/`, the four feature files other than the health feature, `tests/Load/config.json.dist`, `docs/requests.http`) and the block of template-owned files a service extends (`.env`, `.env.test`, `docs/adr/`, `docs/environment.md`, `.github/dependabot.yml`, the skill index, the policy and exception files, the health-check and `service` wiring files, the five `service` tests that build `Adapters` or name the example context (`src/http/router/tests.rs`, `tests/integration/bootstrap.rs`, `migrate.rs`, `serve.rs` and `panic.rs`), `tests/support/`, `tests/e2e/`)
 
 **Given** `.github/dependabot.yml`
 **When** it is read
@@ -2828,7 +2829,7 @@ Verify: `make lint-actions`; `make lint-yaml`; `make lint-prettier`; `make lint-
 ### Story 10.4: Full local gate run with the workflows in place
 
 As a platform maintainer,
-I want every stage of `make ci` to pass on the working tree once the workflow files and all sixteen Bats files exist,
+I want every stage of `make ci` to pass on the working tree once the workflow files and all eighteen Bats files exist,
 So that the clean-clone proof starts from a green tree.
 
 Track: E.
@@ -2842,9 +2843,9 @@ Verify: `make validate-invariants`; `make ci base_ref=HEAD`; `git status --porce
 
 **Acceptance Criteria:**
 
-**Given** the repository with all eleven workflow files and all sixteen Bats files
+**Given** the repository with all eleven workflow files and all eighteen Bats files
 **When** `make validate-invariants` is run
-**Then** it exits 0 with all eight rules: every action is pinned by SHA, every workflow declares `permissions`, `concurrency` and job timeouts, every `tool:` version equals `make/tool-versions.mk`, the gate targets of `make ci-list` equal the gate targets the pull-request workflows run, apart from the documented CI-only steps, every Bats file carries exactly one tag of the six groups, and every job name of a pull-request workflow is in `docs/repository-settings.md`
+**Then** it exits 0 with all eight rules: every action is pinned by SHA, every workflow declares `permissions`, `concurrency` and job timeouts, every `tool:` version equals `make/tool-versions.mk`, every gate target of `make ci-list` is run by a workflow with a `pull_request` trigger, and every workflow runs only gate targets of `make ci-list` and the documented CI-only steps, every Bats file carries exactly one tag of the six groups, and every job name of a pull-request workflow is in `docs/repository-settings.md`
 
 **Given** the committed tree
 **When** `make ci base_ref=HEAD` is run

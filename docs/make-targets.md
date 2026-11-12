@@ -116,7 +116,7 @@ The ordered list of gate targets is not repeated here. It lives in one place, th
 | `unused-dependencies-fix` | TOOL | none | no | Remove unused dependencies from the manifests |
 | `up` | HOST | none | no | Alias of start |
 | `update` | TOOL | none | no | Update Cargo.lock within the version requirements of the manifests |
-| `validate-architecture-model` | TOOL + HOST | none | yes (G27) | Validate workspace.dsl, its three views and its components |
+| `validate-architecture-model` | TOOL + HOST | none | yes (G27) | Validate workspace.dsl, its three views, its components and a relationship for every dependency between them |
 | `validate-configuration` | TOOL | none | yes (G25) | Check protected configuration files and required directories against base_ref |
 | `validate-contract-snapshots` | TOOL + HOST | none | yes (G17) | Fail when a committed contract snapshot differs from the generated one |
 | `validate-invariants` | HOST | none | yes (G31) | Check the repository invariants: pins, versions, gate set, repository name, licence, suppressions, execution switch |
@@ -182,7 +182,8 @@ These steps of the hosted pipeline have no place in `make ci`. Each has a reason
 | CodeQL analysis and the SARIF upload | publications without a threshold of their own; no local runner exists |
 | The Codecov upload and the artifact uploads | publication, not verification |
 | The full sharded mutation run | `make mutation-tests` exists locally but is not part of `make ci`: it takes up to an hour, so CI runs it on `main` and on a schedule, and `make ci` runs `mutation-tests-diff` for the changed code |
-| The build of the development container definition (scheduled workflow) | it needs the devcontainers CLI through npx and builds an image for several minutes; FR95 asks for it on a schedule only and no gate of `make ci` covers it. The local command is the one of the workflow, `npx --yes @devcontainers/cli@<version> build --workspace-folder .`, with the version `DEVCONTAINER_CLI_VERSION` of `make/tool-versions.mk` |
+| The build of the development container definition and the checks run in it (scheduled workflow) | it needs the devcontainers CLI through npx and builds an image for several minutes; FR95 and FR118 ask for it on a schedule only and no gate of `make ci` covers it. The local commands are those of the workflow: `npx --yes @devcontainers/cli@<version> build --workspace-folder .`, then `up --workspace-folder .` and `exec --workspace-folder .` with `docker info`, `make format-check` and `make start-deps`, with the version `DEVCONTAINER_CLI_VERSION` of `make/tool-versions.mk` |
+| The stop and the timed start of the development stack (scheduled clean-clone job) | the measurement of the `make start` budget of NFR35 (60 s, images and build output present) on a hosted runner; no gate of `make ci` measures it. Locally `make stop` and `make start` |
 
 ## Gate targets: passing run and negative test
 
@@ -191,7 +192,7 @@ A gate target has its negative test in the Bats suite and no second passing run 
 | Gate | Target | Passing run | Negative test (Bats file) |
 | --- | --- | --- | --- |
 | G1 | `format-check` | stage 2 of `make ci` | `make_quality_gates.bats` (unformatted lines appended to `xtask/src/main.rs`) |
-| G2 | `static-analysis` | stage 2 | `make_quality_gates.bats` (an `unwrap`; a `SystemTime::now()` call; a suppression without a reason; a broken intra-doc link, which rustdoc rejects) |
+| G2 | `static-analysis` | stage 2 | `make_quality_gates.bats` (an `unwrap`; a `SystemTime::now()` call; a suppression without a reason; a broken intra-doc link, which rustdoc rejects; an unused import in the test module of `xtask`, which only the pass over all targets analyses; an `unsafe` block under an expectation that only the `forbid` level of `unsafe_code` overrules) |
 | G3 | `complexity` | stage 2 | `make_quality_gates.bats` (one test per limit: a six-parameter function; a function over the line limit; a function nested six levels deep; a function over the cognitive-complexity limit) |
 | G4 | `architecture` | stage 2 | `make_quality_gates.bats` (the checker's fixture workspace) |
 | G5 | `validate-manifest` | stage 2 | `make_quality_gates.bats` (version changed without a lock update) |
@@ -200,8 +201,8 @@ A gate target has its negative test in the Bats suite and no second passing run 
 | G8 | `unused-dependencies` | stage 2 | `make_quality_gates.bats` (a misplaced dependency) |
 | G9 | `secrets-scan` | stage 1 | `make_security.bats` (a key pair generated at test time; a key that exists only in the history) |
 | G10 | `image-scan` | stage 6 | `make_security.bats` (a vulnerable fixture image) |
-| G11 | `doc-tests`, `tests-with-coverage` | stage 3 | `make_tests.bats` (a failing test appended to `xtask`, run by `unit-tests`; a failing documentation example appended to the test-support crate, run by `doc-tests`) |
-| G12 | `tests-with-coverage` | stage 3 | `make_tests.bats` (a failing integration test) |
+| G11 | `doc-tests`, `tests-with-coverage` | stage 3 | `make_tests.bats` (a failing test appended to `xtask`, run by `tests-with-coverage` together with the failing integration test of G12 in the test "G11, G12: a failing unit test and a failing integration test make tests-with-coverage fail and name both", and also by `unit-tests`, which `pre-push` runs; a failing documentation example appended to the test-support crate, run by `doc-tests`) |
+| G12 | `tests-with-coverage` | stage 3 | `make_tests.bats` (a failing integration test appended to `xtask`, run by `tests-with-coverage` together with the failing unit test of G11 in the test "G11, G12: a failing unit test and a failing integration test make tests-with-coverage fail and name both", and also by `integration-tests`) |
 | G13 | `e2e-tests` | stage 3 | `make_tests.bats` (a feature with an undefined step; the same step in a scenario tagged `@allow.skipped`) |
 | G14 | `tests-with-coverage` | stage 3 | `make_tests.bats` (an uncovered function) |
 | G15 | `mutation-tests-diff` | stage 5 | `make_tests.bats` (an uncovered function: a `MISSED` line) |
@@ -212,8 +213,8 @@ A gate target has its negative test in the Bats suite and no second passing run 
 | G20 | `graphql-diff` | stage 4 | `make_contracts.bats` (a field removed; the same change approved with `BREAKING_CHANGE_APPROVED=true`; a base ref that does not exist) |
 | G21 | `schemathesis-validate` | stage 6 | `make_contracts.bats` (an undocumented path added) |
 | G22 | `smoke-load-tests` | stage 6 | `make_load_tests.bats` (a budget that cannot be met; a scenario whose check cannot pass) |
-| G23 | `lint-repo` | stage 1 | `make_repository.bats` (one test per linter) |
-| G24 | `lint-load-tests` | stage 1 | `make_load_tests.bats` (a script with `console.log` and `==`) |
+| G23 | `lint-repo` | stage 1 | `make_repository.bats` (one test per linter, each through its `lint-*` target; and the test "G23: make -n lint-repo runs every linter of the repository lint", a dry run that fails when a linter is dropped from the prerequisites of `lint-repo`) |
+| G24 | `lint-load-tests` | stage 1 | `make_load_tests.bats` (a script with `console.log` and `==`, which ESLint rejects; a script that ESLint accepts but that is not formatted, which Prettier rejects) |
 | G25 | `validate-configuration` | stage 1 | `make_quality_gates.bats` (a comment appended to `clippy.toml`) |
 | G26 | `docs-check` | stage 2 | `make_repository.bats` (an unknown target cited in `README.md`) |
 | G27 | `validate-architecture-model` | stage 1 | `make_repository.bats` and `check_architecture_model.bats` |
@@ -239,7 +240,7 @@ The suite tests the targets that are not gates and the surface behaviour; the pa
 
 The aliases and helper targets have no test of their own either; the target they point at, or the target that calls them, carries the test:
 
-- Aliases: `up` (alias of `start`), `clean` (alias of `purge`), `test` (alias of `all-tests`), `all` and `ci-sequential` (aliases of `ci`).
+- Aliases: `up` (alias of `start`), `clean` (alias of `purge`), `test` (alias of `all-tests`), `all` and `ci-sequential` (aliases of `ci`). The five are PHP target names of FR62, so the test "FR62: the 42 PHP target names are targets of make help" of `make_general.bats` checks that they exist: it fails and prints every name of FR62 that is no longer a target of `make help`.
 - Helper targets: `ensure-deps` and `ensure-database` (prerequisites of the tested targets that need services), `setup-load-test-db` (called by the isolated-environment wrapper), `check-security-offline` (a prerequisite of `pre-commit`; the offline subset of the tested `check-security`), `bmalph-claude` and `bmalph-codex` (call `bmalph-install` with a fixed platform), the stage targets `ci-preflight`, `ci-static-analysis`, `ci-tests`, `ci-contracts`, `ci-mutation`, `ci-delivery` and `ci-cli` (each recipe is generated from its `CI_*_TARGETS` variable, one line per gate, so a failing gate stops its stage; a Bats test checks that a dry run of `make ci` runs exactly the sequence that `make ci-list` prints), `static-analysis-sarif` (writes the lint findings in a publication format; the gate is `static-analysis`), `lint-code` and `lint-rustdoc` (the two halves of `static-analysis`), `all-tests`, `unit-tests` and `integration-tests` (compositions of the suites that the gates G11 to G13 run), `install` (downloads tools; run by `bootstrap`), `pre-push` (runs `unit-tests`) and `sh` (opens an interactive shell).
 
 ## Inputs that only a script reads

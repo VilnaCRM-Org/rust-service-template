@@ -31,6 +31,7 @@ description: Use when `make architecture` reports a violation or code must move 
 - Keep Domain crates free of framework code; serde, utoipa, sqlx and axum belong to outer layers.
 - After moving code, remove dependencies the old crate no longer needs.
 - A new context or crate also changes `workspace.dsl`.
+- When `make check-crate-isolation` fails (gate G29): it runs `cargo hack check --workspace --each-feature --locked`, which checks every crate alone, once per feature, so a crate that compiles only because another workspace member enables a dependency feature for it fails here. Usual causes: a dependency or a dependency feature that the crate uses but its own `Cargo.toml` does not declare, or code behind `#[cfg(feature = "...")]` that needs an item of another feature. Declare the dependency or feature in the failing crate's manifest (through `[workspace.dependencies]`) or correct the `cfg` condition, then re-run `make check-crate-isolation`.
 
 ## Verification
 

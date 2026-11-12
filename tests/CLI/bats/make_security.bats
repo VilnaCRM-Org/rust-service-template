@@ -45,6 +45,41 @@ production_image() {
   printf '%s' "${image}"
 }
 
+# The entries of a `tar -t` listing (stdin) that NFR12 forbids in the production image, one line each, in input order:
+#   shell: sh, ash, bash, dash, ksh, mksh, zsh, busybox or toybox as the name of a file or link in any directory (for
+#     example bin/sh, busybox/sh of the distroless debug images, or a copy in usr/local/bin); `tar -t` writes a
+#     directory with a trailing slash, and a directory of that name (usr/share/zsh/ holds completion files) is no shell;
+#   package manager or compiler: apt, apt-get, dpkg, apk, cc, gcc, c++, rustc, cargo or rustup in a directory named
+#     bin or sbin (bin, sbin, usr/bin, usr/sbin, usr/local/bin, and the tool directories of a Rust image such as
+#     usr/local/cargo/bin);
+#   not the binary: anything under app/ other than app/service;
+#   test file: Rust source (.rs), a path through a directory named tests or features, or a Makefile.
+# The awk program uses only what mawk and busybox awk also support.
+image_content_findings() {
+  awk '
+    BEGIN {
+      count = split("sh ash bash dash ksh mksh zsh busybox toybox", names, " ")
+      for (i = 1; i <= count; i++) shell[names[i]] = 1
+      count = split("apt apt-get dpkg apk cc gcc c++ rustc cargo rustup", names, " ")
+      for (i = 1; i <= count; i++) tool[names[i]] = 1
+    }
+    {
+      entry = $0
+      path = entry
+      sub(/^\.\//, "", path)
+      directory = sub(/\/$/, "", path)
+      if (path == "" || path == ".") next
+      depth = split(path, part, "/")
+      base = part[depth]
+      parent = (depth > 1) ? part[depth - 1] : ""
+    }
+    !directory && (base in shell) { print "shell: " entry; next }
+    (parent == "bin" || parent == "sbin") && (base in tool) { print "package manager or compiler: " entry; next }
+    path ~ /^app\// && path != "app/service" { print "not the binary: " entry; next }
+    path ~ /\.rs$/ || ("/" path "/") ~ /\/(tests|features)\// || base == "Makefile" { print "test file: " entry; next }
+  '
+}
+
 # `docker compose config` of the production reference with the given variables set and no .env file read.
 render_production_reference() {
   env -u DATABASE_URL -u AWS_REGION "$@" docker compose --env-file /dev/null \
@@ -209,6 +244,72 @@ STUB
   assert_output --partial '/bin/sh'
 }
 
+@test "the production image holds no shell, package manager, compiler or test file" {
+  require_docker
+  local image listing="${BATS_TEST_TMPDIR}/listing"
+  image="$(production_image)"
+  container="$(docker create "${image}")"
+  docker export "${container}" | tar -tf - >"${listing}"
+  # The export reached tar: the binary is listed.
+  run grep -c -x -F 'app/service' "${listing}"
+  assert_output '1'
+  run image_content_findings <"${listing}"
+  assert_success
+  assert_output ''
+}
+
+@test "the image content check reports each planted shell, package manager, compiler, file under app/ and test file" {
+  run image_content_findings <"${BATS_TEST_DIRNAME}/fixtures/image_listing_planted.txt"
+  assert_success
+  assert_output "$(printf '%s\n' \
+    'not the binary: app/src/main.rs' \
+    'shell: busybox/busybox' \
+    'shell: busybox/sh' \
+    'test file: srv/features/api_docs.feature' \
+    'test file: srv/tests/' \
+    'shell: usr/bin/bash' \
+    'package manager or compiler: usr/bin/dpkg' \
+    'shell: usr/local/bin/dash' \
+    'package manager or compiler: usr/local/cargo/bin/rustc' \
+    'test file: usr/src/service/Makefile' \
+    'test file: usr/src/service/lib.rs')"
+}
+
+# Each of the nine shell names once, as a file or link, at the top level, in a directory named bin or sbin, or in
+# another directory; the near misses are a directory named like a shell (busybox/ of the distroless debug images,
+# usr/share/zsh/ of completion files) and files whose names only contain a shell name (dot.bashrc is a file of the
+# distroless production image).
+@test "the image content check reports every shell name in any directory and no near miss" {
+  run image_content_findings <<'LISTING'
+bin/sh
+./bin/ash
+usr/bin/bash
+usr/local/bin/dash
+opt/shells/ksh
+usr/lib/mksh
+usr/bin/zsh
+busybox/
+usr/local/sbin/busybox
+toybox
+usr/share/zsh/
+usr/share/base-files/dot.bashrc
+usr/bin/bashbug
+usr/bin/sha256sum
+etc/shells
+LISTING
+  assert_success
+  assert_output "$(printf '%s\n' \
+    'shell: bin/sh' \
+    'shell: ./bin/ash' \
+    'shell: usr/bin/bash' \
+    'shell: usr/local/bin/dash' \
+    'shell: opt/shells/ksh' \
+    'shell: usr/lib/mksh' \
+    'shell: usr/bin/zsh' \
+    'shell: usr/local/sbin/busybox' \
+    'shell: toybox')"
+}
+
 @test "the production image is at most 100 MiB" {
   require_docker
   local image size
@@ -308,9 +409,14 @@ STUB
   assert_success
 }
 
-@test "the production reference rendered with --env-file /dev/null fails and names DATABASE_URL" {
+@test "the production reference rendered with --env-file /dev/null fails and names each required variable" {
   require_docker
-  run render_production_reference
+  # Compose stops at the first missing variable and its order is not fixed, so each case leaves exactly one
+  # required variable unset.
+  run render_production_reference AWS_REGION=eu-west-1
   assert_failure
   assert_output --partial 'DATABASE_URL is required'
+  run render_production_reference DATABASE_URL=postgres://app:unused@db.example.invalid:5432/app
+  assert_failure
+  assert_output --partial 'AWS_REGION is required'
 }

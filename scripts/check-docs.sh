@@ -6,9 +6,10 @@
 # Reads every tracked Markdown file of <dir> (default: the current directory) except CHANGELOG.md and
 # specs/**, and applies seven rules. Every violation is one line `(<rule>) <file>:<line>: <message>`.
 #   (1) a cited `make <target>` must be a Make target;
-#   (2) a cited `service <command>` must be in the help of the binary (a `--` and option words between `service`
-#       and the command are skipped, so `cargo run -p service -- <command>` is checked too), and a cited slash
-#       command must have a file under .claude/commands/;
+#   (2) a cited `service <command>` must be in the help of the binary (option words between `service` and the
+#       command are skipped; after `-p`, `--package` or `--bin` the word `service` names the package, so the command
+#       is read only after a `--` word, option words after it skipped, as in `cargo run -p service -- <command>`,
+#       and nothing is checked without one), and a cited slash command must have a file under .claude/commands/;
 #   (3) a backticked token that begins with the name of a tracked top-level file or directory, or of _bmad/,
 #       _bmad-output/, .ralph/ or bmalph/state/, must name a path that exists or that a git-ignore rule matches,
 #       checked up to its first placeholder or wildcard character;
@@ -199,13 +200,20 @@ function cite_make(s, kind,    n, w, i, j, t) {
     }
   }
 }
-# `service <command> [<subcommand>]`; a `--` and option words after `service` (`cargo run -p service -- <command>`)
-# are skipped before the command is read.
+# `service <command> [<subcommand>]`; option words after `service` are skipped before the command is read. After
+# `-p`, `--package` or `--bin` (`cargo run -p service -- <command>`) `service` names the package, so the command is
+# read only after a `--` word (option words after it skipped), and nothing is checked without one
+# (`cargo test -p service --lib config`).
 function cite_service(s,    n, w, i, k, t, u) {
   n = split(s, w, /[[:space:]]+/)
   for (i = 1; i < n; i++) {
     if (w[i] != "service") continue
     k = i + 1
+    if (i > 1 && (w[i - 1] == "-p" || w[i - 1] == "--package" || w[i - 1] == "--bin")) {
+      while (k <= n && w[k] != "--") k++
+      if (k > n) continue
+      k++
+    }
     while (k <= n && w[k] ~ /^-/) k++
     if (k > n) continue
     t = w[k]
@@ -382,7 +390,7 @@ AWK
 if [[ -s "${work}/markdown" ]]; then
   (
     cd "${root}"
-    # shellcheck disable=SC2046
+    # shellcheck disable=SC2046 # the file list is split into awk operands on purpose
     awk -v targets="${work}/targets" -v commands="${work}/commands" -v subcommands="${work}/subcommands" \
       -v slashes="${work}/slash" -v gates="${work}/gates" -v tops="${work}/tops" -v specials="${work}/specials" \
       -v cand="${work}/candidates" -v slashcand="${work}/slash-candidates" -f "${work}/rules.awk" $(tr '\n' ' ' <"${work}/markdown")

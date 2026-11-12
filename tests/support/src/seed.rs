@@ -31,12 +31,18 @@ impl TestRng {
     /// Panics with a message that names `TEST_SEED` when the variable is unset or is not an
     /// unsigned 64-bit integer; no seed is ever drawn silently.
     #[must_use]
+    pub fn from_env() -> Self {
+        Self::from_raw_seed(read_seed().as_deref())
+    }
+
+    /// A generator for the value of `TEST_SEED` (`None` when it is unset); panics like
+    /// [`TestRng::from_env`].
     #[expect(
         clippy::panic,
         reason = "a test run without a usable seed must fail loudly and name TEST_SEED"
     )]
-    pub fn from_env() -> Self {
-        match parse_seed(read_seed().as_deref()) {
+    pub(crate) fn from_raw_seed(raw: Option<&str>) -> Self {
+        match parse_seed(raw) {
             Ok(seed) => Self::from_seed(seed),
             Err(message) => panic!("{message}"),
         }

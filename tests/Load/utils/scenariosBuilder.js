@@ -3,13 +3,14 @@ export default class ScenariosBuilder {
     this.scenarios = {};
   }
 
-  addSmokeScenario(smokeConfig) {
+  addSmokeScenario(smokeConfig, startTime = 0) {
     this.scenarios.smoke = {
       executor: 'constant-arrival-rate',
       rate: smokeConfig.rps,
       timeUnit: '1s',
       duration: `${smokeConfig.duration}s`,
       preAllocatedVUs: smokeConfig.vus,
+      startTime: `${startTime}s`,
       tags: { test_type: 'smoke' },
     };
 

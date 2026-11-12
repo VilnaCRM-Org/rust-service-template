@@ -6,7 +6,9 @@
 #
 # Both inputs come from the environment so that a title can never inject shell text into a recipe.
 # Hook mode checks the first line that is not a comment and accepts, without checking, the subjects
-# that git writes itself (Merge, Revert, fixup!, squash!, amend!). Title mode has no exemption.
+# that git writes itself (Merge, Revert, Reapply, fixup!, squash!, amend!). Title mode has no
+# exemption. For a revert of a revert, git 2.43 and later write `Reapply "<subject>"`, older git
+# `Revert "Revert "<subject>""`.
 # Exit status: 0 accepted; 1 rejected, with the expected format; 2 neither variable is set or the
 # message file cannot be read.
 set -euo pipefail
@@ -38,7 +40,7 @@ subject="${subject%$'\r'}"
 
 if [[ "${hook_mode}" -eq 1 ]]; then
   case "${subject}" in
-    "Merge "* | 'Revert "'* | "fixup! "* | "squash! "* | "amend! "*) exit 0 ;;
+    "Merge "* | 'Revert "'* | 'Reapply "'* | "fixup! "* | "squash! "* | "amend! "*) exit 0 ;;
     *) ;;
   esac
 fi

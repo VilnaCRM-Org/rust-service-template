@@ -387,6 +387,10 @@ fn the_sqs_endpoint_accepts_http_and_https_urls(#[case] raw: &str) {
 #[case("http://abc:abc")]
 #[case("http://localhost:")]
 #[case("http://user@localhost:4566x")]
+#[case("http://[::1]x:80")]
+#[case("http://[::1]x")]
+#[case("http://localhost:+80")]
+#[case("http://localhost:-1")]
 fn the_sqs_endpoint_rejects_everything_else(#[case] raw: &str) {
     let args = ServeArgs {
         aws_endpoint_url_sqs: some(raw),

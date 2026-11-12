@@ -424,9 +424,19 @@ fn endpoint(raw: Option<&str>) -> Parsed<Option<String>> {
 /// `http::Uri` checks the port only when it is read, so the authority (after the optional user
 /// information) must be the host alone, or the host followed by `:` and a port from 0 to 65535.
 fn has_host_and_valid_port(authority: &Authority) -> bool {
+    let text = authority.as_str();
+    let address = text.rsplit_once('@').map_or(text, |(_, after)| after);
     let host = authority.host();
-    let host_alone = authority.as_str().rsplit('@').next() == Some(host);
-    !host.is_empty() && (host_alone || authority.port_u16().is_some())
+    !host.is_empty() && address.strip_prefix(host).is_some_and(is_empty_or_port)
+}
+
+/// The text after the host: nothing, or `:` followed by ASCII digits only (no sign) that fit a
+/// `u16`.
+fn is_empty_or_port(rest: &str) -> bool {
+    rest.is_empty()
+        || rest.strip_prefix(':').is_some_and(|digits| {
+            digits.bytes().all(|byte| byte.is_ascii_digit()) && digits.parse::<u16>().is_ok()
+        })
 }
 
 fn required(raw: Option<&str>) -> Parsed<String> {

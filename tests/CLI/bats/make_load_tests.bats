@@ -1,7 +1,8 @@
 #!/usr/bin/env bats
 # Tests of the load-test targets (architecture-delivery.md "CLI Tests (Bats)", file make_load_tests.bats): the
-# single-scenario runner, the profile runners, the AWS dry run against LocalStack and its instance script, and the
-# negative tests of gates G22 and G24. JSON is edited with json_query of the helper, so the host needs no jq.
+# single-scenario runner, the profile runners, the start times of the profiles, the AWS dry run against LocalStack
+# and its instance script, and the negative tests of gates G22 and G24. JSON is edited with json_query of the
+# helper, so the host needs no jq.
 #
 # The isolated production-image environment is started and removed by the targets under test; tests that start
 # it must not run beside another run of it. Local budgets are written to the git-ignored tests/Load/config.json
@@ -55,6 +56,42 @@ plant_smoke_budget() {
   json_query "(data.endpoints.health.smoke.threshold = $1, data)" <tests/Load/config.json.dist \
     >"${BATS_TEST_TMPDIR}/config.json"
   plant_new tests/Load/config.json "${BATS_TEST_TMPDIR}/config.json"
+}
+
+# Plants a local tests/Load/config.json whose health profiles have the shipped durations and pause (smoke 10 s,
+# average and stress 3 + 10 + 3 s, spike 5 + 5 s, 60 s between profiles). config.json.dist belongs to the service
+# once the template is synchronised, so the start-time tests do not read it.
+plant_profile_durations() {
+  cat >"${BATS_TEST_TMPDIR}/config.json" <<'JSON'
+{
+  "apiHost": "localhost",
+  "apiPort": "8081",
+  "delayBetweenScenarios": 60,
+  "endpoints": {
+    "health": {
+      "smoke": { "threshold": 50, "rps": 10, "vus": 5, "duration": 10 },
+      "average": { "threshold": 200, "rps": 25, "vus": 25, "duration": { "rise": 3, "plateau": 10, "fall": 3 } },
+      "stress": { "threshold": 1000, "rps": 150, "vus": 150, "duration": { "rise": 3, "plateau": 10, "fall": 3 } },
+      "spike": { "threshold": 5000, "rps": 200, "vus": 200, "duration": { "rise": 5, "fall": 5 } }
+    }
+  }
+}
+JSON
+  plant_new tests/Load/config.json "${BATS_TEST_TMPDIR}/config.json"
+}
+
+# Start time of every scenario that K6 builds from the health script with the switches $1 to $4 (smoke, average,
+# stress, spike), as `name=startTime` pairs sorted by name on standard output. `k6 inspect` evaluates the options in
+# the pinned image with the mount of execute-load-test.sh, so it reads the same tests/Load/config.json, and sends no
+# request. Its warnings go to standard error, which the tests keep apart with `run --separate-stderr`.
+inspect_start_times() {
+  local image
+  image="${K6_IMAGE:-$(pinned_value K6_IMAGE)}"
+  "${DOCKER:-docker}" run --rm --user "$(id -u):$(id -g)" -v "${REPO_ROOT}/tests/Load:/loadTests" "${image}" \
+    inspect -e "run_smoke=$1" -e "run_average=$2" -e "run_stress=$3" -e "run_spike=$4" /loadTests/scripts/health.js \
+    >"${BATS_TEST_TMPDIR}/options.json" || return 1
+  json_query 'Object.keys(data.scenarios).sort().map((name) => name + "=" + data.scenarios[name].startTime).join(" ")' \
+    <"${BATS_TEST_TMPDIR}/options.json"
 }
 
 # A stand-in for docker on PATH that records the arguments of every call in $RECORD; no container runs.
@@ -116,6 +153,9 @@ STUB
   before="$(development_containers)"
   run make --no-print-directory execute-load-tests-script scenario=health runAverage=false runStress=false runSpike=false
   assert_success
+  # The failure block of scripts/with-load-test-stack.sh (its line and the project's logs) is for failed runs only.
+  refute_output --partial 'the command failed with exit status'
+  refute_output --regexp '[a-z]-1 +\| '
   assert_file_exists "${RESULTS_DIR}/health.html"
   run isolated_project_resources
   assert_success
@@ -146,6 +186,27 @@ STUB
       "${BATS_TEST_TMPDIR}/calls"
     assert_output '1'
   done
+}
+
+# --- start times of the profiles -------------------------------------------------------------------------------
+# Each selected profile starts after the profiles selected before it and the pause. K6 prints a start time in
+# minutes and seconds: 70 s is 1m10s, 146 s is 2m26s and 222 s is 3m42s.
+
+@test "FR81: a selection without the average profile starts stress and spike after the pause" {
+  require_docker
+  plant_profile_durations
+  run --separate-stderr inspect_start_times true false true true
+  assert_success
+  # stress after smoke (10 s) and the pause (60 s), spike after stress (16 s) and the pause; average is not built.
+  assert_output 'smoke=0s spike=2m26s stress=1m10s'
+}
+
+@test "FR78: the run of all four profiles keeps 70 s, 146 s and 222 s" {
+  require_docker
+  plant_profile_durations
+  run --separate-stderr inspect_start_times true true true true
+  assert_success
+  assert_output 'average=1m10s smoke=0s spike=3m42s stress=2m26s'
 }
 
 # --- aws-load-tests against LocalStack -------------------------------------------------------------------------
@@ -295,6 +356,17 @@ STUB
   assert_output --partial 'planted_lint.js'
   assert_output --partial 'no-console'
   assert_output --partial 'eqeqeq'
+}
+
+@test "G24: an unformatted load script makes lint-load-tests fail with the finding of Prettier" {
+  require_docker
+  # ESLint accepts the script, so the recipe reaches Prettier, the only formatting check of the K6 scripts.
+  plant_new tests/Load/scripts/planted_format.js "${BATS_TEST_DIRNAME}/fixtures/unformatted_load_script.js.txt"
+  run make --no-print-directory lint-load-tests
+  assert_failure
+  assert_output --partial 'planted_format.js'
+  assert_output --partial 'Code style issues found'
+  refute_output --partial 'no-console'
 }
 
 @test "G24: a prettier key in the package manifest of the load tests does not replace the root configuration" {

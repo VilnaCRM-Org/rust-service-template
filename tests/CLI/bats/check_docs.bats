@@ -320,6 +320,19 @@ EOF
   refute_output --partial 'service serve'
 }
 
+@test "rule 2: after -p, --package or --bin the command is read only after --, and service as program is still read" {
+  append README.md <<'EOF'
+Run `cargo nextest run -p service --test integration` and `cargo test -p service --lib config`.
+Run `cargo test --package service --test smoke` and `cargo build --bin service --features extra`.
+Run `cargo run -p service -- --quiet other-missing` and `service no-such-command`.
+EOF
+  check
+  assert_failure 1
+  assert_line --regexp '^\(2\) README\.md:[0-9]+: service other-missing '
+  assert_line --regexp '^\(2\) README\.md:[0-9]+: service no-such-command '
+  assert_equal "${#lines[@]}" 2
+}
+
 @test "rule 2: a slash command without a file under .claude/commands is reported" {
   append README.md <<'EOF'
 Start with `/no-such-command` and then `/dev`.

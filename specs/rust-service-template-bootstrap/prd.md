@@ -45,7 +45,7 @@ classification:
   complexity: low domain complexity, high breadth
   projectContext: greenfield
 date: 2026-11-10
-lastEdited: '2026-11-10'
+lastEdited: '2026-11-12'
 editHistory:
   - date: '2026-11-10'
     changes: >-
@@ -59,6 +59,60 @@ editHistory:
       400/422 boundary, the GraphQL contract, start-up and shutdown behaviour, the configuration table,
       target classes and supported platforms; gave every NFR a verification method; added the sections
       Target Users and Risks and Mitigations and an NFR digest for the bmalph context extract.
+  - date: '2026-11-11'
+    changes: >-
+      Amendment from the FR/NFR review gate (iteration 1): NFR40 records two accepted exceptions to its cache
+      clause, the `surface` Bats group and the weekly `devcontainer-build` job (finding F-10 of the readiness
+      review). No id changed.
+  - date: '2026-11-11'
+    changes: >-
+      Amendment from the FR/NFR review gate (iteration 1): FR98(a) counts a `BREAKING CHANGE:` footer
+      whatever the type of the commit, a footer being a line of the footer section at the end of the message;
+      NFR27 and K-06 count a third digest line accepted by decision, the unchanged PHP Spectral ruleset
+      (catalog note CI:D-28), and the delegated decision on the Spectral response rules is marked as taken.
+      No id changed.
+  - date: '2026-11-12'
+    changes: >-
+      Amendment from the FR/NFR review gate (iteration 2): NFR40 records a third accepted exception, for its
+      rerun clause: the third-party crates that a pull-request mutation shard compiles for packages outside
+      the saver's selection (architecture-delivery.md, open item 5 (3) (the fourth since pass D6); readiness F-10). No id changed.
+  - date: '2026-11-12'
+    changes: >-
+      Amendment from the FR/NFR review gate (iteration 2): NFR40 records a further accepted exception to its
+      cache clause, the weekly `clean-bootstrap-ci` job, which FR95 and NFR34 require to start without a
+      restored cache (the specific requirement wins); it is the third exception in architecture-delivery.md,
+      open item 5, and the rerun exception of the mutation shards becomes the fourth (readiness F-10). No id
+      changed.
+  - date: '2026-11-12'
+    changes: >-
+      Amendment from the FR/NFR review gate (iteration 3): FR66(d) admits as CI-only steps the scheduled-only
+      steps that FR95, FR118 and NFR35 require: the full sharded mutation run, the build of the development
+      container with the checks run in it, and the stop and the timed start of the development stack in the
+      clean-clone job `clean-bootstrap-ci`; each is listed with its reason in the Make-target reference
+      (architecture-delivery.md, reading 11; readiness, row FR66(d)). No id changed.
+  - date: '2026-11-12'
+    changes: >-
+      Amendment from the FR/NFR review gate (iteration 5): FR100(b) records how the pinned sync action meets
+      it: a run for the template commit of the open sync pull request updates that pull request in place, and a
+      run for a newer template commit opens that commit's pull request and closes the older open sync pull
+      requests in the same run (`is_pr_cleanup`), so no two are open at once; J5 step 2 says the same. No id
+      changed.
+  - date: '2026-11-12'
+    changes: >-
+      Wording fix from the review of pull request #2: the rerun clause of NFR40 (0 third-party dependencies
+      recompiled) applies apart from its own fourth exception, the crates a pull-request mutation shard compiles
+      for packages outside the saver's selection. No id changed.
+  - date: '2026-11-12'
+    changes: >-
+      Amendment from the review of pull request #2: FR100(b) keeps the branches of the older sync pull
+      requests that a run closes (`is_keep_branch_on_pr_cleanup`), so commits a maintainer pushed to them stay
+      on them; they are not carried to the new sync branch. No id changed.
+  - date: '2026-11-12'
+    changes: >-
+      Amendments from the second review of pull request #2: NFR16 lets an inline directive of shellcheck,
+      hadolint, yamllint, markdownlint, ESLint or zizmor, which have no item scope, apply to one file when it
+      names one rule and carries a reason (readiness, reading NFR16, FR125(g)); the rerun clause of NFR40
+      applies apart from all four of its recorded exceptions. No id changed.
 author: BMad
 ---
 
@@ -144,7 +198,7 @@ Success is judged from the repository and its CI: a clean clone reaches a green 
 | K-03 | Every gate can fail | 100% of gate pass conditions have a negative test | NFR21 |
 | K-04 | Local and hosted CI agree | 0 unexplained differences | NFR22 |
 | K-05 | Parity coverage | 196 of 196 PHP ids mapped; 42 of 42 additions delivered | NFR27 |
-| K-06 | Defects not replicated | 0 replicated, apart from the 2 accepted by decision | NFR27 |
+| K-06 | Defects not replicated | 0 replicated, apart from the 3 accepted by decision | NFR27 |
 | K-07 | Deterministic snapshots | 20 of 20 generations identical; 0 bytes from committed | NFR7 |
 | K-08 | Wire parity with PHP | 4 of 4 reused scenarios pass; 0 lint findings; 0 failed conformance checks | NFR24, NFR30 |
 | K-09 | Test strength | 100% line and function coverage; 0 surviving mutants; 0 undefined steps | NFR19, NFR20, NFR30 |
@@ -281,7 +335,7 @@ Value moment: a green `make ci` on an unmodified clone. Failure path: a missing 
 **J5. Receiving a template-sync pull request (Taras, platform maintainer, and a service owner).**
 
 1. Taras merges an improvement into the template.
-2. In a downstream repository the scheduled sync workflow opens a pull request labelled `template_sync`, or updates the one that is already open. Files on the sync ignore list are untouched.
+2. In a downstream repository the scheduled sync workflow opens a pull request labelled `template_sync`, or updates the one that is already open while the template's `main` has not moved; a run for a newer template commit opens the pull request of that commit and closes the older one. Files on the sync ignore list are untouched.
 3. The pull request runs the same gates as any other change and needs no workflow edit, because nothing depends on the template's name. If it modifies a protected item, it needs the approval label like any other pull request.
 4. The service owner reviews and merges. In the template repository itself the sync workflows do nothing.
 
@@ -576,7 +630,7 @@ Each requirement ends with its trace. "The architect records" marks a value this
 - FR63: (a) Each capability behind a tool-named PHP target has a capability-named target (format fix, static analysis, static-analysis fix, complexity, architecture, end-to-end tests, mutation testing (`mutation-tests`), manifest validation, apply migrations, create a migration, roll back a migration, GraphQL schema diff), and no PHP tool name is used as a target name. (b) `start` and `up` build missing or stale images incrementally and start the development stack; `build` rebuilds the images. (c) `stop` stops the stack and `down` removes it. (d) `sh` opens a shell in the development container; `logs` follows all logs and `new-logs` only new ones. (e) `install` installs the pinned development tools on a host and fetches dependencies from the lock file; `update` updates the lock file. (f) `purge` and `clean` remove only generated files. (g) `all-tests` (alias `test`) runs the unit, integration and end-to-end suites. [CAP-DM-25, CAP-TQ-01, CAP-DM-23, CAP-DM-30, CAP-DM-31]
 - FR64: Each target sets the configuration it needs; the Makefile imports no environment file and overrides no variable set by the caller. [CAP-DM-27]
 - FR65: Every target belongs to one of two classes, recorded per target in the Make-target reference. (a) Toolchain targets (build, format, lint, architecture, tests, coverage, mutation, exports, service commands) work in three places: a host with the pinned toolchain, a shell inside the development container and a GitHub Actions runner; by default they run their tools directly in the current environment; executing through the development container from the host is an explicit opt-in through one variable; `CI=true` always selects direct mode. (b) Orchestration targets (stack lifecycle, image build, tools run from pinned images, load tests, image scan, AWS run) call the container engine from the invoking environment in every mode; where the engine is not reachable, as in a development-container shell without engine access, they exit non-zero with a message that names the requirement. [CAP-TQ-34, CAP-DM-26]
-- FR66: (a) `make ci` (aliases `all` and `ci-sequential`) runs every gate of the gate list that has a Make target, in a fixed, documented order, with mutation testing in its changed-code mode and G11, G12 and G14 from one execution of the suites; it stops at the first failure and prints `CI checks successfully passed!` on success. (b) It passes after `make bootstrap` on a clean checkout. (c) Every target that needs backing services starts them when they are not running and never stops or alters a service that was already running. (d) The only CI-only steps are the pull-request title check (G28), the evaluation of approval labels (FR44(e), FR75(d)), publications (coverage upload, the CodeQL analysis and SARIF upload of FR49, artifact uploads) and a scanning gate documented as CI-only; each is listed with its reason in the Make-target reference. [CAP-TQ-32, CAP-DM-28, CAP-CI-32]
+- FR66: (a) `make ci` (aliases `all` and `ci-sequential`) runs every gate of the gate list that has a Make target, in a fixed, documented order, with mutation testing in its changed-code mode and G11, G12 and G14 from one execution of the suites; it stops at the first failure and prints `CI checks successfully passed!` on success. (b) It passes after `make bootstrap` on a clean checkout. (c) Every target that needs backing services starts them when they are not running and never stops or alters a service that was already running. (d) The only CI-only steps are the pull-request title check (G28), the evaluation of approval labels (FR44(e), FR75(d)), publications (coverage upload, the CodeQL analysis and SARIF upload of FR49, artifact uploads), a scanning gate documented as CI-only and the scheduled-only steps that FR95, FR118 and NFR35 require; each is listed with its reason in the Make-target reference. [CAP-TQ-32, CAP-DM-28, CAP-CI-32]
 - FR67: (a) A Bats suite under `tests/CLI/bats/` (G16), run locally and in CI, executes the developer-facing command surface and asserts for each tested target its exit status and the tool's own output; a target without a Bats test is listed with its reason in the Make-target reference. (b) It covers the execution switch of FR65: at least one toolchain target in direct mode, one in the opt-in container mode, one with `CI=true` set together with the opt-in variable, and one orchestration target invoked without access to the container engine. (c) It contains the Make-level negative tests of NFR21: each plants a violating fixture, invokes the gate's Make target and asserts a non-zero exit with the gate's diagnostic. (d) Fixtures stay outside every build and analysis scope, and the working tree is restored when a test fails or is interrupted. (e) The helper libraries are provisioned by a documented command at pinned versions, without git submodules. (f) It inspects the production image and the production compose reference (NFR12) and runs one stack test under a different project name (NFR38). [CAP-TQ-18, CAP-CI-06, CAP-TQ-19, P21]
 - FR68: Every command that writes into the working tree writes to a defined, git-ignored path, the two contract snapshots and the committed query metadata excepted; after `make bootstrap` and `make ci` on a clean checkout `git status` reports no change. [CAP-CI-36, P26]
 - FR69: `make doctor` checks every host prerequisite and its minimum version (NFR37), prints each missing or outdated one by name, prints the detected host platform and whether CI verifies it, and exits non-zero when a check fails. [NEW-21, P21]
@@ -623,9 +677,9 @@ Each requirement ends with its trace. "The architect records" marks a value this
 
 ### 17. Release, dependency updates and template sync
 
-- FR98: (a) On each push to `main` the release workflow derives the next version from the conventional commits since the last tag (`fix` patch, `feat` minor, footer `BREAKING CHANGE:` major); when none of them is a `fix`, a `feat` or a breaking change, it makes no release and ends successfully. (b) It regenerates `CHANGELOG.md` (sections `### Features` and `### Bug Fixes`, all earlier releases kept); `CHANGELOG.md` exists from the first commit. (c) It writes the version to `Cargo.toml` and `Cargo.lock`, pushes the commit `chore(release): vX.Y.Z [skip ci]` and the tag `vX.Y.Z` under the GitHub App identity (`VILNACRM_APP_ID`, `VILNACRM_APP_PRIVATE_KEY`), creates a GitHub release and triggers no further CI run; without those secrets it skips with a notice (FR96(c)). (d) Release runs are serialised and never cancelled. (e) The initial manifest version is `0.1.0`; the architect records in the release guide whether a breaking change below `1.0.0` raises the major or the minor number. [CAP-CI-25, CAP-AD-29]
+- FR98: (a) On each push to `main` the release workflow derives the next version from the conventional commits since the last tag (`fix` patch, `feat` minor, footer `BREAKING CHANGE:` major whatever the type of the commit, a footer being a line of the footer section at the end of the message as the conventional-commit definition states); when none of them is a `fix`, a `feat` or a breaking change, it makes no release and ends successfully. (b) It regenerates `CHANGELOG.md` (sections `### Features` and `### Bug Fixes`, all earlier releases kept); `CHANGELOG.md` exists from the first commit. (c) It writes the version to `Cargo.toml` and `Cargo.lock`, pushes the commit `chore(release): vX.Y.Z [skip ci]` and the tag `vX.Y.Z` under the GitHub App identity (`VILNACRM_APP_ID`, `VILNACRM_APP_PRIVATE_KEY`), creates a GitHub release and triggers no further CI run; without those secrets it skips with a notice (FR96(c)). (d) Release runs are serialised and never cancelled. (e) The initial manifest version is `0.1.0`; the architect records in the release guide whether a breaking change below `1.0.0` raises the major or the minor number. [CAP-CI-25, CAP-AD-29]
 - FR99: Dependabot opens grouped update pull requests for six ecosystems (Cargo, the Rust toolchain pin, GitHub Actions, Docker, Docker Compose and the npm package in `tests/Load`), with a commit prefix of a type that produces no release, and names no individual as reviewer; an update that modifies a protected item, such as the toolchain pin, needs the approval label like any other pull request. [CAP-CI-28, P18]
-- FR100: (a) Two template-sync workflows, `template-sync-pat.yml` (schedule `0 0 1 * *`, secret `PERSONAL_ACCESS_TOKEN`) and `template-sync-app.yml` (schedule `0 9 * * MON`, secrets `VILNACRM_APP_ID` and `VILNACRM_APP_PRIVATE_KEY`), open pull requests labelled `template_sync` from branch `main` of `VilnaCRM-Org/rust-service-template` in downstream repositories; both can also be started manually. (b) An open sync pull request is updated in place, and no second one is opened. (c) Each workflow runs only when its credentials exist, only the App flavour runs when both sets exist, and both do nothing in the template repository itself. (d) They never overwrite the files listed in `.templatesyncignore`, which names the service-owned files: changelog, README, workspace manifest and lock file, committed query metadata, contract snapshots, architecture model, migrations, the file that defines the project-name variable, `bmalph/config.json`, source and tests of `CompanySubdomain` and of every context a service adds, feature files other than `features/health_check.feature`, load-test settings and scenarios other than `health`, and planning bundles under `specs/`. (e) Every other tracked file is template-owned and synchronised, among them `Shared`, `Internal/HealthCheck`, the composition root, the tooling crate, the Bats suite, `features/health_check.feature`, the workflows, the Makefile, the guidance and the skills. (f) A sync pull request never deletes what a service added to a template-owned file that services extend (composition root, environment-variable reference, Dependabot configuration); the architect records for each such file whether it is ignored or how it is merged. [CAP-CI-27, P26]
+- FR100: (a) Two template-sync workflows, `template-sync-pat.yml` (schedule `0 0 1 * *`, secret `PERSONAL_ACCESS_TOKEN`) and `template-sync-app.yml` (schedule `0 9 * * MON`, secrets `VILNACRM_APP_ID` and `VILNACRM_APP_PRIVATE_KEY`), open pull requests labelled `template_sync` from branch `main` of `VilnaCRM-Org/rust-service-template` in downstream repositories; both can also be started manually. (b) A run for the template commit of the open sync pull request updates that pull request in place; a run for a newer template commit opens the pull request of that commit and, in the same run, closes the older open sync pull requests and keeps their branches, so that no two sync pull requests are open at once and no commit that a maintainer pushed to a sync branch is deleted. (c) Each workflow runs only when its credentials exist, only the App flavour runs when both sets exist, and both do nothing in the template repository itself. (d) They never overwrite the files listed in `.templatesyncignore`, which names the service-owned files: changelog, README, workspace manifest and lock file, committed query metadata, contract snapshots, architecture model, migrations, the file that defines the project-name variable, `bmalph/config.json`, source and tests of `CompanySubdomain` and of every context a service adds, feature files other than `features/health_check.feature`, load-test settings and scenarios other than `health`, and planning bundles under `specs/`. (e) Every other tracked file is template-owned and synchronised, among them `Shared`, `Internal/HealthCheck`, the composition root, the tooling crate, the Bats suite, `features/health_check.feature`, the workflows, the Makefile, the guidance and the skills. (f) A sync pull request never deletes what a service added to a template-owned file that services extend (composition root, environment-variable reference, Dependabot configuration); the architect records for each such file whether it is ignored or how it is merged. [CAP-CI-27, P26]
 - FR101: Setup guides in the repository cover the release automation and each template-sync flavour: (a) the required secrets and the GitHub App permissions, limited to what the workflows use; (b) how a downstream repository receives updates; (c) that a sync pull request which modifies a protected item needs the approval label of FR44; (d) the template changes that do not propagate because their files are service-owned (the lint policy and dependencies in the workspace manifest, load-test budgets) and how to apply them; (e) the version rules, including the rule below `1.0.0` (FR98(e)). [CAP-CI-35, CAP-AD-32]
 
 ### 18. Git hooks and commit convention
@@ -740,7 +794,7 @@ Where a requirement says "ceiling", the architect records the final value at or 
 
 ### Maintainability and quality gates
 
-- NFR16: The formatting check reports 0 differences with a line width of at most 100 columns (ceiling), and static analysis reports 0 findings with warnings denied over production and test code; template-owned code contains 0 uses of `unsafe`; every suppression names one rule, carries a reason and applies to one item, or to one module when the finding lies in macro-generated code that an item-level suppression cannot reach; 0 blanket suppressions exist (G31 rule (g)). [CAP-TQ-25, CAP-TQ-20, CAP-TQ-23, P11]
+- NFR16: The formatting check reports 0 differences with a line width of at most 100 columns (ceiling), and static analysis reports 0 findings with warnings denied over production and test code; template-owned code contains 0 uses of `unsafe`; every suppression names one rule, carries a reason and applies to one item, or to one module when the finding lies in macro-generated code that an item-level suppression cannot reach, or, for an inline directive of shellcheck, hadolint, yamllint, markdownlint, ESLint or zizmor, which have no item scope, to one file; 0 blanket suppressions exist (G31 rule (g)). [CAP-TQ-25, CAP-TQ-20, CAP-TQ-23, P11]
 - NFR17: 0 production functions exceed the complexity limits; ceilings: cognitive complexity 10, 100 lines per function, nesting depth 5 and 5 parameters. The architect records the exact limits and whether test code has a relaxed profile. [CAP-TQ-24, CAP-TQ-22]
 - NFR18: The architecture gate reports 0 layer violations, 0 unassigned source units, 0 dependencies between bounded contexts outside `Shared` and 0 crates outside the workspace lint policy; the crate-isolation gate reports 0 crates that fail to build alone; a test runs the scaffolding command and then both gates, with 0 protected items edited; the model validation reports 0 errors and 0 differences between the components of the model and the bounded-context layers of the workspace. [CAP-38, NEW-14, NEW-15, NEW-16; K-10]
 - NFR19: Line coverage and function coverage of production source are each 100%, enforced in the repository; region coverage is reported and not gated. Production source is every Rust source file of the service crates, the composition root (process entry point included) and the template-owned tooling (architecture checker, guard, scaffolding command and the other checkers); test modules, test-support crates and end-to-end step definitions are not production source. Coverage is measured from the unit suite and the integration suite, which includes process-level tests that start the built binaries. An exclusion is an entry with a reason in one protected record; the first release has 0 entries. [CAP-TQ-16, P9; K-09]
@@ -751,7 +805,7 @@ Where a requirement says "ceiling", the architect records the final value at or 
 - NFR24: The OpenAPI snapshot has 0 Spectral findings at severity hint or above with the unchanged PHP ruleset (G18), Schemathesis reports 0 failed checks (G21), and 0 breaking changes reach `main` without the `approved-breaking-change` label (G19, G20). [CAP-DM-35, CAP-DM-37, CAP-DM-36, CAP-CI-24, P24; K-08]
 - NFR25: The lint gates (G23, G24) report 0 findings for workflow files, YAML, shell scripts, Dockerfiles, Markdown, the spelling of file and workflow names, and the K6 scripts. [NEW-20, CAP-CI-34, CAP-DM-47]
 - NFR26: Exactly 1 protected list exists; the guard, the guidance and the assistant settings read it. It names items (a file or a file section) and contains at least: the toolchain pin; format settings; the lint policy and lint thresholds; architecture rules; the dependency policy and its exceptions; secrets-scan and image-scan configuration and ignore files; coverage and mutation settings with their exclusion and scope records; test-runner settings; the Spectral ruleset; repository-lint and load-lint configuration; the K6 budgets of the shipped scenarios; hook scripts; the negative tests and fixtures of NFR21; the assistant settings file; the list and the guard themselves. Every numeric threshold of a gate is stated in a protected item, not only on a command line. Makefile recipes and workflow files are not protected items; weakening a gate there is detected by the negative tests (NFR21) and the gate-set comparison (NFR22). [CAP-41, NEW-31, P27]
-- NFR27: A parity matrix tracked in the planning bundle `specs/rust-service-template-bootstrap/`, which is the capability catalog together with the Traceability section of this PRD, maps 196 of 196 PHP capability ids (185 delivered, 11 dropped with a reason) and 42 of 42 `NEW` ids to their requirement; the readiness review finds 0 replicated defects from the catalog's 150-line digest, apart from the 2 accepted by decision (`/ping` as container health check; the issue number in the changelog scope). [scope principles 1 and 3; K-05, K-06]
+- NFR27: A parity matrix tracked in the planning bundle `specs/rust-service-template-bootstrap/`, which is the capability catalog together with the Traceability section of this PRD, maps 196 of 196 PHP capability ids (185 delivered, 11 dropped with a reason) and 42 of 42 `NEW` ids to their requirement; the readiness review finds 0 replicated defects from the catalog's 150-line digest, apart from the 3 accepted by decision (`/ping` as container health check; the issue number in the changelog scope; the unchanged PHP Spectral ruleset (catalog note CI:D-28)). [scope principles 1 and 3; K-05, K-06]
 
 ### Testability
 
@@ -776,7 +830,7 @@ Where a requirement says "ceiling", the architect records the final value at or 
 ### CI cost
 
 - NFR39: On 4-vCPU GitHub-hosted runners a pull request completes its last required check within 20 min of the push on warm caches and within 40 min on cold caches; the changed-code mutation check is outside these two figures and has its own timeout of at most 45 min; a documentation-only pull request completes within 5 min; 100% of jobs declare a timeout of at most 45 min, except the clean-clone job of FR95, whose timeout is at most 75 min; the Bats job completes within 20 min. Initial budgets, revised only with a recorded measurement. [NEW-26, NEW-28, P17; K-11]
-- NFR40: 100% of pull-request workflows cancel superseded runs of the same ref; 100% of jobs that compile Rust code or build an image restore a dependency and build cache or an image layer cache; on a rerun of an unchanged commit 0 third-party dependencies are recompiled and 0 unchanged image layers are rebuilt, verified by the readiness review from the log of one rerun; the image definition keeps dependencies in a layer separate from source, and the build context excludes version-control data, build output and test results. [NEW-25, NEW-26, CAP-DM-04, CAP-DM-06, P17]
+- NFR40: 100% of pull-request workflows cancel superseded runs of the same ref; 100% of jobs that compile Rust code or build an image restore a dependency and build cache or an image layer cache, except the `surface` Bats group and the weekly `devcontainer-build` job, the first two exceptions recorded in architecture-delivery.md, open item 5, and the weekly `clean-bootstrap-ci` job, which FR95 and NFR34 require to start without a restored cache, recorded there as the third exception, and, on a rerun of a pull-request commit, the third-party crates that a mutation shard compiles because its diff selects packages the saver shard on main did not build (measured 0 to 77 compile units per shard; the saver selection itself recompiles 0), recorded there as the fourth exception; on a rerun of an unchanged commit 0 third-party dependencies are recompiled, apart from the four exceptions above, and 0 unchanged image layers are rebuilt, verified by the readiness review from the log of one rerun; the image definition keeps dependencies in a layer separate from source, and the build context excludes version-control data, build output and test results. [NEW-25, NEW-26, CAP-DM-04, CAP-DM-06, P17]
 - NFR41: Coverage is computed and uploaded by exactly 1 job; G11, G12 and G14 are reported from one execution of the suites, in CI and in `make ci`; apart from the determinism check of NFR7, each contract snapshot is generated once per workflow run; a job starts only the stack services it uses. [CAP-TQ-16, CAP-CI-04, P9, P17]
 - NFR42: The scheduled run on `main` executes at least weekly, and Dependabot checks each of its six ecosystems at least monthly. [NEW-29, CAP-CI-28, P18]
 
@@ -863,7 +917,7 @@ The architecture stage fixes these, within `scope-decisions.md` section 8, and r
 - the secrets-scanning and image-scanning tools, each with a Make target or a documented reason for being CI-only (FR47, FR48);
 - whether the Structurizr viewer starts by default or through a profile (FR88), and how model components are matched to workspace layers (FR120);
 - the instance defaults of the AWS load run (FR85);
-- whether the Spectral response rules are tightened (catalog note on CI:D-28);
+- whether the Spectral response rules are tightened (catalog note on CI:D-28): decided, not tightened (architecture-delivery.md, row `.spectral.yaml`);
 - the OpenAPI title, description and operation ids (FR71);
 - the skill names (FR108) and the format of the request collection (FR118).
 

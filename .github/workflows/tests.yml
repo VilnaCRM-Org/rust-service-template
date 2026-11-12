@@ -131,7 +131,7 @@ jobs:
           fetch-depth: 0
       - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
         with:
-          cache-shared-key: mutation
+          cache-shared-key: mutation-in-place
           cache-save-if: false
       - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
         with:
@@ -157,6 +157,8 @@ jobs:
       EVENT_NAME: ${{ github.event_name }}
       BASE_REF: ${{ github.base_ref }}
       SHARD: ${{ matrix.shard }}
+      # cargo-mutants builds in the checkout, whose target/ the Rust cache restores and saves (NFR40).
+      MUTANTS_IN_PLACE: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -164,7 +166,7 @@ jobs:
           fetch-depth: 0
       - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
         with:
-          cache-shared-key: mutation
+          cache-shared-key: mutation-in-place
           cache-save-if: ${{ github.ref == 'refs/heads/main' && matrix.index == 1 }}
       - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
         with:
@@ -178,6 +180,13 @@ jobs:
         run: make mutation-tests-diff base_ref="origin/$BASE_REF" MUTANTS_SHARD="$SHARD"
       - if: ${{ env.EVENT_NAME != 'pull_request' }}
         run: make mutation-tests MUTANTS_SHARD="$SHARD"
+      - if: ${{ always() }}
+        run: |
+          # NFR40: compile units of third-party crates in this shard's cargo-mutants builds, 0 on a warm rerun.
+          if [ -d mutants.out/log ]; then
+            count=$(cat mutants.out/log/*.log | sed 's/\x1b\[[0-9;]*m//g' | grep -E '^[[:space:]]+Compiling ' | grep -vc '(/' || true)
+            echo "Third-party crates compiled by cargo-mutants in this shard: ${count}"
+          fi
       - if: ${{ always() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -227,6 +236,8 @@ jobs:
       APP_IMAGE: service-under-test:prod
       DEV_IMAGE: service-under-test:dev
       BUILD_IMAGE: '0'
+      # The G15 test of the tests group runs cargo-mutants in the checkout, whose target/ the Rust cache restores.
+      MUTANTS_IN_PLACE: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -234,7 +245,9 @@ jobs:
           fetch-depth: 0
       - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1 # zizmor: ignore[cache-poisoning] images are loaded locally, never pushed
         with:
-          cache-shared-key: bats-${{ matrix.group }}
+          # The tests group has a key of its own since its G15 test builds in place: rust-cache saves nothing on an
+          # exact key hit, and the entry of the old key holds no build of that selection.
+          cache-shared-key: ${{ matrix.group == 'tests' && 'bats-tests-in-place' || format('bats-{0}', matrix.group) }}
           cache-save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
         with:

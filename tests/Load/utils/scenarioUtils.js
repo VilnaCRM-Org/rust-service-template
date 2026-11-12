@@ -10,9 +10,8 @@ export default class ScenarioUtils {
     this.stressConfig = this.config.endpoints[scenarioName].stress;
     this.spikeConfig = this.config.endpoints[scenarioName].spike;
     this.delay = this.config.delayBetweenScenarios;
-    this.averageTestStartTime = 0;
-    this.stressTestStartTime = 0;
-    this.spikeTestStartTime = 0;
+    // Start time of the next selected profile: each profile starts after the selected ones before it and the pause.
+    this.nextStartTime = 0;
   }
 
   getOptions() {
@@ -43,32 +42,30 @@ export default class ScenarioUtils {
   }
 
   addSmokeScenario(scenariosBuilder) {
-    scenariosBuilder.addSmokeScenario(this.smokeConfig);
-    this.averageTestStartTime = this.smokeConfig.duration + this.delay;
+    scenariosBuilder.addSmokeScenario(this.smokeConfig, this.nextStartTime);
+    this.advanceStartTime(this.smokeConfig.duration);
   }
 
   addAverageScenario(scenariosBuilder) {
-    scenariosBuilder.addAverageScenario(this.averageConfig, this.averageTestStartTime);
-    this.stressTestStartTime =
-      this.averageTestStartTime +
-      this.averageConfig.duration.rise +
-      this.averageConfig.duration.plateau +
-      this.averageConfig.duration.fall +
-      this.delay;
+    const { rise, plateau, fall } = this.averageConfig.duration;
+    scenariosBuilder.addAverageScenario(this.averageConfig, this.nextStartTime);
+    this.advanceStartTime(rise + plateau + fall);
   }
 
   addStressScenario(scenariosBuilder) {
-    scenariosBuilder.addStressScenario(this.stressConfig, this.stressTestStartTime);
-    this.spikeTestStartTime =
-      this.stressTestStartTime +
-      this.stressConfig.duration.rise +
-      this.stressConfig.duration.plateau +
-      this.stressConfig.duration.fall +
-      this.delay;
+    const { rise, plateau, fall } = this.stressConfig.duration;
+    scenariosBuilder.addStressScenario(this.stressConfig, this.nextStartTime);
+    this.advanceStartTime(rise + plateau + fall);
   }
 
   addSpikeScenario(scenariosBuilder) {
-    scenariosBuilder.addSpikeScenario(this.spikeConfig, this.spikeTestStartTime);
+    const { rise, fall } = this.spikeConfig.duration;
+    scenariosBuilder.addSpikeScenario(this.spikeConfig, this.nextStartTime);
+    this.advanceStartTime(rise + fall);
+  }
+
+  advanceStartTime(profileDuration) {
+    this.nextStartTime += profileDuration + this.delay;
   }
 
   getThresholds() {

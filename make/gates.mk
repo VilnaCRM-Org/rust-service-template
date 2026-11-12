@@ -26,7 +26,10 @@ COVERAGE_LCOV_CMD  = cargo llvm-cov report --lcov --output-path target/coverage/
 COVERAGE_HTML_CMD  = cargo llvm-cov report --html --output-dir target/coverage
 COVERAGE_GATE_CMD  = cargo llvm-cov report --fail-under-lines 100 --fail-under-functions 100
 COVERAGE_XML_CMD   = cargo llvm-cov report --cobertura --output-path target/coverage/coverage.xml
-MUTANTS_CMD      = env -u CARGO_TARGET_DIR -u CARGO_BUILD_WARNINGS cargo mutants --workspace --cargo-arg=--locked $(if $(MUTANTS_SHARD),--shard $(MUTANTS_SHARD))
+# MUTANTS_IN_PLACE (set by CI only, NFR40): exactly the value 1 adds --in-place, so cargo-mutants builds in the
+# checkout and reuses the target/ that the Rust cache restores; any other value adds nothing, a 1 padded with blanks
+# too. It is no argument hook. `$(findstring V,1)` is not empty only when V is the string 1, blanks included.
+MUTANTS_CMD      = env -u CARGO_TARGET_DIR -u CARGO_BUILD_WARNINGS cargo mutants --workspace --cargo-arg=--locked $(if $(MUTANTS_SHARD),--shard $(MUTANTS_SHARD)) $(if $(findstring $(MUTANTS_IN_PLACE),1),--in-place)
 OPENAPI_EXPORT_CMD  = cargo run --locked --quiet -p service -- openapi-export --output .github/openapi-spec/spec.yaml
 GRAPHQL_EXPORT_CMD  = cargo run --locked --quiet -p service -- graphql-export --output .github/graphql-spec/spec
 SNAPSHOT_STATUS_CMD = test -z "$$(git status --porcelain -- .github/openapi-spec .github/graphql-spec)"

@@ -33,4 +33,6 @@ The repository checks itself on every pull request and on a schedule:
 - static security analysis of the code and of the workflow files;
 - dependency updates proposed by Dependabot.
 
+The JavaScript lock file of the load-test lint tooling, `tests/Load/pnpm-lock.yaml`, is watched by Dependabot only: no gate audits it.
+
 These gates reduce risk but do not replace a review. A clean run is not proof that the template has no vulnerability.

@@ -9,7 +9,9 @@ Each section names a symptom and what to do about it.
 | Line | Meaning | What to do |
 | --- | --- | --- |
 | `[MISSING] <tool>: needed by <targets>; <how to install>` | the tool is absent | install it as the line says, then run `make doctor` again |
-| `[OUTDATED] <tool>: found <v>, need <v>` | the tool is older than the minimum, or differs from the pinned version | update it; for a pinned cargo tool run `make install` |
+| `[MISSING] toolchain <version>: needed by every cargo target; run: rustup toolchain install <version>` | the toolchain pinned in `rust-toolchain.toml` is not installed, and rustup does not install it on its own (automatic installation is off) or could not install it (for example without network access) | run the command the line names, then `rustup component add llvm-tools-preview --toolchain <version>` for the coverage targets (see [Prerequisites](getting-started.md#prerequisites)) |
+| `[OUTDATED] <tool>: found <v>, need <v>; needed by <targets>; <how to install>` | the tool is older than the minimum, or differs from the pinned version | update it; for a pinned cargo tool run `make install` |
+| `[OUTDATED] toolchain: found <v>, need <version>; needed by every cargo target; run: rustup toolchain install <version>` | the `rustc` that runs in the repository root prints another version than the one pinned in `rust-toolchain.toml` | run the command the line names. If the line stays after the install, something shadows the pin: check `which rustc` (it must be rustup's proxy under `~/.cargo/bin`), `echo $RUSTUP_TOOLCHAIN` (a value wins over `rust-toolchain.toml`) and `rustup override list` (an override for the repository directory wins too), then unset `RUSTUP_TOOLCHAIN`, remove the override (`rustup override unset` in the repository root) or take the other `rustc` off `PATH` |
 | `[OPTIONAL] <tool>` | only some targets need it (for example npm for the `bmalph-*` targets) | ignore it unless you use those targets |
 | `[SKIP] …` | container mode skips the toolchain checks | none; this is expected with `RUN_IN_CONTAINER=1` |
 

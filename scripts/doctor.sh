@@ -5,8 +5,8 @@
 #   --prerequisites  limit the check to what `make install` (or, in container mode, `make start`) needs
 #
 # Lines: `[OK] <name>`, `[MISSING] <name>: needed by <targets>; <how to install>`,
-# `[OUTDATED] <name>: found <v>, need <v>`, `[OPTIONAL] <name>: ...` (never fails the check) and
-# `[SKIP] ...`. The first line is the platform.
+# `[OUTDATED] <name>: found <v>, need <v>; needed by <targets>; <how to install>`, `[OPTIONAL] <name>: ...` (never
+# fails the check) and `[SKIP] ...`. The first line is the platform.
 # The make check looks at the GNU Make that runs the doctor: the Makefile passes it as MAKE_COMMAND (`gmake` on a
 # macOS host that installed GNU Make next to the old system `make`); without it the `make` on PATH is checked.
 # Exit status: 0 all required checks passed; 1 otherwise; 2 on a wrong argument.
@@ -32,8 +32,8 @@ missing() { # <name> <needed by> <how to install>
   echo "[MISSING] $1: needed by $2; $3"
   failed=1
 }
-outdated() { # <name> <found> <need>
-  echo "[OUTDATED] $1: found $2, need $3"
+outdated() { # <name> <found> <need> <needed by> <how to install>
+  echo "[OUTDATED] $1: found $2, need $3; needed by $4; $5"
   failed=1
 }
 optional() { echo "[OPTIONAL] $1"; }
@@ -55,7 +55,7 @@ check_min() {
   elif at_least "$found" "$min"; then
     ok "$name $found"
   else
-    outdated "$name" "$found" "$min"
+    outdated "$name" "$found" "$min" "$needed" "$how"
   fi
 }
 
@@ -67,7 +67,7 @@ check_exact() {
   elif [ "$found" = "$pinned" ]; then
     ok "$name $found"
   else
-    outdated "$name" "$found" "$pinned"
+    outdated "$name" "$found" "$pinned" "$needed" "$how"
   fi
 }
 
@@ -149,7 +149,7 @@ check_toolchain() {
   elif [ -z "$found" ]; then
     missing "toolchain $channel" "every cargo target" "run: rustup toolchain install $channel"
   else
-    outdated "toolchain" "$found" "$channel"
+    outdated "toolchain" "$found" "$channel" "every cargo target" "run: rustup toolchain install $channel"
   fi
 }
 
@@ -176,6 +176,7 @@ check_cargo_tools() {
   check_cargo_tool taplo TAPLO_VERSION "lint-toml, format-repo" taplo --version
   check_cargo_tool typos TYPOS_VERSION "lint-spelling" typos --version
   check_cargo_tool zizmor ZIZMOR_VERSION "lint-actions" zizmor --version
+  check_cargo_tool cocogitto COCOGITTO_VERSION "bats (make_release.bats)" cog --version
 }
 
 check_bats() {

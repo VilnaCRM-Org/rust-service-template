@@ -9,6 +9,7 @@ description: Use when a change affects a command, an environment variable, an en
 
 - A Make target, a `service` command or an environment variable is added, renamed or removed.
 - An endpoint, a workflow, a skill or an entry file changes.
+- The text of a requirement of the planning documents changes.
 
 ## Commands
 
@@ -25,6 +26,7 @@ description: Use when a change affects a command, an environment variable, an en
   - an operational procedure: `docs/operations.md` or `docs/troubleshooting.md`;
   - a skill: the entry in `.claude/skills/README.md`, the only skill inventory;
   - the entry files `AGENTS.md` and `CLAUDE.md`: keep rules in `AGENTS.md` only.
+- When the text of a requirement changes, search the guides and the skills for its ID (for example `git grep -n NFR40 -- docs .claude`) and update every restatement in the same change, including counts and ordinals that the new text shifts.
 - The drift check fails when a cited Make target, command, slash command or path does not exist, when the verification block of `AGENTS.md` differs from `make ci-list`, when a variable is missing from `docs/environment.md`, or when a skill lacks a name, a description or an index entry.
 - Cite the verification list by link to the verification section of `AGENTS.md`; never copy it, and never put more than two gate targets in one fenced block or numbered list.
 - Write guidance without the repository name; downstream services rename the checkout.
