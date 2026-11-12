@@ -314,7 +314,7 @@ Scheduled run on a hosted runner: run 43107219243 of the workflow `Scheduled ver
 | `Require a clean working tree` | 0 s (start and end in the same second) | none | not applicable | passed: the two commands left the working tree unchanged |
 | the whole job | 2294 s (38 min 14 s) | none | not applicable | from the start to the end of the job |
 
-This run confirms the budgets of NFR35 for `make bootstrap` (15 minutes) and `make ci` (45 minutes) on a hosted runner, from a clean clone with no restored cache and no manual step (NFR34). It did not measure the third budget, `make start` with images and build output present (60 s), which only the local run above measured (12 s). The job therefore has two more steps between `Bootstrap` and `Run every gate`: `Stop the stack` (`make stop`) and `Start the stack and time it`. The second times `make start`, writes `make start: <seconds> s (budget 60 s)` to the job summary and fails above 60 s; the failure summary names either step. Both run before `make ci`, so a dispatch on a branch measures them too, although its `make ci` stops at the configuration guard (see the dispatch below). The hosted figure is to be filled from run `<id>`, the next dispatch of `Scheduled verification` on the branch of pull request #2.
+This run confirms the budgets of NFR35 for `make bootstrap` (15 minutes) and `make ci` (45 minutes) on a hosted runner, from a clean clone with no restored cache and no manual step (NFR34). It did not measure the third budget, `make start` with images and build output present (60 s), which only the local run above measured (12 s). The job therefore has two more steps between `Bootstrap` and `Run every gate`: `Stop the stack` (`make stop`) and `Start the stack and time it`. The second times `make start`, writes `make start: <seconds> s (budget 60 s)` to the job summary and fails above 60 s; the failure summary names either step. Both run before `make ci`, so a dispatch on a branch measures them too, although its `make ci` stops at the configuration guard (see the dispatch below). The next dispatch on the branch measured it on a hosted runner: run 43151995703 of `Scheduled verification` (`workflow_dispatch` on commit `da5ea9c`, 2026-11-12, runner label `ubuntu-24.04`), job `Clean bootstrap and make ci` (job 130963102019): `Bootstrap` 452 s, `Stop the stack` 3 s, and `Start the stack and time it` printed `make start: 12 s (budget 60 s)`. The third budget of NFR35 is met on a hosted runner as well. The job then stopped at `validate-configuration`, as every dispatch on that branch does (see below).
 
 The mutation shards of the same run ran `make mutation-tests` over the whole workspace in 5 shards; every shard and the job `Mutation tests` passed: 699 mutants, 459 caught, 240 unviable, none missed or timed out. The duration is that of the job:
 
@@ -345,7 +345,17 @@ Since that run the job `devcontainer-build` also starts the container and checks
 3. `npx --yes @devcontainers/cli@0.90.0 exec --workspace-folder . make format-check` runs a toolchain target with the pinned toolchain.
 4. `npx --yes @devcontainers/cli@0.90.0 exec --workspace-folder . make start-deps` starts PostgreSQL and LocalStack through compose on the inner engine.
 
-The CLI version of every step equals `DEVCONTAINER_CLI_VERSION` of `make/tool-versions.mk` (G31 rule (b)). Run 43119953189 had only the build step. The result of the four steps (run, job, step durations and the last lines of each log) is to be filled from run `<id>`, the same dispatch that measures `make start`.
+The CLI version of every step equals `DEVCONTAINER_CLI_VERSION` of `make/tool-versions.mk` (G31 rule (b)). Run 43119953189 had only the build step. Run 43151995703 (dispatch on commit `da5ea9c`, 2026-11-12, runner label `ubuntu-24.04`), job `Development container build` (job 130963101979), passed every step:
+
+| Step | Duration | Result | Last lines of its log |
+| --- | --- | --- | --- |
+| Build the development container | 164 s | passed | `{"outcome":"success","imageName":["vsc-rust-service-template-..."],...}` |
+| Start the development container (`up`) | 7 s | passed | `Running the postCreateCommand from devcontainer.json...`; the doctor printed `[OK]` for every tool, among them `Docker Engine 29.9.3`, `Docker Compose plugin 2.40.3`, `cargo, toolchain 1.99.1` and `cocogitto 7.0.0`; `{"outcome":"success",...,"remoteUser":"dev","remoteWorkspaceFolder":"/app"}` |
+| Reach the container engine inside the container (`docker info`) | under 1 s | passed | `Server Version: 29.9.3` |
+| Run a toolchain target inside the container (`make format-check`) | 1 s | passed | `cargo fmt --all --check`, exit 0 |
+| Start the backing services through the inner engine (`make start-deps`) | 29 s | passed | `Container app-database-1  Healthy`, `Container app-localstack-1  Healthy` |
+
+This is the hosted proof of FR118: in the container the toolchain targets work and the container engine is reachable.
 
 ## Build caches in CI
 
