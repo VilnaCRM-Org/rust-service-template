@@ -11,6 +11,7 @@ Runbooks for operating the service and for maintaining the repository that hosts
 - [Toolchain update procedure](#toolchain-update-procedure)
 - [Tool-version review](#tool-version-review)
 - [First measurements](#first-measurements)
+- [Build caches in CI](#build-caches-in-ci)
 - [Accepted findings: `.trivyignore` and `.gitleaksignore`](#accepted-findings-trivyignore-and-gitleaksignore)
 
 ## Migrations and rollback
@@ -317,6 +318,82 @@ The mutation shards of the same run ran `make mutation-tests` over the whole wor
 | 4/5 | 139 | 121 | 18 | 8 min 19 s |
 
 The job `Development container build` (`devcontainer-build`) of the same run failed after 2 min 55 s. The `dev` stage of the `Dockerfile` built; the common-utils feature then stopped with `/home/dev/.bashrc: Permission denied`, because the `dev` stage gave the home directory the sticky bit and the runner's kernel refuses root an append to a file of another user in such a directory (`fs.protected_regular`). The `Dockerfile` now gives the home directory mode `0777` without the sticky bit; the build of the fixed definition has not yet run on a hosted runner.
+
+## Build caches in CI
+
+Every job that compiles Rust code or builds an image restores a cache that a run on `main` saved; pull requests restore and never save (NFR40). The two exceptions are the `surface` Bats group, which compiles inside the development container, and the weekly `devcontainer-build` job, which builds without a layer cache on purpose. Images use the BuildKit layer cache of GitHub (`type=gha`, scopes `prod-image` and `dev-image`, written with `mode=max` on `main` only).
+
+### Rust caches
+
+The toolchain action (`actions-rust-lang/setup-rust-toolchain` 2.0.1) runs `Swatinem/rust-cache` 2.9.3. It caches `target/` and the registry, git checkouts and installed binaries of the cargo home under the key `v0-rust-<cache-shared-key>-Linux-x64-<hash 1>-<hash 2>`. Hash 1 covers the compiler version and every variable whose name starts with `CARGO`, `CC`, `CFLAGS`, `CXX`, `CMAKE` or `RUST`; hash 2 covers the manifests, `Cargo.lock`, `rust-toolchain.toml` and `.cargo/config.toml`. The only restore key is the key without hash 2, matched as a prefix, so a changed lock file restores the previous entry of the same shared key. Before saving, rust-cache removes the build output of the workspace crates and keeps that of the third-party crates.
+
+rust-cache saves nothing when the restore was an exact hit (`Cache up-to-date.`). An entry is therefore never refreshed while the lock file and the toolchain stay the same. When what a saver builds changes, rename its shared key, or the old entry stays in use. For this reason `mutation` became `mutation-in-place` and `bats-tests` became `bats-tests-in-place` when cargo-mutants started building in the checkout. The entries saved under the old names held no build of the dependencies that the in-place builds need.
+
+| Shared key | Saver (on `main`) | Other jobs that restore it |
+| --- | --- | --- |
+| `check` | `static-analysis` | `complexity`, `crate-isolation`, `code-scanning` (scheduled) |
+| `service-debug` | `check-requirements` | `query-metadata`, `contract-snapshots`, `docs-check` |
+| `xtask` | `architecture` | `validate-configuration`, `architecture-model` |
+| `tests` | `tests` | none |
+| `e2e` | `e2e-tests` | none |
+| `mutation-in-place` | `mutation-shard` with index 1, in `tests.yml` and `scheduled.yml` | `mutation-plan`, the other shards |
+| `bats-<group>`, for the group `tests` `bats-tests-in-place` | `bats-group`, one key per group | none |
+
+### Mutation testing builds in the checkout
+
+By default cargo-mutants copies the source tree to a scratch directory in the system temporary directory, without `target/` (its option `copy_target` is off by default), and builds there. The restored cache then cannot help: the hosted rerun of an unchanged commit compiled 321 third-party crates in `Mutation shard 0/1`, and the entry it restored, saved by a run on `main` that had also built in a scratch copy, held no dependency build output.
+
+The CI jobs therefore set `MUTANTS_IN_PLACE: '1'`: the `mutation-shard` jobs of `tests.yml` and `scheduled.yml`, and the `bats-group` job of `tests.yml`. There, the Bats file `make_tests.bats` passes the value on to its G15 test, because every Bats test unsets the Make variables of the caller. Exactly the value `1` adds `--in-place` to the command of `mutation-tests` and `mutation-tests-diff`, and any other value adds nothing. It is not an argument hook: no other flag can reach cargo-mutants this way, and `make_tests.bats` checks this. cargo-mutants then builds in the checkout and reuses the `target/` that the cache restored. The timeouts do not change, because cargo-mutants derives the test timeout from the baseline test time and sets no build timeout here.
+
+Keep the switch unset locally. In place, cargo-mutants writes each mutant into the source file and writes the original text back after the mutant, also when the build tool fails. The tree is the same at the end, but it is rewritten while the run lasts, and a run killed in between leaves a mutant behind. A property test that a mutant makes fail can also leave a `proptest-regressions/` file next to its source. A scratch copy collects the same file, which every mutant of the run then reads, so the outcomes do not depend on the mode. In place, the file stays in the working tree; the hosted checkout is discarded after the job.
+
+The same selection was run both ways on 2026-11-12 with cargo-mutants 27.1.0: 23 mutants in four files, the fixture function of the G15 test appended to `xtask/src/cli.rs`. Both runs gave 17 caught, 2 missed, 4 unviable and no timeout, with the same outcome for every mutant and status 2 for both. The G15 test of `make_tests.bats` compiled 40 third-party crates in a scratch copy (24.9 s) and none in place with a warm `target/` (16.8 s).
+
+### What a restored cache cannot cover: the package selection
+
+Which third-party crates cargo builds, and with which features, depends on the packages that a command selects. cargo-mutants builds its baseline with `--package` for every package that has a mutant in the shard, and then each mutant with `--package` for its own package. The saver on `main` builds only the selections of its own shard. On the current tree the full run has 701 mutants in 5 shards, and the saver's shard holds the mutants of `health-check-application`, `health-check-domain`, `health-check-infrastructure` and `service`. A pull-request shard whose mutants lie elsewhere still compiles the crates that differ.
+
+The table below gives the third-party compile units of one pull-request shard, counted from the `Compiling` lines without a path. Each count starts from a target directory that holds exactly what the saver builds: its baseline and one build per package, 508 compile units from an empty directory. The commands are the cargo-mutants build commands replayed in a scratch copy of commit `027e1f1` on 2026-11-12.
+
+| Packages with mutants in the shard | Baseline | Per-package builds | Total |
+| --- | --- | --- | --- |
+| `service` | 0 | 0 | 0 |
+| `health-check-domain` | 0 | 0 | 0 |
+| `shared-application` | 0 | 0 | 0 |
+| `xtask` | 17 | 0 | 17 |
+| `shared-domain` | 15 | 0 | 15 |
+| `shared-infrastructure` | 15 | 0 | 15 |
+| `some-module-application`, `some-module-domain`, `some-module-infrastructure` | 49 | 8, 7, 13 | 77 |
+| `service`, `shared-domain` | 13 | 0, 9 | 22 |
+
+Before the switch, every shard compiled every third-party crate of its selection on every run.
+
+A warm-up on the saver does not close the gap. It was measured with every package with mutants built alone, plus the whole workspace: that costs 213 compile units on the saver and raises the build output from 2.80 GB to 4.64 GB. After it, 4 of 9 sampled baselines of two or three packages still compiled 2, 14, 31 and 38 crates, and a shard can select any of the 2047 combinations of the 11 packages with mutants. Unifying features across the workspace needs the unstable `-Zfeature-unification`; stable cargo 1.99.1 ignores `resolver.feature-unification`.
+
+The saver's own selections also go stale. When the mutant count moves the slice boundaries, the saver's shard holds other packages, but its entry is replaced only when the lock file or the toolchain changes.
+
+### Checking the rerun clause on hosted runners
+
+The proof comes only from hosted logs. In the logs, `<hash>` stands for the two hashes of the key.
+
+On the first push to `main` after a key was renamed:
+
+- `Mutation shard 0/<n>` (index 1), toolchain step: `No cache found.`. The mutation step's command ends in `--shard 0/<n> --in-place`. The step after it prints `Third-party crates compiled by cargo-mutants in this shard: <count>`, with a high count on this cold run. The post step of the toolchain action prints `... Saving cache ...` for `v0-rust-mutation-in-place-Linux-x64-<hash>`. The entry is far larger than the 121,575,024 bytes of the old `mutation` entry. The artifact `mutants-1` has no `Copied source tree` line in `debug.log`, and the `Compiling` lines of `log/baseline.log` name paths in the checkout.
+- `Bats: tests`: `No cache found.` for `v0-rust-bats-tests-in-place-Linux-x64-<hash>`, the TAP line `# G15: <count> third-party crates compiled by cargo-mutants (MUTANTS_IN_PLACE=1)`, and `... Saving cache ...` at the end.
+- A job that fails saves no cache: its post step does not run.
+
+On a rerun of an unchanged pull-request commit, started after that push:
+
+- `Mutation plan` and every `Mutation shard k/n`: `Restored from cache key "v0-rust-mutation-in-place-Linux-x64-<hash>" full match: true.`. Each shard prints `Third-party crates compiled by cargo-mutants in this shard: 0` when its packages are among the saver's selections. Otherwise it prints the count of the table above for its selection, the same on the first attempt and on the rerun, because pull-request runs save nothing.
+- `Bats: tests`: `Restored from cache key "v0-rust-bats-tests-in-place-Linux-x64-<hash>" full match: true.` and `# G15: 0 third-party crates compiled by cargo-mutants (MUTANTS_IN_PLACE=1)`. The G15 selection is the same on every run.
+
+Some of this can be proven on the pull request that introduces the switch, before it is merged:
+
+- The mutation shards run in place: the command ends in `--in-place`, `debug.log` has no `Copied source tree` line, and the paths of `log/baseline.log` lie in the checkout.
+- The outcome counts match the earlier run of the same diff.
+- The G15 test passes in place: its TAP line shows `MUTANTS_IN_PLACE=1`, and the test checks that the planted file and `git status` are unchanged afterwards.
+
+The count 0 on a rerun can be shown only after the merge. Before it, no saved entry has the new names, and pull requests do not save. Caches saved by a push to the pull request's branch are not visible to its `pull_request` runs.
 
 ## Accepted findings: `.trivyignore` and `.gitleaksignore`
 

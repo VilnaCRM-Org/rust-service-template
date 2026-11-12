@@ -135,7 +135,7 @@ jobs:
       - name: Set up Rust
         uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
         with:
-          cache-shared-key: mutation
+          cache-shared-key: mutation-in-place
           cache-save-if: false
 
       - name: Install cargo-mutants
@@ -191,7 +191,7 @@ jobs:
       - name: Set up Rust
         uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
         with:
-          cache-shared-key: mutation
+          cache-shared-key: mutation-in-place
           cache-save-if: ${{ github.ref == 'refs/heads/main' && matrix.index == 1 }}
 
       - name: Install the cargo tools
@@ -210,9 +210,20 @@ jobs:
         id: mutation
         env:
           SHARD: ${{ matrix.shard }}
+          # cargo-mutants builds in the checkout, whose target/ the Rust cache restores and saves (NFR40).
+          MUTANTS_IN_PLACE: '1'
         run: |
           mkdir -p target
           make mutation-tests MUTANTS_SHARD="$SHARD" 2>&1 | tee target/mutation-tests.log
+
+      - name: Count the third-party crates compiled
+        if: ${{ always() }}
+        run: |
+          # NFR40: compile units of third-party crates in this shard's cargo-mutants builds, 0 on a warm rerun.
+          if [ -d mutants.out/log ]; then
+            count=$(cat mutants.out/log/*.log | sed 's/\x1b\[[0-9;]*m//g' | grep -E '^[[:space:]]+Compiling ' | grep -vc '(/' || true)
+            echo "Third-party crates compiled by cargo-mutants in this shard: ${count}"
+          fi
 
       - name: Show the container logs
         if: ${{ failure() }}

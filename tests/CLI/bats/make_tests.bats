@@ -13,6 +13,11 @@ load test_helper
 
 # bats file_tags=tests
 
+# The CI switch MUTANTS_IN_PLACE of the caller (NFR40), read here because setup() unsets every Make variable of the
+# caller. The G15 test passes it on: the hosted job sets it, so cargo-mutants builds in the checkout whose target/
+# the Rust cache restores; locally it is unset, so cargo-mutants builds in a scratch copy, as `make ci` does.
+CALLER_MUTANTS_IN_PLACE="${MUTANTS_IN_PLACE-}"
+
 setup() {
   _common_setup
 }
@@ -216,12 +221,74 @@ dev_sql() {
 @test "G15: a function whose tests miss a mutant makes mutation-tests-diff fail with a MISSED line" {
   require_docker
   require_command cargo-mutants
+  local status_before
   plant_append xtask/src/cli.rs "${BATS_TEST_DIRNAME}/fixtures/uncovered_function.rs.txt"
-  CI=true run make --no-print-directory mutation-tests-diff base_ref=HEAD
+  status_before="$(git status --porcelain)"
+  CI=true run make --no-print-directory mutation-tests-diff base_ref=HEAD "MUTANTS_IN_PLACE=${CALLER_MUTANTS_IN_PLACE}"
   assert_failure
   assert_output --regexp 'MISSED +xtask/src/cli\.rs:[0-9]+:[0-9]+: replace planted -> bool with true'
   assert_output --partial 'mutation-tests-diff] Error 2'
+  # For the job log (NFR40): the compile units of third-party crates in the cargo-mutants builds, 0 on a warm rerun.
+  printf '# G15: %s third-party crates compiled by cargo-mutants (MUTANTS_IN_PLACE=%s)\n' \
+    "$(cat mutants.out/log/*.log 2>/dev/null | grep -E '^[[:space:]]+Compiling ' | grep -vc '(/' || true)" "${CALLER_MUTANTS_IN_PLACE}" >&3
   rm -rf mutants.out mutants.out.old
+  # Built in place, cargo-mutants must have written the planted file back after each mutant and touched no other.
+  assert_equal "$(cat xtask/src/cli.rs)" "$(git show HEAD:xtask/src/cli.rs && cat "${BATS_TEST_DIRNAME}/fixtures/uncovered_function.rs.txt")"
+  assert_equal "$(git status --porcelain)" "${status_before}"
+}
+
+# --- G15: the switch MUTANTS_IN_PLACE (NFR40) ---------------------------------------------------------------
+
+# Prints the cargo-mutants command of a dry run of `make <arguments>`, blanks squeezed and trimmed. Fails unless the
+# dry run succeeds and prints exactly one such command (the prerequisites only print theirs under -n).
+mutants_command() {
+  local out line
+  out="$(make --no-print-directory -n "$@")" || return 1
+  line="$(sed -n -E '/cargo mutants/{s/[[:space:]]+/ /g;s/^ //;s/ $//;p;}' <<<"${out}")"
+  [[ -n "${line}" && "${line}" != *$'\n'* ]] || return 1
+  printf '%s\n' "${line}"
+}
+
+@test "G15: without MUTANTS_IN_PLACE both mutation targets run cargo-mutants without --in-place" {
+  run mutants_command mutation-tests
+  assert_success
+  assert_output --regexp ' cargo mutants --workspace --cargo-arg=--locked$'
+  run mutants_command mutation-tests-diff base_ref=HEAD
+  assert_success
+  assert_output --regexp ' scripts/mutation-diff\.sh HEAD -- env -u CARGO_TARGET_DIR -u CARGO_BUILD_WARNINGS cargo mutants --workspace --cargo-arg=--locked$'
+}
+
+@test "G15: MUTANTS_IN_PLACE=1 from the environment or the command line adds --in-place and nothing else" {
+  local target plain
+  for target in mutation-tests mutation-tests-diff; do
+    plain="$(mutants_command "${target}" base_ref=HEAD MUTANTS_SHARD=1/3)"
+    assert_regex "${plain}" ' cargo mutants --workspace --cargo-arg=--locked --shard 1/3$'
+    MUTANTS_IN_PLACE=1 run mutants_command "${target}" base_ref=HEAD MUTANTS_SHARD=1/3
+    assert_success
+    assert_output "${plain} --in-place"
+    run mutants_command "${target}" base_ref=HEAD MUTANTS_SHARD=1/3 MUTANTS_IN_PLACE=1
+    assert_success
+    assert_output "${plain} --in-place"
+  done
+}
+
+@test "G15: no other value of MUTANTS_IN_PLACE and no MUTANTS_ARGS changes the mutation command" {
+  local target plain value
+  for target in mutation-tests mutation-tests-diff; do
+    plain="$(mutants_command "${target}" base_ref=HEAD)"
+    for value in '' 0 2 11 true yes on '1 1' '1 --jobs=4' '--jobs=4 1' --in-place --jobs=4; do
+      MUTANTS_IN_PLACE="${value}" run mutants_command "${target}" base_ref=HEAD
+      assert_success
+      assert_output "${plain}"
+      run mutants_command "${target}" base_ref=HEAD "MUTANTS_IN_PLACE=${value}"
+      assert_success
+      assert_output "${plain}"
+    done
+    # The generic hook that the recorded decision removed (DV-01, DV-13) must not come back under its old name.
+    MUTANTS_ARGS=--jobs=4 run mutants_command "${target}" base_ref=HEAD MUTANTS_ARGS=--jobs=4
+    assert_success
+    assert_output "${plain}"
+  done
 }
 
 @test "G15: mutation-tests-diff with a base ref that does not exist fails with the base-ref message" {

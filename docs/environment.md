@@ -103,6 +103,7 @@ Every variable a caller may set, except `PROJECT_NAME` (see below the table), is
 | `group` | empty | parameter of `new-context` | none |
 | `context` | empty | parameter of `new-context` | none |
 | `MUTANTS_SHARD` | empty | `k/n`: adds `--shard k/n` to `mutation-tests` and `mutation-tests-diff` | none |
+| `MUTANTS_IN_PLACE` | empty | set by CI only: exactly `1` adds `--in-place` to `mutation-tests` and `mutation-tests-diff`, so cargo-mutants builds in the checkout and reuses the restored `target/` (NFR40); any other value adds nothing. Leave it unset locally: in place, cargo-mutants rewrites source files of the working tree while it runs | none |
 | `ARCH_ARGS` | empty | test hook of the negative Bats tests (`architecture`) | none |
 | `DENY_ARGS` | empty | test hook of the negative Bats tests (`check-security`) | none |
 | `BATS_PATH` | `tests/CLI/bats` | test hook: the suite `bats` runs | none |

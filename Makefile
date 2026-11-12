@@ -67,6 +67,7 @@ name ?=
 group ?=
 context ?=
 MUTANTS_SHARD ?=
+MUTANTS_IN_PLACE ?=
 ARCH_ARGS ?=
 DENY_ARGS ?=
 BATS_PATH ?= tests/CLI/bats
