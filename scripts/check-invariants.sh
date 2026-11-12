@@ -817,7 +817,7 @@ rule_c() {
 # (d) Gate set, Bats groups, required checks
 # ---------------------------------------------------------------------------------------------------------------
 # Make targets of the CI-only list of DD-02 and of the scheduled and release workflows: not gates of make ci.
-ci_only_targets=' ci bootstrap check-commit-message mutation-tests static-analysis-sarif '
+ci_only_targets=' ci bootstrap check-commit-message mutation-tests static-analysis-sarif start stop '
 # Gates of make ci that the workflows reach without naming them in a make command: the test database through the
 # prerequisites of validate-sqlx-metadata, and the production image through the buildx step (DD-02, S5).
 indirect_targets=' setup-test-db build-prod-image '

@@ -182,7 +182,8 @@ These steps of the hosted pipeline have no place in `make ci`. Each has a reason
 | CodeQL analysis and the SARIF upload | publications without a threshold of their own; no local runner exists |
 | The Codecov upload and the artifact uploads | publication, not verification |
 | The full sharded mutation run | `make mutation-tests` exists locally but is not part of `make ci`: it takes up to an hour, so CI runs it on `main` and on a schedule, and `make ci` runs `mutation-tests-diff` for the changed code |
-| The build of the development container definition (scheduled workflow) | it needs the devcontainers CLI through npx and builds an image for several minutes; FR95 asks for it on a schedule only and no gate of `make ci` covers it. The local command is the one of the workflow, `npx --yes @devcontainers/cli@<version> build --workspace-folder .`, with the version `DEVCONTAINER_CLI_VERSION` of `make/tool-versions.mk` |
+| The build of the development container definition and the checks run in it (scheduled workflow) | it needs the devcontainers CLI through npx and builds an image for several minutes; FR95 and FR118 ask for it on a schedule only and no gate of `make ci` covers it. The local commands are those of the workflow: `npx --yes @devcontainers/cli@<version> build --workspace-folder .`, then `up --workspace-folder .` and `exec --workspace-folder .` with `docker info`, `make format-check` and `make start-deps`, with the version `DEVCONTAINER_CLI_VERSION` of `make/tool-versions.mk` |
+| The stop and the timed start of the development stack (scheduled clean-clone job) | the measurement of the `make start` budget of NFR35 (60 s, images and build output present) on a hosted runner; no gate of `make ci` measures it. Locally `make stop` and `make start` |
 
 ## Gate targets: passing run and negative test
 
