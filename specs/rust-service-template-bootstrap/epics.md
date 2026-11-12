@@ -2483,6 +2483,7 @@ Verify: `make bats BATS_PATH="tests/CLI/bats/make_tests.bats tests/CLI/bats/make
 **Given** the negative tests for G11, G12 and G13
 **When** a failing test is appended to `xtask/src/cli/tests.rs`, a failing test to `xtask/tests/integration/main.rs`, and a feature with an undefined step is planted under `features/`
 **Then** `unit-tests`, `integration-tests` and `e2e-tests` exit non-zero, the last with the report of the unmatched step (`Step doesn't match any function`)
+**And** with both failing tests appended at once, `tests-with-coverage` exits non-zero and names both tests
 
 **Given** the negative tests for G14, G15 and G30
 **When** the fixture function `planted` (`fixtures/uncovered_function.rs.txt`) is appended to `xtask/src/cli.rs`, and one file of `.sqlx/` is removed
@@ -2554,7 +2555,7 @@ Depends on: 9.4.
 Owns: `scripts/check-invariants.sh`, `tests/CLI/bats/check_invariants.bats`.
 Touches: none.
 Implements: FR92, FR125, NFR13, NFR14, NFR16, NFR22, NFR36, NFR38, NFR47, G31.
-Reference: architecture-delivery.md "Command Surface" (script row `check-invariants.sh` and the rule table (a) to (h); target `validate-invariants`), DD-02 (CI-only list), DD-04, DD-08, DD-20, DD-23, "CLI Tests (Bats)" (row `check_invariants.bats`), "Delivery Validation" ("Measurement items and readings of requirement wording": items 6 and 7).
+Reference: architecture-delivery.md "Command Surface" (script row `check-invariants.sh` and the rule table (a) to (h); target `validate-invariants`), DD-02 (CI-only list), DD-04, DD-08, DD-20, DD-23, "CLI Tests (Bats)" (row `check_invariants.bats`), "Delivery Validation" ("Measurement items and readings of requirement wording": items 6, 7 and 11).
 Pitfalls: PF-44, PF-64.
 Verify: `make bats BATS_PATH=tests/CLI/bats/check_invariants.bats`; `make lint-shell`; `make validate-invariants 2>&1 | grep -E '^\((b|c|e|f|g|h)\)'` (expected: no output).
 
@@ -2644,7 +2645,7 @@ Verify: `make bats BATS_PATH="tests/CLI/bats/make_repository.bats tests/CLI/bats
 
 **Given** the negative tests for G23, one per linter
 **When** they plant a workflow with a syntax error, a workflow with `uses: actions/checkout@v7`, a YAML file with a duplicate key, a Markdown file with a skipped heading level, a script with an unquoted expansion, `DOCKERFILES` pointing at the fixture with `latest`, an unformatted TOML file, a misspelt word and a misspelt file name, and an unformatted JSON file
-**Then** `lint-repo` (or the matching `lint-*` target) exits non-zero each time with the finding of actionlint, zizmor, yamllint, markdownlint, shellcheck, hadolint, taplo, typos and Prettier respectively; the row has no passing-run test, because the passing run of `lint-repo` is the gate itself
+**Then** `lint-repo` (or the matching `lint-*` target) exits non-zero each time with the finding of actionlint, zizmor, yamllint, markdownlint, shellcheck, hadolint, taplo, typos and Prettier respectively; the row has no passing-run test, because the passing run of `lint-repo` is the gate itself; a dry run `make -n lint-repo` prints the command of each of the nine tools, so no linter can be dropped from `lint-repo` unnoticed
 
 **Given** the negative tests for G26, G27 and G31
 **When** `make no-such-target` is added to `README.md`, a line that does not parse (`fixtures/broken_relationship.dsl.txt`) is appended to `workspace.dsl`, and `rust-toolchain.toml` is set to another version
