@@ -59,7 +59,8 @@ check_title() {
 
 @test "hook mode accepts the subjects that git writes itself" {
   local title
-  for title in 'Merge branch main into feature' 'Revert "feat(#1): add x"' 'fixup! feat(#1): add x' 'squash! feat(#1): add x' 'amend! feat(#1): add x'; do
+  for title in 'Merge branch main into feature' 'Revert "feat(#1): add x"' 'Reapply "feat(#1): add x"' \
+    'fixup! feat(#1): add x' 'squash! feat(#1): add x' 'amend! feat(#1): add x'; do
     check_hook "${title}"
     assert_success
   done
@@ -69,6 +70,41 @@ check_title() {
   check_title 'Merge branch main into feature'
   assert_failure 1
   assert_output --partial 'got: Merge branch main into feature'
+  check_title 'Reapply "feat(#1): add x"'
+  assert_failure 1
+  assert_output --partial 'got: Reapply "feat(#1): add x"'
+}
+
+@test "hook mode accepts the subjects that git revert writes, also for a revert of a revert" {
+  require_command git
+  local repo="${tmp}/revert" subject
+  # Git of the throw-away repository reads no configuration and no repository location of the caller: a global
+  # signing setting, revert.reference or hook path would change or stop a step, and GIT_DIR of an outer command
+  # would point it at this checkout.
+  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
+  scratch_git() {
+    GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "${repo}" -c user.name=t \
+      -c user.email=t@example.invalid -c commit.gpgsign=false -c core.hooksPath=/dev/null "$@"
+  }
+  mkdir -p "${repo}"
+  scratch_git init --quiet
+  printf 'x\n' >"${repo}/x"
+  scratch_git add -- x
+  scratch_git commit --quiet -m 'feat(#1): add x'
+  scratch_git revert --no-edit HEAD >/dev/null
+  subject="$(scratch_git log -1 --format=%s)"
+  assert_equal "${subject}" 'Revert "feat(#1): add x"'
+  check_hook "${subject}"
+  assert_success
+  # The revert of that revert: git 2.43 and later write `Reapply "<subject>"`, older git `Revert "Revert "<subject>""`.
+  scratch_git revert --no-edit HEAD >/dev/null
+  subject="$(scratch_git log -1 --format=%s)"
+  case "${subject}" in
+    'Reapply "feat(#1): add x"' | 'Revert "Revert "feat(#1): add x""') ;;
+    *) fail "unexpected subject of the revert of a revert: ${subject}" ;;
+  esac
+  check_hook "${subject}"
+  assert_success
 }
 
 # A stand-in that names itself and what it was given, for the make the hooks choose.
