@@ -18,8 +18,8 @@ date: '2026-11-10'
 lastStep: 8
 status: 'complete'
 completedAt: '2026-11-10'
-revisedAt: '2026-11-11'
-revision: 'aligned with the final PRD (FR1 to FR126, NFR1 to NFR47, G1 to G31, PD-1 to PD-31) after the validation round of three reviewers; the deviation entries of the implementation and of the remediation batches of the FR/NFR review gate (iteration 1) were applied'
+revisedAt: '2026-11-12'
+revision: 'aligned with the final PRD (FR1 to FR126, NFR1 to NFR47, G1 to G31, PD-1 to PD-31) after the validation round of three reviewers; the deviation entries of the implementation and of the remediation batches of the FR/NFR review gate (iterations 1 and 2) were applied'
 companionDocument: '_bmad-output/planning-artifacts/architecture-delivery.md'
 ---
 
@@ -560,7 +560,7 @@ architecture.toml                  layer and context model checked by `cargo xta
 protected-config.toml              the one list of protected files, sections, override names and required directories
 .env                               committed development defaults (local-only placeholders)
 .env.test                          committed test overrides: three values on top of `.env`
-.cargo/config.toml                 `xtask` alias; SQLX_OFFLINE=true and the recorded test seeds for every cargo invocation
+.cargo/config.toml                 `xtask` alias; SQLX_OFFLINE=true, the recorded test seeds and the Swagger UI download guard (FR8) for every cargo invocation
 .cargo/mutants.toml                cargo-mutants scope record, test tool and timeouts
 .config/nextest.toml               nextest profiles: default, ci, mutants
 .sqlx/query-<hash>.json            sqlx offline query metadata, one file per checked query (generated, committed)
@@ -2233,6 +2233,7 @@ sqlx adds its own bookkeeping table `_sqlx_migrations`; it is not declared in a 
 | `TEST_SEED` | unsigned 64-bit integer | `20261110`, the seed recorded in `.cargo/config.toml` (FR51) | no | `test_support::seed::TestRng` | none (PHP data was unseeded) |
 | `PROPTEST_RNG_SEED` | unsigned 64-bit integer | `20261110`, recorded in `.cargo/config.toml` | no | property tests (`proptest` reads it) | none |
 | `SQLX_OFFLINE` | `true` | `true` from `.cargo/config.toml` | no | sqlx macros at build time | none |
+| `SWAGGER_UI_DOWNLOAD_URL` | `vendored-only` | `vendored-only` from `.cargo/config.toml` | no | the build script of `utoipa-swagger-ui` (FR8: ignored by the vendored build; without the `vendored` feature the build stops instead of downloading) | none |
 
 Cross-field rules checked by `Config::from_args`: `HEALTH_PROBE_TIMEOUT >= DATABASE_ACQUIRE_TIMEOUT`; `HEALTH_PROBE_TIMEOUT >= SQS_OPERATION_TIMEOUT`; `HTTP_REQUEST_TIMEOUT > HEALTH_PROBE_TIMEOUT`; `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` both set or both unset (the error names the missing one). Every default is at or below its PRD ceiling (NFR2, NFR4, NFR5, PD-15: acquire 2 s, statement 5 s and SQS operation 2 s against 5 s each; probe 3 s against 3 s; request budget 10 s and grace period 10 s against 30 s; body limit 65 536 bytes against 1 MiB; database wait 30 attempts against 60). The ceilings bound the defaults; a configured value above one is accepted (FR13).
 
@@ -2496,7 +2497,7 @@ The delivery document wraps each row in a Make target; the command lines are fix
 | QG-14 | Integration tests | cargo-nextest 0.9.151 | `.config/nextest.toml`, `.env`, `.env.test` | `cargo nextest run --locked --workspace --test integration` | any test fails | about 2 min cold; the `service` suite runs in 3 s (measured) | `integration-tests` | G12 |
 | QG-15 | End-to-end tests | cucumber 0.23.0 through `cargo test` | `features/`, `.env`, `.env.test` | `cargo test --locked -p e2e-tests --test e2e` | a step fails, is undefined or is skipped | 2 min 07 s cold, 5 s warm (measured) | `behat` | G13 |
 | QG-16 | Coverage floor | cargo-llvm-cov 0.9.1 | flags below | sequence below | lines or functions below 100% | 1 min 23 s cold for the run (measured) | `tests-with-coverage` | G14 |
-| QG-17 | Mutation testing, full | cargo-mutants 27.1.0 | `.cargo/mutants.toml` | `env -u CARGO_TARGET_DIR -u CARGO_BUILD_WARNINGS cargo mutants --workspace --cargo-arg=--locked` (CI shards add `--shard <k>/<n>`, k from 0 to n-1) | exit 2 (a mutant survived) or 3 (a mutant timed out) | 60 to 80 min unsharded; about 15 min per shard of at most 150 mutants (delivery DD-09; 5.2 s per mutant, measured on 89 mutants) | `infection` | G15 |
+| QG-17 | Mutation testing, full | cargo-mutants 27.1.0 | `.cargo/mutants.toml` | `env -u CARGO_TARGET_DIR -u CARGO_BUILD_WARNINGS cargo mutants --workspace --cargo-arg=--locked` (CI shards add `--shard <k>/<n>`, k from 0 to n-1; CI also adds `--in-place` through `MUTANTS_IN_PLACE=1`) | exit 2 (a mutant survived) or 3 (a mutant timed out) | 60 to 80 min unsharded; about 15 min per shard of at most 150 mutants (delivery DD-09; 5.2 s per mutant, measured on 89 mutants) | `infection` | G15 |
 | QG-18 | Mutation testing, changed code | cargo-mutants 27.1.0 | same | `git diff --no-ext-diff --no-textconv --no-color --no-relative --no-renames --unified=3 --src-prefix=a/ --dst-prefix=b/ "$(git merge-base origin/main HEAD)" -- '*.rs' > target/mutants.diff`, run by `scripts/mutation-diff.sh` with `-c` pins for `core.quotePath`, `diff.mnemonicPrefix`, `diff.noprefix`, `diff.relative`, `diff.renames`, `diff.context`, `color.ui` and `color.diff` and without `GIT_DIFF_OPTS` and `GIT_EXTERNAL_DIFF`, so the user's git configuration cannot change the file; then the command of QG-17 with `--in-diff target/mutants.diff` | as QG-17; exit 2 when the base ref cannot be resolved | 5.2 s per mutant in the diff (measured mean) | none | G15 |
 | QG-19 | Contract snapshots are current | `service` | none | `cargo run --locked --quiet -p service -- openapi-export --output .github/openapi-spec/spec.yaml`, `cargo run --locked --quiet -p service -- graphql-export --output .github/graphql-spec/spec`, then `test -z "$(git status --porcelain -- .github/openapi-spec .github/graphql-spec)"` | a committed snapshot differs from the generated one, or a snapshot is not tracked | seconds after the build | `generate-openapi-spec`, `generate-graphql-spec` | G17 |
 | QG-20 | Complexity limits | clippy (toolchain 1.99.1) | `clippy.toml` | `cargo clippy --locked --workspace --lib --bins --all-features -- -A warnings -D clippy::cognitive_complexity -D clippy::too_many_lines -D clippy::excessive_nesting -D clippy::too_many_arguments` | a production function over a limit | seconds after QG-02 | `phpmd`, `phpinsights` complexity | G3 |
@@ -2507,7 +2508,7 @@ Notes on single rows:
 - **QG-04.** The `env` prefix makes the line an executable command, so it also works behind `docker compose exec` (a bare `RUSTDOCFLAGS=.. cargo ..` fails there with exit status 127, verified).
 - **QG-09, QG-10.** Without `--locked`, `cargo shear` rewrites `Cargo.lock` when a manifest is ahead of it; with it the command exits 2 and leaves the file unchanged (verified). `cargo deny --locked --offline check bans licenses sources` exits 0 on the skeleton.
 - **QG-11.** The arguments after `--` go to `cargo check`; with `--locked` there the command exits 0 on current metadata (verified in this revision).
-- **QG-17.** `--cargo-arg=--locked` reaches both phases: cargo-mutants runs `cargo nextest run --no-run .. --locked` and `cargo nextest run .. --locked --profile mutants` (verified in this revision: 4 mutants of one file caught in 12 s, exit status 0). `CARGO_BUILD_WARNINGS` must be unset (AD-24).
+- **QG-17.** `--cargo-arg=--locked` reaches both phases: cargo-mutants runs `cargo nextest run --no-run .. --locked` and `cargo nextest run .. --locked --profile mutants` (verified in this revision: 4 mutants of one file caught in 12 s, exit status 0). `CARGO_BUILD_WARNINGS` must be unset (AD-24). In CI, `--in-place` makes cargo-mutants build in the checkout, whose `target/` the Rust cache restores, instead of a copy without `target/` (NFR40); it changes neither the outcomes nor the timeouts (verified on 23 mutants: the same 17 caught, 2 missed, 4 unviable both ways).
 - **QG-18.** The diff is taken from the merge base to the working tree, so uncommitted changes to tracked files are included; `git diff origin/main...HEAD` would ignore them (verified: 0 bytes for an uncommitted function, and cargo-mutants then prints `Diff file is empty` and exits 0). A file that git does not track yet is not in the diff until it is added or committed. `--in-diff` selects only the mutants of changed functions and ignores test files and non-Rust files; a diff in which every file is new lists every mutant, so the mode works on the bootstrap pull request; `--shard` combines with it; a diff without a production Rust change prints `No mutants to filter` and exits 0. The delivery script that wraps the two commands resolves the base ref first and exits 2 with a message when it cannot (FR59(e)).
 - **QG-19.** `git status --porcelain` also reports a snapshot that was never committed, which `git diff --exit-code` does not see.
 
@@ -2684,9 +2685,11 @@ SQLX_OFFLINE = "true"
 # the scheduled workflow sets a fresh one.
 TEST_SEED = "20261110"
 PROPTEST_RNG_SEED = "20261110"
+# FR8, AD-19: Swagger UI comes from the vendored crate; without the feature the build stops instead of downloading
+SWAGGER_UI_DOWNLOAD_URL = "vendored-only"
 ```
 
-`[env]` values do not override a variable that is already set (no `force`), which is the behaviour FR51 needs: verified on 1.99.1 under `cargo test` and `cargo nextest run`, where a caller's `TEST_SEED=7` replaced the recorded value. cargo-mutants and cargo-llvm-cov run cargo in a tree that contains this file, so they see the same seed.
+`[env]` values do not override a variable that is already set (no `force`), which is the behaviour FR51 needs: verified on 1.99.1 under `cargo test` and `cargo nextest run`, where a caller's `TEST_SEED=7` replaced the recorded value. cargo-mutants and cargo-llvm-cov run cargo in a tree that contains this file, so they see the same seed. `SWAGGER_UI_DOWNLOAD_URL` guards FR8. The build script of `utoipa-swagger-ui` 10.0.2 checks `CARGO_FEATURE_VENDORED` first, so a vendored build ignores the value. Without the feature, a value that starts with neither `http`, `https` nor `file:` makes the build script stop with `` `vendored` feature not enabled and invalid SWAGGER_UI_DOWNLOAD_URL ``, and no download happens.
 
 ### `.cargo/mutants.toml`
 
@@ -3286,7 +3289,7 @@ The baseline is the final PRD: FR1 to FR126, NFR1 to NFR47, gates G1 to G31. Eve
 | FR5 | AD-04; `bootstrap::Adapters`, `bootstrap::event_bus`, `bootstrap::router` | `bootstrap/tests.rs` (each port replaced once); `e2e` |
 | FR6 | AD-06; `shared-application::http` | handler and router unit tests (in the service crate `handlers_use_only_the_problem_aware_extractors` checks the handlers of `src/http` and `src/graphql`; `GET /api/docs/%FF` is the 400 problem); `http_errors.feature` |
 | FR7 | AD-22; `ValidatedJson`, `ValidatedQuery` | `extract/tests.rs`; `example_api_resource.feature` |
-| FR8 | AD-19; `service::http::docs` | `docs/tests.rs`; `api_docs.feature` |
+| FR8 | AD-19; `service::http::docs`; `SWAGGER_UI_DOWNLOAD_URL = "vendored-only"` in `.cargo/config.toml` (a build without the `vendored` feature stops instead of downloading Swagger UI) | `docs/tests.rs` (`the_swagger_ui_assets_come_from_the_vendored_crate`: the lock file holds `utoipa-swagger-ui-vendored` and `.cargo/config.toml` holds the guard); `api_docs.feature` |
 | FR9 | AD-18, AD-14; `service::graphql::handler` (422 for a body that is not a GraphQL request; pinned explorer page; policy naming the origin) | `graphql/handler/tests.rs`; `graphql.feature` |
 | FR10 | AD-13; `service::http::{request_id, trace}`, `telemetry` | `integration/serve.rs` (also `entries_inside_nested_spans_carry_the_request_id`, `LOG_LEVEL=debug`); `request_id/tests.rs`, `trace/tests.rs` |
 | FR11 | AD-14; `service::http::security_headers`; the two page policies | `router/tests.rs`, `docs/tests.rs`, `graphql/handler/tests.rs`; `http_errors.feature` |

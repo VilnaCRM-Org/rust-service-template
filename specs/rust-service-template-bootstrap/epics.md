@@ -528,7 +528,7 @@ Verify: `cargo metadata --locked --format-version 1 > /dev/null`; `cargo check -
 
 **Given** the committed configuration files
 **When** each is compared with its listing in the architecture
-**Then** `rust-toolchain.toml` pins channel `1.99.1` with `rustfmt`, `clippy` and `llvm-tools-preview`; `.cargo/config.toml` sets the `xtask` alias and `[env]` `SQLX_OFFLINE = "true"`, `TEST_SEED = "20261110"` and `PROPTEST_RNG_SEED = "20261110"`; `rustfmt.toml`, `clippy.toml`, `deny.toml`, `.cargo/mutants.toml`, `.config/nextest.toml` and `architecture.toml` equal their listings; exactly one `clippy.toml` exists in the tree
+**Then** `rust-toolchain.toml` pins channel `1.99.1` with `rustfmt`, `clippy` and `llvm-tools-preview`; `.cargo/config.toml` sets the `xtask` alias and `[env]` `SQLX_OFFLINE = "true"`, `TEST_SEED = "20261110"`, `PROPTEST_RNG_SEED = "20261110"` and `SWAGGER_UI_DOWNLOAD_URL = "vendored-only"` (FR8); `rustfmt.toml`, `clippy.toml`, `deny.toml`, `.cargo/mutants.toml`, `.config/nextest.toml` and `architecture.toml` equal their listings; exactly one `clippy.toml` exists in the tree
 
 **Given** `protected-config.toml`
 **When** it is read
@@ -632,7 +632,7 @@ So that non-Rust files meet one standard and each linter can fail.
 
 Track: C.
 Depends on: 1.2, 1.3.
-Owns: `.yamllint.yml`, `.markdownlint-cli2.yaml`, `.hadolint.yaml`, `.prettierrc.yml`, `.prettierignore`, `taplo.toml`, `_typos.toml`, `.github/zizmor.yml`, `tests/Load/package.json`, `tests/Load/pnpm-lock.yaml`, `tests/Load/eslint.config.js`, `tests/Load/.gitignore`.
+Owns: `.yamllint.yml`, `.markdownlint-cli2.yaml`, `.hadolint.yaml`, `.prettierrc.yml`, `.prettierignore`, `taplo.toml`, `_typos.toml`, `.github/zizmor.yml`, `tests/Load/package.json`, `tests/Load/pnpm-workspace.yaml`, `tests/Load/pnpm-lock.yaml`, `tests/Load/eslint.config.js`, `tests/Load/.gitignore`.
 Touches: the TOML files created by Story 1.1 (whitespace only, to match `taplo fmt`; no key or value changes); `README.md` (final newline) and `CLAUDE.md` (the three table separator rows of the section "BMAD-METHOD Integration" get three dashes per column, the form markdownlint accepts; no other byte changes); `Makefile` (the `PNPM_INSTALL` variable gains `--store-dir`, so the pnpm store stays outside the repository; recorded as a deviation).
 Implements: FR43, FR69, FR83, NFR25, NFR38, G23.
 Reference: architecture-delivery.md "Repository Lint and Hygiene" (tool table and every configuration listing), "Load Testing" ("JavaScript lint"), DD-22, "Command Surface" (targets `install`, `doctor`, `lint-repo`, `lint-actions`, `lint-yaml`, `lint-markdown`, `lint-shell`, `lint-docker`, `lint-toml`, `lint-spelling`, `lint-prettier`, `lint-load-tests`, `format-repo`), "Delivery Validation" ("Measurement items and readings of requirement wording": item 10).
@@ -2416,7 +2416,7 @@ So that a gate which silently stops failing is detected.
 
 Track: E.
 Depends on: 2.4, 7.6, 7.7, 9.4.
-Owns: `tests/CLI/bats/make_quality_gates.bats`, `tests/CLI/bats/fixtures/badly_formatted.rs.txt`, `tests/CLI/bats/fixtures/unwrap_used.rs.txt`, `tests/CLI/bats/fixtures/banned_api.rs.txt`, `tests/CLI/bats/fixtures/too_many_arguments.rs.txt`, `tests/CLI/bats/fixtures/deny_no_licences.toml.txt`, `tests/CLI/bats/fixtures/deny_no_registries.toml.txt`, `tests/CLI/bats/fixtures/isolation_violation.rs.txt`.
+Owns: `tests/CLI/bats/make_quality_gates.bats`, `tests/CLI/bats/fixtures/badly_formatted.rs.txt`, `tests/CLI/bats/fixtures/unwrap_used.rs.txt`, `tests/CLI/bats/fixtures/banned_api.rs.txt`, `tests/CLI/bats/fixtures/too_many_arguments.rs.txt`, `tests/CLI/bats/fixtures/unused_import_in_test.rs.txt`, `tests/CLI/bats/fixtures/unsafe_block.rs.txt`, `tests/CLI/bats/fixtures/isolation_violation.rs.txt`.
 Touches: none.
 Implements: FR67, FR124, NFR21, NFR23, NFR28, G1, G2, G3, G4, G5, G6, G7, G8, G25, G29.
 Reference: architecture-delivery.md "CLI Tests (Bats)" (row `make_quality_gates.bats`), DD-02 (no second passing run of a gate), DD-07 (plants in the leaf crate `xtask`; test hooks `ARCH_ARGS`, `DENY_ARGS`); architecture.md "Quality Gates" ("Gate commands": the paragraph "Negative tests (NFR21)").
@@ -2439,7 +2439,7 @@ Verify: `make bats BATS_PATH=tests/CLI/bats/make_quality_gates.bats`; `make unus
 **Then** `validate-manifest` fails mentioning `--locked`, `check-requirements` fails with the status 2 of the command and names `DATABASE_URL`, and `unused-dependencies` exits non-zero naming the dependency and leaves the lock file as it found it
 
 **Given** the three negative tests for G7, one per policy
-**When** `deny.toml` is replaced by the fixture with an empty licence allow-list, by the fixture with `allow-registry = []`, and `DENY_ARGS` points at a project generated at test time whose lock file holds a crate version with a published advisory
+**When** `deny.toml` is replaced by a variant derived from it at test time with an empty licence allow-list, by one with `allow-registry = []`, and `DENY_ARGS` points at a project generated at test time whose lock file holds a crate version with a published advisory
 **Then** `check-security` exits non-zero each time with the licence, source and advisory diagnostic respectively, and no vulnerable manifest is committed
 
 **Given** the negative tests for G29 and G25
@@ -2509,7 +2509,7 @@ So that the delivery gates and the hardening claims are proven by commands, not 
 
 Track: E.
 Depends on: 3.2, 3.3, 3.5, 9.1, 9.4.
-Owns: `tests/CLI/bats/make_contracts.bats`, `tests/CLI/bats/make_load_tests.bats`, `tests/CLI/bats/make_security.bats`, `tests/CLI/bats/fixtures/bad_load_script.js.txt`.
+Owns: `tests/CLI/bats/make_contracts.bats`, `tests/CLI/bats/make_load_tests.bats`, `tests/CLI/bats/make_security.bats`, `tests/CLI/bats/fixtures/bad_load_script.js.txt`, `tests/CLI/bats/fixtures/unformatted_load_script.js.txt`, `tests/CLI/bats/fixtures/image_listing_planted.txt`.
 Touches: none.
 Implements: FR67, FR85, FR91, NFR3, NFR12, NFR21, G9, G10, G17, G18, G19, G20, G21, G22, G24.
 Reference: architecture-delivery.md "CLI Tests (Bats)" (rows `make_contracts.bats`, `make_load_tests.bats`, `make_security.bats`), DD-07, DD-19, DD-21, "Containers and Compose" (the table "Facts that follow from the files"), "Delivery Validation" ("Measurement items and readings of requirement wording": item 9, the snapshot gate regenerates in place).
@@ -2529,7 +2529,7 @@ Verify: `make bats BATS_PATH="tests/CLI/bats/make_contracts.bats tests/CLI/bats/
 **Given** the load tests
 **When** they run
 **Then** `execute-load-tests-script scenario=health runAverage=false runStress=false runSpike=false` writes `health.html`, removes the isolated project and leaves the development containers unchanged; `aws-load-tests LOCAL_MODE_ENV=true` prints `Launched instance` and `You can access the S3 bucket here`, and `aws-load-tests-cleanup LOCAL_MODE_ENV=true` succeeds; after these runs `lint-prettier`, `lint-yaml` and `lint-toml` still pass
-**And** G22: `smoke-load-tests` with a local budget of `0.001` fails the thresholds and `smoke-health.html` is written; with the budget `-1`, `tests/Load/execute-load-test.sh health` prints `Invalid threshold value` before any request; `execute-load-tests-script` without `scenario` fails with usage and starts nothing; G24: the planted script with `console.log` and `==` fails `lint-load-tests`
+**And** G22: `smoke-load-tests` with a local budget of `0.001` fails the thresholds and `smoke-health.html` is written; with the budget `-1`, `tests/Load/execute-load-test.sh health` prints `Invalid threshold value` before any request; `execute-load-tests-script` without `scenario` fails with usage and starts nothing; G24: the planted script with `console.log` and `==` fails `lint-load-tests`, and so does a planted script that ESLint accepts but Prettier does not
 
 **Given** the security tests
 **When** they run
@@ -2537,7 +2537,7 @@ Verify: `make bats BATS_PATH="tests/CLI/bats/make_contracts.bats tests/CLI/bats/
 
 **Given** the production image and the rendered production reference
 **When** the inspection tests run
-**Then** the image runs as uid `65532`, has no `/bin/sh`, is at most 100 MiB and becomes healthy through its own healthcheck (interval 10 s, timeout 3 s, 3 retries, start period at most 30 s) with a read-only root and no capabilities; the rendered reference has resource limits, a read-only root file system, all capabilities dropped and `no-new-privileges`; rendering it with `--env-file /dev/null` fails and names each required variable, `DATABASE_URL` and `AWS_REGION`, with one of them unset at a time (a Compose version may stop at the first missing variable, and its order is not fixed)
+**Then** the image runs as uid `65532`, has no `/bin/sh`, holds no package manager, compiler or test file (its `docker export` listing; NFR12), is at most 100 MiB and becomes healthy through its own healthcheck (interval 10 s, timeout 3 s, 3 retries, start period at most 30 s) with a read-only root and no capabilities; the rendered reference has resource limits, a read-only root file system, all capabilities dropped and `no-new-privileges`; rendering it with `--env-file /dev/null` fails and names each required variable, `DATABASE_URL` and `AWS_REGION`, with one of them unset at a time (a Compose version may stop at the first missing variable, and its order is not fixed)
 
 **Given** the run of the Verify line
 **When** its TAP output is read
@@ -2803,7 +2803,7 @@ Verify: `make lint-actions`; `make lint-yaml`; `make lint-prettier`; `make lint-
 
 **Given** `scheduled.yml`
 **When** it is read
-**Then** it runs on cron `23 4 * * 1` and on `workflow_dispatch`, never cancels, and has the jobs `clean-bootstrap-ci` (clean checkout, no restored cache, `make bootstrap` then `make ci`, then the step `Require a clean working tree`, which fails when `git status --porcelain` is not empty (FR68), timeout 75), `mutation-plan`, `mutation-shard` and `mutation-tests` (the full run, shards sized by `scripts/ci/mutation-plan.sh`), `security-gates` (G7, G9, G10), `code-scanning` and `devcontainer-build` (`@devcontainers/cli` at `DEVCONTAINER_CLI_VERSION`); workflow `env` sets `TEST_SEED` and `PROPTEST_RNG_SEED` to `${{ github.run_id }}` and `CARGO_INCREMENTAL` and `CARGO_PROFILE_DEV_DEBUG` to `'0'` and the jobs that run tests print both seeds in their summary; every job ends with a step that writes the failing target and its last output lines to the job summary on failure
+**Then** it runs on cron `23 4 * * 1` and on `workflow_dispatch`, never cancels, and has the jobs `clean-bootstrap-ci` (clean checkout, no restored cache, `make bootstrap`, then `make stop` and a timed `make start` that fails above 60 s, then `make ci`, then the step `Require a clean working tree`, which fails when `git status --porcelain` is not empty (FR68), timeout 75), `mutation-plan`, `mutation-shard` and `mutation-tests` (the full run, shards sized by `scripts/ci/mutation-plan.sh`), `security-gates` (G7, G9, G10), `code-scanning` and `devcontainer-build` (`@devcontainers/cli` at `DEVCONTAINER_CLI_VERSION`: the build, the start with `postCreateCommand`, and `docker info`, `make format-check` and `make start-deps` inside the container, FR118); workflow `env` sets `TEST_SEED` and `PROPTEST_RNG_SEED` to `${{ github.run_id }}` and `CARGO_INCREMENTAL` and `CARGO_PROFILE_DEV_DEBUG` to `'0'` and the jobs that run tests print both seeds in their summary; every job ends with a step that writes the failing target and its last output lines to the job summary on failure
 
 **Given** `release.yml`
 **When** it is read
