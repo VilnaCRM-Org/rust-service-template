@@ -275,9 +275,10 @@ STUB
     'test file: usr/src/service/lib.rs')"
 }
 
-# Each of the nine shell names once, as a file or link in a different directory; the near misses are a directory named
-# like a shell (busybox/ of the distroless debug images, usr/share/zsh/ of completion files) and files whose names
-# only contain a shell name (dot.bashrc is a file of the distroless production image).
+# Each of the nine shell names once, as a file or link, at the top level, in a directory named bin or sbin, or in
+# another directory; the near misses are a directory named like a shell (busybox/ of the distroless debug images,
+# usr/share/zsh/ of completion files) and files whose names only contain a shell name (dot.bashrc is a file of the
+# distroless production image).
 @test "the image content check reports every shell name in any directory and no near miss" {
   run image_content_findings <<'LISTING'
 bin/sh
