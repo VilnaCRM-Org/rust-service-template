@@ -436,11 +436,55 @@ EOF
   replace .github/workflows/quality.yml '      pull-requests: read' '      pull-requests: write # comment on the pull request'
   check
   assert_violation a 'quality.yml: job lint grants pull-requests: write$'
-  # The same scope in an inline mapping and a quoted value.
-  replace .github/workflows/quality.yml $'    permissions:\n      contents: read\n      pull-requests: write # comment on the pull request' \
-    "    permissions: { contents: read, issues: 'write' }"
+  # The same key quoted, in single quotes (the form prettier writes) and in double quotes.
+  replace .github/workflows/quality.yml '      pull-requests: write # comment on the pull request' "      'pull-requests': write"
+  check
+  assert_violation a 'quality.yml: job lint grants pull-requests: write$'
+  replace .github/workflows/quality.yml "      'pull-requests': write" '      "pull-requests": write'
+  check
+  assert_violation a 'quality.yml: job lint grants pull-requests: write$'
+  # An inline mapping with a quoted key and a quoted value; its quoted contents: read counts.
+  replace .github/workflows/quality.yml $'    permissions:\n      contents: read\n      "pull-requests": write' \
+    "    permissions: { 'contents': read, issues: 'write' }"
   check
   assert_violation a 'quality.yml: job lint grants issues: write$'
+  refute_line --partial 'without contents: read'
+  # An inline mapping on the line after the key.
+  replace .github/workflows/quality.yml "    permissions: { 'contents': read, issues: 'write' }" \
+    $'    permissions:\n      { contents: read, packages: write }'
+  check
+  assert_violation a 'quality.yml: job lint grants packages: write$'
+  refute_line --partial 'without contents: read'
+}
+
+@test "(a) a quoted key is read as the key it names" {
+  # A quoted jobs key, job id and timeout key: the timeout of the job is still read.
+  replace .github/workflows/quality.yml $'jobs:\n  fmt:\n    runs-on: ubuntu-24.04\n    timeout-minutes: 10' \
+    $'\'jobs\':\n  "fmt":\n    runs-on: ubuntu-24.04\n    \'timeout-minutes\': 360'
+  check
+  assert_violation a 'quality.yml: job fmt has timeout-minutes 360, above the limit of 45 of NFR39$'
+  # A quoted permissions key of a job: its scopes are still read.
+  replace .github/workflows/quality.yml $'    permissions:\n      contents: read\n      pull-requests: read' \
+    $'    "permissions":\n      contents: read\n      pull-requests: write'
+  check
+  assert_line '(a) .github/workflows/quality.yml: job lint grants pull-requests: write'
+  # A quoted uses key: the action must still be pinned to a commit.
+  replace .github/workflows/quality.yml "      - uses: actions/checkout@${d40} # v7.0.1" "      - 'uses': actions/checkout@v7"
+  check
+  assert_line --regexp '^\(a\) \.github/workflows/quality\.yml: line [0-9]+: uses: actions/checkout@v7 is not pinned'
+}
+
+@test "(a) a quoted pull_request trigger is a pull request" {
+  put_push_workflow target.yml release 'contents: write'
+  replace .github/workflows/target.yml $'on:\n  push:\n    branches: [main]' $'\'on\':\n  \'pull_request\':'
+  check
+  assert_violation a 'target.yml: job release grants contents: write$'
+  replace .github/workflows/target.yml $'\'on\':\n  \'pull_request\':' '"on": [push, "pull_request"]'
+  check
+  assert_violation a 'target.yml: job release grants contents: write$'
+  replace .github/workflows/target.yml '"on": [push, "pull_request"]' $'\'on\':\n  - "pull_request_target"'
+  check
+  assert_violation a 'target.yml: job release grants contents: write$'
 }
 
 @test "(a) a job outside release and sync with packages: write is refused" {
@@ -1012,6 +1056,23 @@ EOF
   append scripts/fetch.sh "test \"\$(sha256_of /tmp/other.tar.gz)\" = \"\${OTHER_SHA256}\""
   check
   assert_success
+}
+
+@test "(b) a checksum function that the file never calls verifies one download" {
+  # A library function that a caller of the script uses counts once.
+  put scripts/fetch.sh <<'EOF'
+#!/usr/bin/env bash
+sha256_of() {
+  sha256sum "$1" | cut -d ' ' -f 1
+}
+@CURL@ --fail --location --output /tmp/tool.tar.gz https://example.org/tool.tar.gz
+EOF
+  check
+  assert_success
+  assert_output ''
+  append scripts/fetch.sh '@WGET@ --output-document /tmp/other.tar.gz https://example.org/other.tar.gz'
+  check
+  assert_violation b 'scripts/fetch.sh: a file is downloaded by URL without a checksum'
 }
 
 @test "(b) a comment that mentions a checksum does not excuse a download" {

@@ -19,7 +19,7 @@ Required for native mode only (the default):
   rustup component add llvm-tools-preview --toolchain 1.99.1
   ```
 
-  The first command is the one `make doctor` prints. It installs rustup's default profile, which includes `rustfmt` and `clippy` but not `llvm-tools-preview`; the coverage targets need that component, so the second command adds it. While the toolchain is missing, `make bootstrap` stops at its first line with `[MISSING] toolchain 1.99.1` when rustup's automatic installation is turned off (`rustup set auto-install disable`, or `RUSTUP_AUTO_INSTALL=0`). With automatic installation on, which is rustup's default setting, the first rustup call of the doctor installs the toolchain with the profile and components of `rust-toolchain.toml` instead.
+  The first command is the one `make doctor` prints. It installs rustup's default profile, which includes `rustfmt` and `clippy` but not `llvm-tools-preview`; the coverage targets need that component, so the second command adds it. While the toolchain is missing, `make bootstrap` stops at its first line with `[MISSING] toolchain 1.99.1` when rustup's automatic installation is turned off (`rustup set auto-install disable`, or `RUSTUP_AUTO_INSTALL=0`) or cannot download the toolchain, for example without network access. With automatic installation on, which is rustup's default setting, the first rustup call of the doctor installs the toolchain with the profile and components of `rust-toolchain.toml` instead.
 
 Every other tool is installed by `make bootstrap` at its pinned version.
 

@@ -4,7 +4,8 @@
 #   (a) workflow hygiene: pinned actions, permissions (declared, none that writes at the top level; a job writes only
 #       security-events in the code-scanning jobs codeql, clippy-sarif-upload and code-scanning, or any scope in the
 #       release and sync jobs of a workflow that no pull request starts; write-all nowhere), concurrency, timeouts
-#       (declared, an integer of at most 45 minutes, 75 for the clean-clone job clean-bootstrap-ci of scheduled.yml)
+#       (declared, an integer of at most 45 minutes, 75 for the clean-clone job clean-bootstrap-ci of scheduled.yml);
+#       a quoted key ('jobs':, "pull-requests":) is read as the key it names
 #   (b) pinned images, tools, features and downloads (Dockerfile, make files, workflows and every shell script): no
 #       file has more downloads by URL than checksum verifications (sha256sum, sha512sum or shasum run as a command,
 #       or a call of a shell function whose body runs one; comments and image digests are no evidence), and an ADD
@@ -128,16 +129,22 @@ workflow_run_lines() {
   return 0
 }
 
-# True when the workflow has a pull_request trigger (`on: pull_request`, `on: [push, pull_request]`, a
-# `pull_request:` key or a `- pull_request` list entry).
+# True when the workflow file (second argument) has a trigger of the event (first argument): `on: <event>`,
+# `on: [push, <event>]`, an `<event>:` key or a `- <event>` list entry. A quoted key or entry ('on':,
+# "pull_request":, - 'pull_request') is the same key.
+has_trigger() {
+  local q="[\"']?"
+  grep -qE "^[[:space:]]*(-[[:space:]]*)?${q}$1${q}[[:space:]]*(:|\$)|^${q}on${q}:[[:space:]]*\\[?.*\\b$1\\b" "$2"
+}
+
+# True when the workflow has a pull_request trigger.
 has_pull_request_trigger() {
-  grep -qE '^[[:space:]]*(-[[:space:]]*)?pull_request[[:space:]]*(:|$)|^on:[[:space:]]*\[?.*\bpull_request\b' "$1"
+  has_trigger pull_request "$1"
 }
 
 # True when a pull request starts the workflow: a pull_request or a pull_request_target trigger (NFR14).
 runs_on_pull_requests() {
-  has_pull_request_trigger "$1" \
-    || grep -qE '^[[:space:]]*(-[[:space:]]*)?pull_request_target[[:space:]]*(:|$)|^on:[[:space:]]*\[?.*\bpull_request_target\b' "$1"
+  has_trigger pull_request "$1" || has_trigger pull_request_target "$1"
 }
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -146,13 +153,23 @@ runs_on_pull_requests() {
 # Job-level write scopes (NFR14): `security-events: write` only in the code-scanning jobs, any other write scope
 # only in the release and sync jobs of a workflow that no pull request starts; `write-all` names no scope and is
 # refused in every job. Job timeouts (NFR39): an integer literal of at most 45 minutes, 75 for the clean-clone job
-# clean-bootstrap-ci of scheduled.yml.
+# clean-bootstrap-ci of scheduled.yml. A quoted key at the start of a line ('jobs':, "lint":, 'timeout-minutes':,
+# - 'uses':, 'pull-requests':) is read as the key it names, so quoting a key hides nothing; YAML and prettier both
+# accept that form.
 check_workflow_hygiene() {
   local file=$1 pull_requests=0
   runs_on_pull_requests "${file}" && pull_requests=1
   awk -v exempt_list='release sync' -v scanning_list='codeql clippy-sarif-upload code-scanning' \
     -v pull_requests="${pull_requests}" '
     function out(msg) { print "(a) " FILENAME ": " msg }
+    # The line with the quotes (single or double) of a key at its start removed: "lint": reads as lint:.
+    function plain_key(line,   key) {
+      if (!match(line, /^[[:space:]]*(-[[:space:]]+)?["\047][A-Za-z0-9_-]+["\047][[:space:]]*:/)) return line
+      key = substr(line, 1, RLENGTH)
+      gsub(/["\047]/, "", key)
+      return key substr(line, RLENGTH + 1)
+    }
+    function unquoted(text) { gsub(/["\047]/, "", text); return text }
     function flush_job() {
       if (job != "") {
         if (!has_timeout) out("job " job " has no timeout-minutes")
@@ -194,6 +211,7 @@ check_workflow_hygiene() {
       n = split(scanning_list, e, " ")
       for (i = 1; i <= n; i++) scanning[e[i]] = 1
     }
+    { $0 = plain_key($0) }
     /^[[:space:]]*#/ { next }
     /^permissions:/ { top_perm = 1 }
     /^[^[:space:]#]/ { in_top_perm = ($0 ~ /^permissions:/) }
@@ -227,7 +245,7 @@ check_workflow_hygiene() {
       if ($0 ~ /^    timeout-minutes:/) { has_timeout = 1; timeout_value($0) }
       if ($0 ~ /^    permissions:/) {
         has_perm = 1; in_perm = 1
-        if ($0 ~ /contents:[[:space:]]*read/) perm_ok = 1
+        if (unquoted($0) ~ /contents:[[:space:]]*read/) perm_ok = 1
         v = $0
         sub(/^    permissions:/, "", v)
         write_scopes(v)
@@ -235,10 +253,11 @@ check_workflow_hygiene() {
       }
       if (in_perm) {
         if ($0 ~ /^      /) {
-          if ($0 ~ /contents:[[:space:]]*read/) perm_ok = 1
-          # Keys of the block only (six spaces): the `with:` inputs of a step, such as permission-contents: write
-          # of create-github-app-token, stand deeper and are no scopes of the job token.
-          if ($0 ~ /^      [A-Za-z]/) write_scopes($0)
+          if (unquoted($0) ~ /contents:[[:space:]]*read/) perm_ok = 1
+          # Keys of the block only (six spaces, quoted or not) and an inline mapping on the line after the key: the
+          # `with:` inputs of a step, such as permission-contents: write of create-github-app-token, stand deeper
+          # and are no scopes of the job token.
+          if ($0 ~ /^      [A-Za-z{]/) write_scopes($0)
         }
         else if ($0 !~ /^[[:space:]]*$/) in_perm = 0
       }
