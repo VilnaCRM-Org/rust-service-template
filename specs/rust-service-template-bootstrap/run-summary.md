@@ -183,3 +183,41 @@ the planning run and are kept as they were written.
 - Not verified before the merge, because they run only on `main` or on a
   schedule: the release workflow, the scheduled verification and template
   sync.
+- After the squash merge of pull request #1 into `main` (commit `3e0bd3e`,
+  2026-11-11), the scheduled verification was started by hand on `main`
+  (run 43107219243, runner label `ubuntu-24.04`). Its clean-clone job
+  passed: `make bootstrap` 447 s and `make ci` 1828 s from a clean clone with
+  no restored cache, so NFR34 and the NFR35 budgets of 15 and 45 minutes are
+  met on a hosted runner, and the five mutation shards passed. Its
+  development-container build failed (FR95): the `dev` stage of the
+  `Dockerfile` gave the home directory the sticky bit, and the common-utils
+  feature then could not append as root to the user's `.bashrc` under the
+  runner's kernel setting `fs.protected_regular`. The follow-up pull request
+  (#2) fixes the `Dockerfile`; the hosted proof, a dispatch of the scheduled
+  workflow on that branch (run 43119953189), is pending.
+
+Review-verified requirements, checked on the repository (readiness condition C11) at commit
+`aaa0f3f` on 2026-11-11; the G5 line of the defect digest was re-read at `dcfe564` after
+batch B2 of the FR/NFR gate landed, the skill paths were recounted at `8a1aede` and on the
+commit of batch B7, and the two digest findings were closed by batch B7 (one fixed in
+`docs/repository-settings.md`, one accepted by a recorded architect decision). The record
+with every command and count is kept with the implementation evidence.
+
+| Requirement | What was checked | Count | Result |
+| --- | --- | --- | --- |
+| NFR20 | the protected mutation scope record `.cargo/mutants.toml` and every other way to narrow the scope | 4 scope entries, each with a reason; 0 equivalent-mutant entries; no other exclusion | pass |
+| NFR23 | public shared-kernel items, ports, configuration files, tests | 82 public items, 0 without a user; 15 ports, 0 without an adapter and a caller; 48 configuration files in 42 list entries (the tracked configuration files at the repository root and in `.cargo/`, `.claude/settings.json`, `.cog/`, `.config/`, `.devcontainer/`, `.githooks/`, `make/`, `bmalph/`, `.github/dependabot.yml`, `.github/zizmor.yml`, `tests/Load/config.json.dist`, `tests/Load/eslint.config.js`; not counted: `Makefile`, `Cargo.lock`, `LICENSE`), 0 without a reader; 796 Rust tests, 312 Bats tests and 24 scenarios, 0 without an assertion | pass |
+| NFR27 | the parity matrix and the 150 lines of the defect digest, read against the repository | 196 of 196 PHP ids (185 delivered, 11 dropped), 42 of 42 additions; digest: 0 replicated, 3 accepted by decision (`/ping` as container health check; the issue number in the changelog scope; the unchanged PHP Spectral ruleset, catalog note CI:D-28), 4 kept in a changed form by a recorded decision, 0 findings, 1 not applicable, 142 not replicated | pass, once the review-bot section of `docs/repository-settings.md` (batch B7) is on `main` and the Spectral decision is recorded in prd.md NFR27 |
+| NFR44 | the 11 skill descriptions; every path and identifier the skills name | 11 of 11 descriptions say when to use the skill; on the commit of batch B7: 144 paths, of which 104 resolve from the repository root, 36 relative to a directory the same sentence names, 4 are the generated, git-ignored directories of FR112(d) that the skill names as local (139, 99, 36, 4 at `aaa0f3f`; 140, 100, 36, 4 at `8a1aede`); 32 of 32 identifiers resolve | pass |
+| NFR46 | the documents of journeys J1 to J8; placeholders in `SECURITY.md` | 30 documents, all in the repository; 0 placeholders | pass |
+
+The first hosted run after the merge (condition C12) was the first `workflow_dispatch`
+run of `Scheduled verification` on `main`: run 43107219243, commit `3e0bd3e`,
+2026-11-11.
+
+| Requirement | Job | What that run has to record | Status |
+| --- | --- | --- | --- |
+| NFR34 | `clean-bootstrap-ci` | result of `make bootstrap` followed by `make ci` on a clean checkout with no restored cache on a GitHub-hosted runner, with the run link and the commit | met: both exit 0, the working tree unchanged |
+| NFR35 | `clean-bootstrap-ci` | durations of `make bootstrap` and `make ci` and the disk use of the runner, entered in `docs/operations.md`, "First measurements"; the architect confirms or revises the three budgets (bootstrap 15 minutes, `make ci` 45 minutes, `make start` 60 s) from them with a recorded reason | `make bootstrap` 447 s and `make ci` 1828 s, entered in `docs/operations.md`; the two clean-clone budgets are confirmed: met on a GitHub-hosted ubuntu-24.04 runner (run 43107219243); the log does not show the CPU count; the disk use was not recorded; `make start` is measured locally only (12 s) |
+| FR95 | `devcontainer-build` | result and duration of `npx --yes @devcontainers/cli@0.90.0 build --workspace-folder .` and the last lines of its log | failed after 175 s in the common-utils feature (the cause is in the last bullet above); the follow-up pull request (#2) fixes the `Dockerfile`; its hosted proof, run 43119953189 of the scheduled workflow on that branch, is pending |
+| NFR40 | the Bats jobs | the rerun of one unchanged commit and its result | waiting for the first hosted rerun |

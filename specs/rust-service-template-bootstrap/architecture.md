@@ -722,7 +722,9 @@ crates/service/                               crate service (library + binary `s
                                    open when a 1 s grace period ends (exit 1 within grace period + 2 s); port in use (exit 1, JSON
                                    line `serve failed`); an invalid variable yields only JSON lines and exit 2; database and SQS
                                    endpoint on a dead port: `/ping` 200 within 5 s of process start, `/api/health` 500 naming both
-                                   within `HEALTH_PROBE_TIMEOUT` + 1 s
+                                   within `HEALTH_PROBE_TIMEOUT` + 1 s; entries inside nested spans at `debug` level carry the
+                                   request id; `serve` applies no migration to a database that was never migrated; `/api/health`
+                                   recovers without a restart once the database exists
   tests/integration/bootstrap.rs   production wiring in process against the compose services: `Adapters::connect` then
                                    `bootstrap::router`, dispatched with `oneshot`: `GET /api/health` is 204; a resource created
                                    through one application instance is read through a second one (NFR6)
@@ -3280,7 +3282,7 @@ The baseline is the final PRD: FR1 to FR126, NFR1 to NFR47, gates G1 to G31. Eve
 | FR1 | `service serve`; `APP_ENV`, `APP_PORT`; AD-12, AD-18; `axum` without `http2`; `listening` entry with `env` | `service/tests/integration/serve.rs`; `http/router/tests.rs` (`no_response_is_compressed_and_no_other_protocol_is_advertised`: `/ping`, `/api/example_api_resources`, `/api/docs/swagger-ui-bundle.js` and `/api/unknown`, each without and with `accept-encoding: gzip, deflate, br, zstd`, carry no `content-encoding`, `alt-svc` or `strict-transport-security` and the same body) |
 | FR2 | subcommand table in "Configuration" (seven commands) | `service/tests/integration/*` |
 | FR3 | environment table; `.env`, `.env.test` | `service/src/config/tests.rs` |
-| FR4 | AD-07; `service check-config`; pair rule for the AWS credentials | `config/tests.rs` (`AWS_ENDPOINT_URL_SQS` is parsed as a URI: scheme `http` or `https`, a non-empty host, and after the optional user information either the host alone or the host, `:` and a port from 0 to 65535), `integration/check_config.rs`; QG-12 (G6) |
+| FR4 | AD-07; `service check-config`; pair rule for the AWS credentials | `config/tests.rs` (`AWS_ENDPOINT_URL_SQS` is parsed as a URI: scheme `http` or `https`, a non-empty host, and after the optional user information either the host alone or the host, `:` and one or more ASCII digits that give a port from 0 to 65535; no sign and no other text after the host), `integration/check_config.rs`; QG-12 (G6) |
 | FR5 | AD-04; `bootstrap::Adapters`, `bootstrap::event_bus`, `bootstrap::router` | `bootstrap/tests.rs` (each port replaced once); `e2e` |
 | FR6 | AD-06; `shared-application::http` | handler and router unit tests (in the service crate `handlers_use_only_the_problem_aware_extractors` checks the handlers of `src/http` and `src/graphql`; `GET /api/docs/%FF` is the 400 problem); `http_errors.feature` |
 | FR7 | AD-22; `ValidatedJson`, `ValidatedQuery` | `extract/tests.rs`; `example_api_resource.feature` |

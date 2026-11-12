@@ -62,7 +62,15 @@ editHistory:
   - date: '2026-11-11'
     changes: >-
       Amendment from the FR/NFR review gate (iteration 1): NFR40 records two accepted exceptions to its cache
-      clause, the `surface` Bats group and the weekly `devcontainer-build` job (finding F-10 of the readiness review). No id changed.
+      clause, the `surface` Bats group and the weekly `devcontainer-build` job (finding F-10 of the readiness
+      review). No id changed.
+  - date: '2026-11-11'
+    changes: >-
+      Amendment from the FR/NFR review gate (iteration 1): FR98(a) counts a `BREAKING CHANGE:` footer
+      whatever the type of the commit, a footer being a line of the footer section at the end of the message;
+      NFR27 and K-06 count a third digest line accepted by decision, the unchanged PHP Spectral ruleset
+      (catalog note CI:D-28), and the delegated decision on the Spectral response rules is marked as taken.
+      No id changed.
 author: BMad
 ---
 
@@ -148,7 +156,7 @@ Success is judged from the repository and its CI: a clean clone reaches a green 
 | K-03 | Every gate can fail | 100% of gate pass conditions have a negative test | NFR21 |
 | K-04 | Local and hosted CI agree | 0 unexplained differences | NFR22 |
 | K-05 | Parity coverage | 196 of 196 PHP ids mapped; 42 of 42 additions delivered | NFR27 |
-| K-06 | Defects not replicated | 0 replicated, apart from the 2 accepted by decision | NFR27 |
+| K-06 | Defects not replicated | 0 replicated, apart from the 3 accepted by decision | NFR27 |
 | K-07 | Deterministic snapshots | 20 of 20 generations identical; 0 bytes from committed | NFR7 |
 | K-08 | Wire parity with PHP | 4 of 4 reused scenarios pass; 0 lint findings; 0 failed conformance checks | NFR24, NFR30 |
 | K-09 | Test strength | 100% line and function coverage; 0 surviving mutants; 0 undefined steps | NFR19, NFR20, NFR30 |
@@ -627,7 +635,7 @@ Each requirement ends with its trace. "The architect records" marks a value this
 
 ### 17. Release, dependency updates and template sync
 
-- FR98: (a) On each push to `main` the release workflow derives the next version from the conventional commits since the last tag (`fix` patch, `feat` minor, footer `BREAKING CHANGE:` major); when none of them is a `fix`, a `feat` or a breaking change, it makes no release and ends successfully. (b) It regenerates `CHANGELOG.md` (sections `### Features` and `### Bug Fixes`, all earlier releases kept); `CHANGELOG.md` exists from the first commit. (c) It writes the version to `Cargo.toml` and `Cargo.lock`, pushes the commit `chore(release): vX.Y.Z [skip ci]` and the tag `vX.Y.Z` under the GitHub App identity (`VILNACRM_APP_ID`, `VILNACRM_APP_PRIVATE_KEY`), creates a GitHub release and triggers no further CI run; without those secrets it skips with a notice (FR96(c)). (d) Release runs are serialised and never cancelled. (e) The initial manifest version is `0.1.0`; the architect records in the release guide whether a breaking change below `1.0.0` raises the major or the minor number. [CAP-CI-25, CAP-AD-29]
+- FR98: (a) On each push to `main` the release workflow derives the next version from the conventional commits since the last tag (`fix` patch, `feat` minor, footer `BREAKING CHANGE:` major whatever the type of the commit, a footer being a line of the footer section at the end of the message as the conventional-commit definition states); when none of them is a `fix`, a `feat` or a breaking change, it makes no release and ends successfully. (b) It regenerates `CHANGELOG.md` (sections `### Features` and `### Bug Fixes`, all earlier releases kept); `CHANGELOG.md` exists from the first commit. (c) It writes the version to `Cargo.toml` and `Cargo.lock`, pushes the commit `chore(release): vX.Y.Z [skip ci]` and the tag `vX.Y.Z` under the GitHub App identity (`VILNACRM_APP_ID`, `VILNACRM_APP_PRIVATE_KEY`), creates a GitHub release and triggers no further CI run; without those secrets it skips with a notice (FR96(c)). (d) Release runs are serialised and never cancelled. (e) The initial manifest version is `0.1.0`; the architect records in the release guide whether a breaking change below `1.0.0` raises the major or the minor number. [CAP-CI-25, CAP-AD-29]
 - FR99: Dependabot opens grouped update pull requests for six ecosystems (Cargo, the Rust toolchain pin, GitHub Actions, Docker, Docker Compose and the npm package in `tests/Load`), with a commit prefix of a type that produces no release, and names no individual as reviewer; an update that modifies a protected item, such as the toolchain pin, needs the approval label like any other pull request. [CAP-CI-28, P18]
 - FR100: (a) Two template-sync workflows, `template-sync-pat.yml` (schedule `0 0 1 * *`, secret `PERSONAL_ACCESS_TOKEN`) and `template-sync-app.yml` (schedule `0 9 * * MON`, secrets `VILNACRM_APP_ID` and `VILNACRM_APP_PRIVATE_KEY`), open pull requests labelled `template_sync` from branch `main` of `VilnaCRM-Org/rust-service-template` in downstream repositories; both can also be started manually. (b) An open sync pull request is updated in place, and no second one is opened. (c) Each workflow runs only when its credentials exist, only the App flavour runs when both sets exist, and both do nothing in the template repository itself. (d) They never overwrite the files listed in `.templatesyncignore`, which names the service-owned files: changelog, README, workspace manifest and lock file, committed query metadata, contract snapshots, architecture model, migrations, the file that defines the project-name variable, `bmalph/config.json`, source and tests of `CompanySubdomain` and of every context a service adds, feature files other than `features/health_check.feature`, load-test settings and scenarios other than `health`, and planning bundles under `specs/`. (e) Every other tracked file is template-owned and synchronised, among them `Shared`, `Internal/HealthCheck`, the composition root, the tooling crate, the Bats suite, `features/health_check.feature`, the workflows, the Makefile, the guidance and the skills. (f) A sync pull request never deletes what a service added to a template-owned file that services extend (composition root, environment-variable reference, Dependabot configuration); the architect records for each such file whether it is ignored or how it is merged. [CAP-CI-27, P26]
 - FR101: Setup guides in the repository cover the release automation and each template-sync flavour: (a) the required secrets and the GitHub App permissions, limited to what the workflows use; (b) how a downstream repository receives updates; (c) that a sync pull request which modifies a protected item needs the approval label of FR44; (d) the template changes that do not propagate because their files are service-owned (the lint policy and dependencies in the workspace manifest, load-test budgets) and how to apply them; (e) the version rules, including the rule below `1.0.0` (FR98(e)). [CAP-CI-35, CAP-AD-32]
@@ -755,7 +763,7 @@ Where a requirement says "ceiling", the architect records the final value at or 
 - NFR24: The OpenAPI snapshot has 0 Spectral findings at severity hint or above with the unchanged PHP ruleset (G18), Schemathesis reports 0 failed checks (G21), and 0 breaking changes reach `main` without the `approved-breaking-change` label (G19, G20). [CAP-DM-35, CAP-DM-37, CAP-DM-36, CAP-CI-24, P24; K-08]
 - NFR25: The lint gates (G23, G24) report 0 findings for workflow files, YAML, shell scripts, Dockerfiles, Markdown, the spelling of file and workflow names, and the K6 scripts. [NEW-20, CAP-CI-34, CAP-DM-47]
 - NFR26: Exactly 1 protected list exists; the guard, the guidance and the assistant settings read it. It names items (a file or a file section) and contains at least: the toolchain pin; format settings; the lint policy and lint thresholds; architecture rules; the dependency policy and its exceptions; secrets-scan and image-scan configuration and ignore files; coverage and mutation settings with their exclusion and scope records; test-runner settings; the Spectral ruleset; repository-lint and load-lint configuration; the K6 budgets of the shipped scenarios; hook scripts; the negative tests and fixtures of NFR21; the assistant settings file; the list and the guard themselves. Every numeric threshold of a gate is stated in a protected item, not only on a command line. Makefile recipes and workflow files are not protected items; weakening a gate there is detected by the negative tests (NFR21) and the gate-set comparison (NFR22). [CAP-41, NEW-31, P27]
-- NFR27: A parity matrix tracked in the planning bundle `specs/rust-service-template-bootstrap/`, which is the capability catalog together with the Traceability section of this PRD, maps 196 of 196 PHP capability ids (185 delivered, 11 dropped with a reason) and 42 of 42 `NEW` ids to their requirement; the readiness review finds 0 replicated defects from the catalog's 150-line digest, apart from the 2 accepted by decision (`/ping` as container health check; the issue number in the changelog scope). [scope principles 1 and 3; K-05, K-06]
+- NFR27: A parity matrix tracked in the planning bundle `specs/rust-service-template-bootstrap/`, which is the capability catalog together with the Traceability section of this PRD, maps 196 of 196 PHP capability ids (185 delivered, 11 dropped with a reason) and 42 of 42 `NEW` ids to their requirement; the readiness review finds 0 replicated defects from the catalog's 150-line digest, apart from the 3 accepted by decision (`/ping` as container health check; the issue number in the changelog scope; the unchanged PHP Spectral ruleset (catalog note CI:D-28)). [scope principles 1 and 3; K-05, K-06]
 
 ### Testability
 
@@ -867,7 +875,7 @@ The architecture stage fixes these, within `scope-decisions.md` section 8, and r
 - the secrets-scanning and image-scanning tools, each with a Make target or a documented reason for being CI-only (FR47, FR48);
 - whether the Structurizr viewer starts by default or through a profile (FR88), and how model components are matched to workspace layers (FR120);
 - the instance defaults of the AWS load run (FR85);
-- whether the Spectral response rules are tightened (catalog note on CI:D-28);
+- whether the Spectral response rules are tightened (catalog note on CI:D-28): decided, not tightened (architecture-delivery.md, row `.spectral.yaml`);
 - the OpenAPI title, description and operation ids (FR71);
 - the skill names (FR108) and the format of the request collection (FR118).
 

@@ -884,7 +884,7 @@ Verify: `make lint-docker`; `make lint-yaml`; `make lint-prettier`; `make build-
 
 **Given** the four compose files
 **When** `docker compose config --quiet`, the isolated combination of the Verify line and `docker compose --env-file /dev/null -f docker-compose.yml -f docker-compose.prod.yml config` are run
-**Then** the first two exit 0 and the third exits non-zero with messages that name `DATABASE_URL` and `AWS_REGION`
+**Then** the first two exit 0 and the third exits non-zero with messages that name `DATABASE_URL`, `AWS_REGION` or both (depending on the Compose version it names every missing variable or stops at the first, in no fixed order)
 **And** the rendered isolated combination publishes only `${LOAD_TEST_APP_PORT:-18081}` on `127.0.0.1`, sets `APP_ENV` to `test` and publishes no database or LocalStack port, and the rendered production reference (with both variables set) shows `read_only: true`, `cap_drop: [ALL]`, `no-new-privileges:true`, CPU, memory and process limits and `restart: unless-stopped` for `app`
 
 **Given** no container of the project is running
@@ -893,7 +893,7 @@ Verify: `make lint-docker`; `make lint-yaml`; `make lint-prettier`; `make build-
 
 **Given** the development override
 **When** `docker compose config` is rendered
-**Then** `app` and `migrate` use the `dev` target and run as `${HOST_UID}:${HOST_GID}`; `app` sets `IN_DEV_CONTAINER=1`, `DB_HOST=database` and `LOCALSTACK_HOST=localstack` and its rendered environment holds no `APP_ENV`, `LOG_LEVEL`, `DATABASE_URL` or `AWS_ENDPOINT_URL_SQS`; `app` has no `command` (the image's watchexec `CMD` watches `crates`, `migrations`, `Cargo.toml` and `Cargo.lock`); the volume `cargo_target` is mounted at `/cargo-target` and no mount lies below `/app`; `app`, `database`, `localstack` and `structurizr` publish on `127.0.0.1`
+**Then** `app` and `migrate` use the `dev` target and run as `${HOST_UID}:${HOST_GID}`; `app` sets `IN_DEV_CONTAINER=1`, `DB_HOST=database`, `DB_PORT=5432`, `LOCALSTACK_HOST=localstack` and `LOCALSTACK_PORT=4566` and its rendered environment holds no `APP_ENV`, `LOG_LEVEL`, `DATABASE_URL` or `AWS_ENDPOINT_URL_SQS`; `app` has no `command` (the image's watchexec `CMD` watches `crates`, `migrations`, `Cargo.toml` and `Cargo.lock`); the volume `cargo_target` is mounted at `/cargo-target` and no mount lies below `/app`; `app`, `database`, `localstack` and `structurizr` publish on `127.0.0.1`
 **And** `HOST_UID=12345 HOST_GID=12345 DEV_IMAGE=<development image> docker compose run --rm --no-deps app sh -c 'id -u && touch /cargo-target/.probe /cargo/.probe && cargo metadata --locked --no-deps --format-version 1 > /dev/null'` prints `12345` and exits 0, and afterwards `find . -xdev -uid 12345 -not -path './.git/*' -print -quit` prints nothing: any user id can use the image and nothing is created in the checkout, in particular no `./target` owned by another user
 
 **Given** `.devcontainer/devcontainer.json`
@@ -2095,7 +2095,7 @@ Verify: `make lint-markdown`; `make lint-yaml`; `make lint-prettier`; `make lint
 
 **Given** the templates
 **When** they are read
-**Then** the bug report has label `bug` and asks for steps, expected and actual behaviour with status code, problem body, `x-request-id` and log lines, and environment, with no browser or device field; the feature request has label `enhancement`; the pull-request template has the checklist of the table; none contains an absolute link to a repository
+**Then** the bug report has label `bug` and asks for the endpoint (method and path), the request (headers and body, secrets removed), steps, expected and actual behaviour with status code, problem body, `x-request-id` and log lines, and environment, with no browser or device field; the feature request has label `enhancement`; the pull-request template has the checklist of the table; none contains an absolute link to a repository
 
 **Given** `.coderabbit.yaml`
 **When** it is compared with the PHP template's file
@@ -2537,7 +2537,7 @@ Verify: `make bats BATS_PATH="tests/CLI/bats/make_contracts.bats tests/CLI/bats/
 
 **Given** the production image and the rendered production reference
 **When** the inspection tests run
-**Then** the image runs as uid `65532`, has no `/bin/sh`, is at most 100 MiB and becomes healthy through its own healthcheck (interval 10 s, timeout 3 s, 3 retries, start period at most 30 s) with a read-only root and no capabilities; the rendered reference has resource limits, a read-only root file system, all capabilities dropped and `no-new-privileges`; rendering it with `--env-file /dev/null` fails and names `DATABASE_URL`
+**Then** the image runs as uid `65532`, has no `/bin/sh`, is at most 100 MiB and becomes healthy through its own healthcheck (interval 10 s, timeout 3 s, 3 retries, start period at most 30 s) with a read-only root and no capabilities; the rendered reference has resource limits, a read-only root file system, all capabilities dropped and `no-new-privileges`; rendering it with `--env-file /dev/null` fails and names each required variable, `DATABASE_URL` and `AWS_REGION`, with one of them unset at a time (a Compose version may stop at the first missing variable, and its order is not fixed)
 
 **Given** the run of the Verify line
 **When** its TAP output is read
@@ -2803,7 +2803,7 @@ Verify: `make lint-actions`; `make lint-yaml`; `make lint-prettier`; `make lint-
 
 **Given** `scheduled.yml`
 **When** it is read
-**Then** it runs on cron `23 4 * * 1` and on `workflow_dispatch`, never cancels, and has the jobs `clean-bootstrap-ci` (clean checkout, no restored cache, `make bootstrap` then `make ci`, then the step `Require a clean working tree`, which fails when `git status --porcelain` is not empty (FR68), timeout 75), `mutation-plan`, `mutation-shard` and `mutation-tests` (the full run, shards sized by `scripts/ci/mutation-plan.sh`), `security-gates` (G7, G9, G10), `code-scanning` and `devcontainer-build` (`@devcontainers/cli` at `DEVCONTAINER_CLI_VERSION`); workflow `env` sets `TEST_SEED` and `PROPTEST_RNG_SEED` to `${{ github.run_id }}` and `CARGO_INCREMENTAL` and `CARGO_PROFILE_DEV_DEBUG` to `'0'` and the jobs that run tests print both in their summary; every job ends with a step that writes the failing target and its last output lines to the job summary on failure
+**Then** it runs on cron `23 4 * * 1` and on `workflow_dispatch`, never cancels, and has the jobs `clean-bootstrap-ci` (clean checkout, no restored cache, `make bootstrap` then `make ci`, then the step `Require a clean working tree`, which fails when `git status --porcelain` is not empty (FR68), timeout 75), `mutation-plan`, `mutation-shard` and `mutation-tests` (the full run, shards sized by `scripts/ci/mutation-plan.sh`), `security-gates` (G7, G9, G10), `code-scanning` and `devcontainer-build` (`@devcontainers/cli` at `DEVCONTAINER_CLI_VERSION`); workflow `env` sets `TEST_SEED` and `PROPTEST_RNG_SEED` to `${{ github.run_id }}` and `CARGO_INCREMENTAL` and `CARGO_PROFILE_DEV_DEBUG` to `'0'` and the jobs that run tests print both seeds in their summary; every job ends with a step that writes the failing target and its last output lines to the job summary on failure
 
 **Given** `release.yml`
 **When** it is read
