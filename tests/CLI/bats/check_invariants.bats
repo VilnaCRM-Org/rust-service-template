@@ -1544,6 +1544,61 @@ EOF
   assert_output ''
 }
 
+@test "(d) a target outside make ci-list after if, elif, else, while, until, !, { or time is refused" {
+  replace .github/workflows/tests.yml '      - run: echo done' '      - run: |
+          if make extra-gate; then echo ok; fi
+          if true; then echo a; elif make elif-gate; then echo b; fi
+          if true; then echo a; else make else-gate; fi
+          while make while-gate; do break; done
+          until make until-gate; do break; done
+          ! make bang-gate
+          { make brace-gate; }
+          time make time-gate
+          if true; then make then-gate; fi
+          for gate in a; do make do-gate; done'
+  check
+  local target
+  for target in extra-gate elif-gate else-gate while-gate until-gate bang-gate brace-gate time-gate then-gate do-gate; do
+    assert_violation d "a workflow runs make ${target}, which is not a gate target of make ci-list"
+  done
+}
+
+@test "(d) make after a word that ends in then or do, or after a keyword that is an argument, is not a make command" {
+  # A keyword starts a command only where a command starts: `todo` is a word of its own, and `do` or `if` after echo
+  # are arguments of echo.
+  replace .github/workflows/tests.yml '      - run: echo done' '      - run: |
+          echo todo make extra-gate
+          echo then make extra-gate
+          echo please do make extra-gate
+          echo if make extra-gate'
+  check
+  assert_success
+  assert_output ''
+}
+
+@test "(d) a make command in a run value written as a quoted YAML scalar is refused" {
+  replace .github/workflows/tests.yml '      - run: echo done' "      - run: \"make extra-gate\"
+      - run: 'make other-gate'
+      - run: \"echo \\\"ok\\\"; make third-gate\" # a comment
+      - run: 'echo ''ok''; make fourth-gate'"
+  check
+  local target
+  for target in extra-gate other-gate third-gate fourth-gate; do
+    assert_violation d "a workflow runs make ${target}, which is not a gate target of make ci-list"
+  done
+}
+
+@test "(d) a quoted run scalar whose shell text quotes make is not a make command" {
+  # Without the shell quotes that the scalar holds, each `; make extra-gate` would start a command.
+  replace .github/workflows/tests.yml '      - run: echo done' "      - run: \"echo 'make extra-gate'\"
+      - run: \"echo 'done; make extra-gate'\"
+      - run: \"echo \\\"done; make extra-gate\\\"\"
+      - run: 'echo ''done; make extra-gate'''"
+  check
+  assert_success
+  assert_output ''
+}
+
 @test "(d) make after an exec word with two operands or after a word ending in exec is not a make command" {
   # An exec word reaches make across option words and at most one operand (`this and` are two), and exec must be a
   # whole word (`my-exec` is another command).

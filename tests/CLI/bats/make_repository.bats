@@ -185,7 +185,7 @@ example_context_names() {
 # The Rust files a commit would contain that name the example context or build the `Adapters` literal and that the
 # sync does not leave alone.
 synchronised_rust_files_naming_the_example() {
-  local pattern='example''_api_resources|Example''ApiResource|some''_module|Adapters \{' naming
+  local pattern='example''_api_resource|Example''ApiResource|some''_module|Adapters \{' naming
   naming="$(git ls-files -z --cached --others --exclude-standard -- '*.rs' |
     xargs -0 -r grep -l -s -E "${pattern}" -- | LC_ALL=C sort -u)"
   [[ -n "${naming}" ]] || return 0
@@ -287,6 +287,17 @@ template_owned_files_kept_out_of_sync() {
   run synchronised_rust_files_naming_the_example
   assert_success
   assert_output 'crates/shared/infrastructure/tests/integration/planted_example_table.rs'
+}
+
+@test "a planted synchronised test that names only the singular example identifier is reported" {
+  printf 'use test_support::fixture::%s;\n' "example""_api_resource" >"${tmp}/planted.rs"
+  # The plant names the singular identifier only, never the plural table name.
+  run grep -c "example""_api_resources" "${tmp}/planted.rs"
+  assert_output '0'
+  plant_new crates/shared/infrastructure/tests/integration/planted_example_fixture.rs "${tmp}/planted.rs"
+  run synchronised_rust_files_naming_the_example
+  assert_success
+  assert_output 'crates/shared/infrastructure/tests/integration/planted_example_fixture.rs'
 }
 
 @test "no synchronised Bats file or fixture names the example context or compares a service-extended file with a stored copy" {
@@ -435,12 +446,14 @@ template_owned_files_kept_out_of_sync() {
 # template commit of the open sync pull request force-pushes that branch and edits the pull request (lines 567 and
 # 601 to 602, 439 to 455); a run for a newer template commit opens the pull request of a new branch. Only
 # `is_pr_cleanup: true` (default false, action.yml lines 60 to 62) makes that run close the older open pull requests
-# with the label of `pr_labels` and delete their branches (lines 255 to 294 and 585 to 594), so that no second sync
-# pull request stays open.
+# with the label of `pr_labels` (lines 255 to 294 and 585 to 594), so that no second sync pull request stays open.
+# `is_keep_branch_on_pr_cleanup: true` (default false, action.yml lines 63 to 65) closes them without `-d` (lines 285
+# to 291), so the branch of a closed sync pull request, and any commit a maintainer pushed to it, is kept.
 
 # The inputs of FR100(b) that the step of AndreasAugustin/actions-template-sync in the workflow $1 does not pass in
-# its `with:` mapping, one line `missing: <input>` for each of `pr_labels: template_sync`, `is_force_push_pr: true`
-# and `is_pr_cleanup: true`, or the one line `missing: actions-template-sync step` when the workflow has no such step.
+# its `with:` mapping, one line `missing: <input>` for each of `pr_labels: template_sync`, `is_force_push_pr: true`,
+# `is_pr_cleanup: true` and `is_keep_branch_on_pr_cleanup: true`, or the one line
+# `missing: actions-template-sync step` when the workflow has no such step.
 # A comment, a key outside the `with:` mapping of that step and the lines of a block value do not count. awk only, so
 # that it runs with mawk and BusyBox awk too.
 template_sync_input_findings() {
@@ -457,7 +470,8 @@ template_sync_input_findings() {
       split("", passed)
     }
     BEGIN {
-      count = split("pr_labels: template_sync|is_force_push_pr: true|is_pr_cleanup: true", required, "|")
+      inputs = "pr_labels: template_sync|is_force_push_pr: true|is_pr_cleanup: true"
+      count = split(inputs "|is_keep_branch_on_pr_cleanup: true", required, "|")
       steps_indent = -1
       item_indent = -1
       key_indent = -1
@@ -551,6 +565,23 @@ template_sync_input_findings() {
   assert_output 'missing: is_force_push_pr: true'
 }
 
+@test "FR100(b): a sync workflow without is_keep_branch_on_pr_cleanup, or with it false, is reported" {
+  # Without the input the cleanup deletes the branch of each older sync pull request it closes, and with it the
+  # commits that a maintainer pushed to that branch.
+  local source=.github/workflows/template-sync-app.yml copies="${BATS_TEST_TMPDIR}"
+  [[ -f "${source}" ]] || source=.github/workflows/template-sync-pat.yml
+  sed '/^[[:space:]]*is_keep_branch_on_pr_cleanup:/d' "${source}" >"${copies}/no-keep-branch.yml"
+  sed 's/^\([[:space:]]*is_keep_branch_on_pr_cleanup:\).*/\1 false/' "${source}" >"${copies}/keep-branch-false.yml"
+  grep -qx '[[:space:]]*is_keep_branch_on_pr_cleanup: false' "${copies}/keep-branch-false.yml" ||
+    fail "the copy of ${source} does not set is_keep_branch_on_pr_cleanup: false"
+  run template_sync_input_findings "${copies}/no-keep-branch.yml"
+  assert_success
+  assert_output 'missing: is_keep_branch_on_pr_cleanup: true'
+  run template_sync_input_findings "${copies}/keep-branch-false.yml"
+  assert_success
+  assert_output 'missing: is_keep_branch_on_pr_cleanup: true'
+}
+
 @test "FR100(b): a sync input outside the with mapping of the sync step, or a workflow without the sync step, is reported" {
   # is_pr_cleanup appears in the with mapping of another step, in the env mapping of the sync step and inside a block
   # value of its with mapping, never as an input of the sync step; the sync step starts with its uses key.
@@ -570,6 +601,7 @@ jobs:
           hooks: |
             is_pr_cleanup: true
           is_force_push_pr: true
+          is_keep_branch_on_pr_cleanup: true
   other:
     steps:
       - run: echo

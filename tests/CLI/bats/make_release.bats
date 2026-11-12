@@ -241,6 +241,14 @@ assert_released() {
   assert_released v0.1.0
 }
 
+@test "with only the prerelease tag v0.1.0-rc.1 a breaking change releases the manifest version, not a major bump" {
+  released v0.1.0-rc.1
+  commit $'feat(#2): rename the field\n\nBREAKING CHANGE: the field name changed'
+  release
+  assert_success
+  assert_released v0.1.0
+}
+
 @test "after v0.1.0 a ! before the colon of a docs subject releases v0.2.0" {
   released v0.1.0
   commit 'docs(#2)!: drop the old setting'

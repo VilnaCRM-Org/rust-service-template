@@ -312,6 +312,25 @@ mutants_command() {
   done
 }
 
+@test "G15: a MUTANTS_IN_PLACE of 1 padded with blanks adds no --in-place" {
+  local target plain value
+  for target in mutation-tests mutation-tests-diff; do
+    plain="$(mutants_command "${target}" base_ref=HEAD)"
+    for value in ' 1 ' '1 ' ' 1' $'1\t' $'\t1' $'1\n'; do
+      MUTANTS_IN_PLACE="${value}" run mutants_command "${target}" base_ref=HEAD
+      assert_success
+      assert_output "${plain}"
+    done
+    # make drops the leading blanks of a command-line assignment (`MUTANTS_IN_PLACE= 1` is the value 1) and keeps the
+    # trailing ones.
+    for value in ' 1 ' '1 ' $'1\t'; do
+      run mutants_command "${target}" base_ref=HEAD "MUTANTS_IN_PLACE=${value}"
+      assert_success
+      assert_output "${plain}"
+    done
+  done
+}
+
 @test "G15: mutation-tests-diff with a base ref that does not exist fails with the base-ref message" {
   require_docker
   run make --no-print-directory mutation-tests-diff base_ref=no-such-ref

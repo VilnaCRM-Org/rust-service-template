@@ -118,10 +118,33 @@ while IFS= read -r file; do
   make_files+=("${file}")
 done < <(find make -maxdepth 1 -type f -name '*.mk' 2>/dev/null | LC_ALL=C sort || true)
 
-# Prints the command lines of the `run:` steps of a workflow as `<line number>:<text>`.
+# Prints the command lines of the `run:` steps of a workflow as `<line number>:<text>`. A single-line value that is a
+# quoted YAML scalar, apart from a trailing comment, is printed as the text it stands for: double quotes with
+# backslash escapes (\n starts a new line, \t is a tab, any other escape is the character after the backslash) or
+# single quotes with '' for a quote. Block scalars and every other value are printed as written.
 workflow_run_lines() {
   awk '
     function indent(s) { match(s, /^ */); return RLENGTH }
+    function unquote(v,    q, n, i, c, out) {
+      q = substr(v, 1, 1)
+      n = length(v)
+      out = ""
+      for (i = 2; i <= n; i++) {
+        c = substr(v, i, 1)
+        if (c == q && q == "\047" && substr(v, i + 1, 1) == q) { out = out c; i++; continue }
+        if (c == q) break
+        if (q == "\"" && c == "\\") {
+          i++
+          c = substr(v, i, 1)
+          if (c == "n") c = "\n"
+          else if (c == "t") c = "\t"
+        }
+        out = out c
+      }
+      # Without its closing quote on this line the scalar goes on, and text after it is no comment: as written.
+      if (i > n || substr(v, i + 1) !~ /^([[:space:]]+#.*)?[[:space:]]*$/) return v
+      return out
+    }
     block && (indent($0) > base || $0 ~ /^[[:space:]]*$/) { print NR ":" $0; next }
     { block = 0 }
     /^[[:space:]]*#/ { next }
@@ -129,7 +152,10 @@ workflow_run_lines() {
       v = $0
       sub(/^[^:]*run:[[:space:]]*/, "", v)
       if (v ~ /^[|>][-+0-9]*[[:space:]]*(#.*)?$/) { block = 1; base = indent($0); next }
-      print NR ":" v
+      if (v ~ /^["\047]/) v = unquote(v)
+      n = split(v, part, "\n")
+      if (n < 2) print NR ":" v
+      else for (k = 1; k <= n; k++) print NR ":" part[k]
     }
   ' "$1"
   return 0
@@ -860,14 +886,17 @@ ci_only_targets=' ci bootstrap check-commit-message mutation-tests static-analys
 # prerequisites of validate-sqlx-metadata, and the production image through the buildx step (DD-02, S5).
 indirect_targets=' setup-test-db build-prod-image '
 
-# A make command: make at the start of a command (the start of the line, after ;, &, |, (, then or do), or behind
-# an exec word of the same command with option words and at most one operand between them, as in `npx ...
-# @devcontainers/cli@<v> exec --workspace-folder . make <t>` and `docker compose exec <service> make <t>`. An option
-# word starts with - and may take one argument word (`--user dev`), or it is a NAME=value word. The last group
-# holds the rest of the line after make.
+# A make command: make at the start of a command (the start of the line or after ;, &, |, (, each followed by any
+# chain of the words then, do, else, if, elif, while, until, time, ! and {, each a whole word followed by white
+# space), or behind an exec word of the same command with option words and at most one operand between them, as in
+# `npx ... @devcontainers/cli@<v> exec --workspace-folder . make <t>` and `docker compose exec <service> make <t>`.
+# A word that only ends in a keyword (`echo todo make x`) is none, and a keyword after another word is an argument
+# (`echo if make x`): neither starts a command. An option word starts with - and may take one argument word
+# (`--user dev`), or it is a NAME=value word. The last group holds the rest of the line after make.
 make_option_re='[[:space:]]+(-[^[:space:]]*([[:space:]]+[^-[:space:]][^[:space:]]*)?|[^-[:space:]][^[:space:]]*=[^[:space:]]*)'
 make_exec_re="(^|[[:space:];&|(])exec(${make_option_re})*([[:space:]]+[^-[:space:]][^[:space:]]*)?(${make_option_re})*[[:space:]]"
-make_command_re="(^|[;&|(]|then|do|${make_exec_re})[[:space:]]*make[[:space:]]+(.*)\$"
+make_keyword_re='(then|do|else|if|elif|while|until|time|!|[{])[[:space:]]+'
+make_command_re="(^|[;&|(]|${make_exec_re})[[:space:]]*(${make_keyword_re})*make[[:space:]]+(.*)\$"
 
 # The run lines of a workflow as workflow_run_lines prints them, without quoted strings, escaped characters and
 # comments: a message or a variable value that names make is no make command.

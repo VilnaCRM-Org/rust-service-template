@@ -135,7 +135,8 @@ else
       marked="${id}"
     fi
   done <<<"${commits}"
-  if [[ -z "$(git tag --list 'v*')" ]]; then
+  # A prerelease tag (v0.1.0-rc.1) is no release: without a stable tag the next release is the first one.
+  if [[ -z "${latest}" ]]; then
     # cocogitto reads no breaking change at 0.0.0 either, so its dry run answers for the fix and feat commits.
     if [[ ! "${next}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ && -z "${breaking}" ]]; then
       echo "${next}"

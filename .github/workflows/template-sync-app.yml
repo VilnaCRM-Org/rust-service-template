@@ -79,3 +79,4 @@ jobs:
           pr_title: 'chore(template): merge template changes'
           is_force_push_pr: true
           is_pr_cleanup: true
+          is_keep_branch_on_pr_cleanup: true
