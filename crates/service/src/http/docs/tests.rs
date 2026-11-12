@@ -93,6 +93,23 @@ fn the_policy_allows_the_service_itself_and_nothing_else() {
     );
 }
 
+/// FR8, AD-19: the assets come from the vendored crate, and a build without its feature stops instead of
+/// downloading Swagger UI (the build script reads `SWAGGER_UI_DOWNLOAD_URL` only when the feature is off).
+#[test]
+fn the_swagger_ui_assets_come_from_the_vendored_crate() {
+    let lock = include_str!("../../../../../Cargo.lock");
+    let config = include_str!("../../../../../.cargo/config.toml");
+
+    assert!(
+        lock.contains("name = \"utoipa-swagger-ui-vendored\""),
+        "the lock file has no utoipa-swagger-ui-vendored: the vendored feature is off"
+    );
+    assert!(
+        config.contains("SWAGGER_UI_DOWNLOAD_URL = \"vendored-only\""),
+        ".cargo/config.toml does not stop a build that would download Swagger UI"
+    );
+}
+
 #[tokio::test]
 async fn every_asset_the_page_references_is_served() {
     let page = String::from_utf8(body_of(get_path("/api/docs").await).await).unwrap();

@@ -45,6 +45,35 @@ production_image() {
   printf '%s' "${image}"
 }
 
+# The entries of a `tar -t` listing (stdin) that NFR12 forbids in the production image, one line each, in input order:
+#   package manager or compiler: apt, apt-get, dpkg, apk, cc, gcc, c++, rustc, cargo or rustup in a directory named
+#     bin or sbin (bin, sbin, usr/bin, usr/sbin, usr/local/bin, and the tool directories of a Rust image such as
+#     usr/local/cargo/bin);
+#   not the binary: anything under app/ other than app/service;
+#   test file: Rust source (.rs), a path through a directory named tests or features, or a Makefile.
+# The awk program uses only what mawk and busybox awk also support.
+image_content_findings() {
+  awk '
+    BEGIN {
+      count = split("apt apt-get dpkg apk cc gcc c++ rustc cargo rustup", names, " ")
+      for (i = 1; i <= count; i++) tool[names[i]] = 1
+    }
+    {
+      entry = $0
+      path = entry
+      sub(/^\.\//, "", path)
+      sub(/\/$/, "", path)
+      if (path == "" || path == ".") next
+      depth = split(path, part, "/")
+      base = part[depth]
+      parent = (depth > 1) ? part[depth - 1] : ""
+    }
+    (parent == "bin" || parent == "sbin") && (base in tool) { print "package manager or compiler: " entry; next }
+    path ~ /^app\// && path != "app/service" { print "not the binary: " entry; next }
+    path ~ /\.rs$/ || ("/" path "/") ~ /\/(tests|features)\// || base == "Makefile" { print "test file: " entry; next }
+  '
+}
+
 # `docker compose config` of the production reference with the given variables set and no .env file read.
 render_production_reference() {
   env -u DATABASE_URL -u AWS_REGION "$@" docker compose --env-file /dev/null \
@@ -207,6 +236,33 @@ STUB
   run -127 docker run --rm --entrypoint /bin/sh "${image}" -c true
   assert_failure
   assert_output --partial '/bin/sh'
+}
+
+@test "the production image holds no package manager, compiler or test file" {
+  require_docker
+  local image listing="${BATS_TEST_TMPDIR}/listing"
+  image="$(production_image)"
+  container="$(docker create "${image}")"
+  docker export "${container}" | tar -tf - >"${listing}"
+  # The export reached tar: the binary is listed.
+  run grep -c -x -F 'app/service' "${listing}"
+  assert_output '1'
+  run image_content_findings <"${listing}"
+  assert_success
+  assert_output ''
+}
+
+@test "the image content check reports each planted package manager, compiler, file under app/ and test file" {
+  run image_content_findings <"${BATS_TEST_DIRNAME}/fixtures/image_listing_planted.txt"
+  assert_success
+  assert_output "$(printf '%s\n' \
+    'not the binary: app/src/main.rs' \
+    'test file: srv/features/api_docs.feature' \
+    'test file: srv/tests/' \
+    'package manager or compiler: usr/bin/dpkg' \
+    'package manager or compiler: usr/local/cargo/bin/rustc' \
+    'test file: usr/src/service/Makefile' \
+    'test file: usr/src/service/lib.rs')"
 }
 
 @test "the production image is at most 100 MiB" {

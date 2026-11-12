@@ -8,3 +8,5 @@ SQLX_OFFLINE = "true"
 # the scheduled workflow sets a fresh one.
 TEST_SEED = "20261110"
 PROPTEST_RNG_SEED = "20261110"
+# FR8, AD-19: Swagger UI comes from the vendored crate; without the feature the build stops instead of downloading
+SWAGGER_UI_DOWNLOAD_URL = "vendored-only"
