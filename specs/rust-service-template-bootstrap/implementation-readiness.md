@@ -105,7 +105,7 @@ None of these stops implementation. Each has a reading; the last column says whe
 | FR6, "Data Schemas" | Lists `type`, `title`, `status`, `detail` without saying which members are required | `detail` is optional: absent on the 405 and on the generic 500 (AD-06 table) | not recorded as a reading (F-08) |
 | FR22, error table | "a value that is not an integer" gives 400; the width of an integer is not stated | `page` and `itemsPerPage` are 32-bit; `page=4294967296` is a 400, an out-of-bounds 32-bit value a 422 (AD-06, Story 6.3) | not recorded as a reading (F-08) |
 | FR92(d) | "the only two values the new-service guide tells a service to change" | Package identity and the checkout directory name; Story 8.5 then also names `bmalph/config.json` and the README badges, which are service-owned files | not recorded as a reading (F-08) |
-| NFR23 | "0 configuration files that no command reads" | `.editorconfig` (FR118) and `.coderabbit.yaml` (FR97) are read by an editor and by an external App, not by a repository command; both are required files | not recorded as a reading (F-08) |
+| NFR23 | "0 configuration files that no command reads" | `.editorconfig` (FR118) and `.coderabbit.yaml` (FR97) are read by an editor and by an external App, not by a command that acts on their settings; both are required files, and the test "FR97: .coderabbit.yaml is the PHP template file with the request-changes workflow" of `make_general.bats` pins `.coderabbit.yaml` | not recorded as a reading (F-08) |
 
 ### Results for the requirements that name this review
 
@@ -266,7 +266,7 @@ The mapping section of `architecture.md` has a row for every FR (126), every NFR
 | FR94 | G9, G23, G25, G26, G28, G31 run for documentation-only changes | `changes` job with `code=false`; Story 10.2 criterion | aligned |
 | FR95, NFR42 | weekly scheduled run with the listed content | cron `23 4 * * 1`; `clean-bootstrap-ci` with timeout 75; full mutation run; security gates; development-container build | aligned |
 | FR98 | version rules, `chore(release): vX.Y.Z [skip ci]`, skip without secrets, first version `0.1.0` | cocogitto flow (DD-11); `scripts/release.sh` | aligned |
-| FR99, FR100 | six ecosystems; schedules `0 0 1 * *` and `0 9 * * MON`; label `template_sync`; self-guard | Dependabot file; both sync workflows; `.templatesyncignore` (DD-12, DD-14) | aligned |
+| FR99, FR100 | six ecosystems; schedules `0 0 1 * *` and `0 9 * * MON`; label `template_sync`; one open sync pull request (FR100(b): `is_force_push_pr` updates it in place, `is_pr_cleanup` closes the older ones); self-guard | Dependabot file; both sync workflows; `.templatesyncignore` (DD-12, DD-14) | aligned |
 | FR102 | the commit regular expression; exemptions | `scripts/check-commit-message.sh`; `title` job (DD-15) | aligned |
 | FR110 | seven rules | `scripts/check-docs.sh` (DD-17); rule (5) reads five sources | aligned |
 | FR111 | allow, ask and block lists from one source | `.claude/settings.json`, `scripts/claude/guard-protected-files.sh` with `pre` and `post` (DD-18) | aligned (reading) |

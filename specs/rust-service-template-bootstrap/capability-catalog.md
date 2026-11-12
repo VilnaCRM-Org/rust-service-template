@@ -464,7 +464,7 @@ PHP hook regex (`captainhook.json`, decoded), the form scope 3.1 keeps:
 | Changelog layout | Angular preset: `### Features`, `### Bug Fixes` | preserved | I-10 |
 | Version file | PHP `composer.json` `"version"` | changed: `Cargo.toml`, mirrored in `Cargo.lock` | CAP-CI-25 |
 | Sync source | PHP `VilnaCRM-Org/php-service-template` | changed: `VilnaCRM-Org/rust-service-template` | I-11 |
-| Sync settings | `upstream_branch: main`, `pr_labels: template_sync`, `is_force_push_pr: true` | preserved | W-18, W-19 |
+| Sync settings | `upstream_branch: main`, `pr_labels: template_sync`, `is_force_push_pr: true` | changed: `is_pr_cleanup: true` added (FR100(b)) | W-18, W-19 |
 | Sync schedules | PAT `0 0 1 * *`; App `0 9 * * MON` | preserved; no-op in the template repository | W-18, W-19; scope 3.1 |
 | Conformance flags | Schemathesis `--checks all --phases=examples,coverage` | preserved | W-16; research |
 | Diff base | `origin/main` | preserved | I-9 scripts |

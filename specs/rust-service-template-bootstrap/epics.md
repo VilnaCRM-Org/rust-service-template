@@ -2076,7 +2076,7 @@ Owns: `README.md` (existing one-line file, replaced), `CONTRIBUTING.md`, `SECURI
 Touches: none.
 Implements: FR97, FR113, FR114, FR115, FR116, NFR46, NFR47.
 Reference: architecture-delivery.md "AI Guidance and Documentation" ("Human documentation": rows `README.md`, `CONTRIBUTING.md`, `SECURITY.md`; the badge and licence paragraphs), "CI/CD Workflows" ("Dependabot, review bot and templates": `.coderabbit.yaml` and the template table), "Git Hooks and Commit Convention", DD-23; PRD assumption A-8.
-Verify: `make lint-markdown`; `make lint-yaml`; `make lint-prettier`; `make lint-spelling`; `cmp .coderabbit.yaml ${PHP_TEMPLATE_DIR}/.coderabbit.yaml`; `grep -n "TODO\|TBD\|example.com" SECURITY.md` (expected: no output).
+Verify: `make lint-markdown`; `make lint-yaml`; `make lint-prettier`; `make lint-spelling`; `cmp .coderabbit.yaml ${PHP_TEMPLATE_DIR}/.coderabbit.yaml`; `make bats BATS_ARGS="--filter FR97" BATS_PATH=tests/CLI/bats/make_general.bats`; `grep -n "TODO\|TBD\|example.com" SECURITY.md` (expected: no output).
 
 **Acceptance Criteria:**
 
@@ -2812,7 +2812,7 @@ Verify: `make lint-actions`; `make lint-yaml`; `make lint-prettier`; `make lint-
 
 **Given** the two sync workflows
 **When** they are read
-**Then** `template-sync-app.yml` runs on `0 9 * * MON` and `template-sync-pat.yml` on `0 0 1 * *`, both also manually; the first step of each ends the job with `Template sync skipped: this is the template repository` when `$GITHUB_REPOSITORY` equals the workflow-level `TEMPLATE_REPOSITORY`, which is the only occurrence of the repository name in the file; each skips with a notice when its credentials are absent and the PAT flavour also skips when both App secrets exist; both pass `pr_labels: template_sync`, `pr_title: 'chore(template): merge template changes'` and `is_force_push_pr: true`
+**Then** `template-sync-app.yml` runs on `0 9 * * MON` and `template-sync-pat.yml` on `0 0 1 * *`, both also manually; the first step of each ends the job with `Template sync skipped: this is the template repository` when `$GITHUB_REPOSITORY` equals the workflow-level `TEMPLATE_REPOSITORY`, which is the only occurrence of the repository name in the file; each skips with a notice when its credentials are absent and the PAT flavour also skips when both App secrets exist; both pass `pr_labels: template_sync`, `pr_title: 'chore(template): merge template changes'`, `is_force_push_pr: true` and `is_pr_cleanup: true`
 
 **Given** `.templatesyncignore`
 **When** it is compared with the listing
