@@ -188,10 +188,11 @@ STUB
 
 @test "G28: hook mode rejects the subjects that only resemble the ones git writes" {
   # The exemptions are the exact prefixes `Merge `, `Revert "`, `Reapply "`, `fixup! `, `squash! ` and `amend! `.
-  # Each subject below starts with the word of one of them but not with the whole prefix (its space or its quote is
-  # missing or replaced), so it is exempt only if that prefix is widened.
+  # Each subject below starts with the word of one of them but not with the whole prefix (one character after the
+  # word, the space, the quote or the bang, is missing or replaced), so it is exempt only if that prefix is widened.
   local title
-  for title in 'Merge: x' 'Mergex' 'Revert x' 'Revert: x' 'Reapply x' 'Reapply: x' 'fixup!x' 'squash!x' 'amend!x'; do
+  for title in 'Merge: x' 'Mergex' 'Revert x' 'Revert: x' 'Revert:"x' 'Reapply x' 'Reapply: x' 'Reapply:"x' \
+    'fixup!x' 'fixup: x' 'squash!x' 'squash: x' 'amend!x' 'amend: x'; do
     check_hook "${title}"
     [[ "${status}" -eq 1 ]] || fail "hook mode did not reject '${title}' with status 1 (status ${status})"
     assert_output --partial "${FORMAT_LINE}"
