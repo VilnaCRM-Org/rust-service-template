@@ -55,6 +55,44 @@ run_hook() {
   assert_equal "${missing}" ""
 }
 
+@test "FR62: the 42 PHP target names are targets of make help" {
+  # The 42 names of prd.md FR62, in its order: the targets of the PHP template that keep their name and capability.
+  local names=(
+    help start up build stop down sh logs new-logs purge clean install update setup-test-db setup-load-test-db
+    validate-configuration check-requirements check-security unit-tests integration-tests all-tests test bats
+    tests-with-coverage coverage-html coverage-xml generate-openapi-spec generate-graphql-spec validate-openapi-spec
+    openapi-diff schemathesis-validate smoke-load-tests average-load-tests stress-load-tests spike-load-tests load-tests
+    execute-load-tests-script aws-load-tests aws-load-tests-cleanup ci all ci-sequential
+  )
+  local helped name missing=''
+  assert_equal "${#names[@]}" 42
+  assert_equal "$(printf '%s\n' "${names[@]}" | sort | uniq -d)" ''
+  run make --no-print-directory help
+  assert_success
+  # The first column of every line after the three header lines is a target name.
+  helped="$(awk 'NR > 3 {print $1}' <<<"${output}")"
+  [[ -n "${helped}" ]]
+  for name in "${names[@]}"; do
+    grep -qxF -- "${name}" <<<"${helped}" || missing="${missing} ${name}"
+  done
+  [[ -z "${missing}" ]] || fail "FR62: PHP target names missing from make help:${missing}"
+}
+
+@test "FR55(a): features/health_check.feature is the PHP template file" {
+  # The SHA-256 of features/health_check.feature of the PHP template. The end-to-end gate runs that file unmodified
+  # (FR55(a), NFR30), so it changes only together with the PHP template; a service adds scenarios in a file of its own.
+  local file=features/health_check.feature expected=0ab4c4a9555c85800eeafd6136a368ed634a1166bb4d3190f43e7bc66bdb2818
+  local actual reason
+  reason="FR55(a), NFR30: ${file} must stay identical to the PHP template's file and changes only together with it"
+  [[ -f "${file}" ]] || fail "${reason}; the file is missing"
+  if command -v sha256sum >/dev/null 2>&1; then
+    actual="$(sha256sum "${file}" | cut -d ' ' -f 1)"
+  else
+    actual="$(shasum -a 256 "${file}" | cut -d ' ' -f 1)"
+  fi
+  [[ "${actual}" == "${expected}" ]] || fail "${reason}; its sha256 is ${actual}, the PHP file's is ${expected}"
+}
+
 @test "make doctor passes and prints the platform line first" {
   run make --no-print-directory doctor
   assert_success
