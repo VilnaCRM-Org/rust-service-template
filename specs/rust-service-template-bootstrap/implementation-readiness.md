@@ -266,7 +266,7 @@ The mapping section of `architecture.md` has a row for every FR (126), every NFR
 | FR94 | G9, G23, G25, G26, G28, G31 run for documentation-only changes | `changes` job with `code=false`; Story 10.2 criterion | aligned |
 | FR95, NFR42 | weekly scheduled run with the listed content | cron `23 4 * * 1`; `clean-bootstrap-ci` with timeout 75; full mutation run; security gates; development-container build | aligned |
 | FR98 | version rules, `chore(release): vX.Y.Z [skip ci]`, skip without secrets, first version `0.1.0` | cocogitto flow (DD-11); `scripts/release.sh` | aligned |
-| FR99, FR100 | six ecosystems; schedules `0 0 1 * *` and `0 9 * * MON`; label `template_sync`; one open sync pull request (FR100(b): `is_force_push_pr` updates it in place, `is_pr_cleanup` closes the older ones); self-guard | Dependabot file; both sync workflows; `.templatesyncignore` (DD-12, DD-14) | aligned |
+| FR99, FR100 | six ecosystems; schedules `0 0 1 * *` and `0 9 * * MON`; label `template_sync`; one open sync pull request (FR100(b): `is_force_push_pr` updates it in place, `is_pr_cleanup` closes the older ones and `is_keep_branch_on_pr_cleanup` keeps their branches); self-guard | Dependabot file; both sync workflows; `.templatesyncignore` (DD-12, DD-14) | aligned |
 | FR102 | the commit regular expression; exemptions | `scripts/check-commit-message.sh`; `title` job (DD-15) | aligned |
 | FR110 | seven rules | `scripts/check-docs.sh` (DD-17); rule (5) reads five sources | aligned |
 | FR111 | allow, ask and block lists from one source | `.claude/settings.json`, `scripts/claude/guard-protected-files.sh` with `pre` and `post` (DD-18) | aligned (reading) |
