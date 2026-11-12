@@ -2453,7 +2453,7 @@ Rules are numbered so a review can cite them. "Must" rules are checked by a gate
 
 **Add a bounded context.** (1) `cargo xtask new-context <group> <context>`; the command registers the three crates and refreshes `Cargo.lock`. (2) Add `[workspace.dependencies]` path entries for the new crates when the first crate depends on them. (3) Add code layer by layer; put its fakes in `test-support`. (4) Wire it in `service`: adapters in `Adapters`, handlers in `bootstrap::router`, a `<Context>State` field in `AppState`, its router in `openapi::api_router`, its GraphQL roots in `graphql::schema`. (5) Add the components to `workspace.dsl`; until then the model gate fails. `architecture.toml` and every other protected item stay untouched.
 
-**Add a health probe.** (1) Add a variant to `Dependency` with its identifier and failure message. (2) Implement `HealthProbe` in `health-check-infrastructure::probe`. (3) Append it to `Adapters::probes` in `Adapters::connect`. The handler and `HealthService` do not change.
+**Add a health probe.** (1) Add a variant to `Dependency` with its identifier and failure message. (2) Implement `HealthProbe` in `health-check-infrastructure::probe`; a client crate it needs goes into `crates/internal/health-check/infrastructure/Cargo.toml`, which a service then lists in its `.templatesyncignore`. (3) Append it to `Adapters::probes` in `Adapters::connect`. The handler and `HealthService` do not change.
 
 ### Forbidden constructs
 
@@ -3289,7 +3289,7 @@ The baseline is the final PRD: FR1 to FR126, NFR1 to NFR47, gates G1 to G31. Eve
 | FR5 | AD-04; `bootstrap::Adapters`, `bootstrap::event_bus`, `bootstrap::router` | `bootstrap/tests.rs` (each port replaced once); `e2e` |
 | FR6 | AD-06; `shared-application::http` | handler and router unit tests (in the service crate `handlers_use_only_the_problem_aware_extractors` checks the handlers of `src/http` and `src/graphql`; `GET /api/docs/%FF` is the 400 problem); `http_errors.feature` |
 | FR7 | AD-22; `ValidatedJson`, `ValidatedQuery` | `extract/tests.rs`; `example_api_resource.feature` |
-| FR8 | AD-19; `service::http::docs`; `SWAGGER_UI_DOWNLOAD_URL = "vendored-only"` in `.cargo/config.toml` (a build without the `vendored` feature stops instead of downloading Swagger UI) | `docs/tests.rs` (`the_swagger_ui_assets_come_from_the_vendored_crate`: the lock file holds `utoipa-swagger-ui-vendored` and `.cargo/config.toml` holds the guard); `api_docs.feature` |
+| FR8 | AD-19; `service::http::docs`; `SWAGGER_UI_DOWNLOAD_URL = "vendored-only"` in `.cargo/config.toml` (a build without the `vendored` feature stops instead of downloading Swagger UI) | `docs/tests.rs` (`the_swagger_ui_assets_come_from_the_vendored_crate`: the lock file holds `utoipa-swagger-ui-vendored` and `.cargo/config.toml` holds the guard as an active line, so a commented-out guard fails it); `api_docs.feature` |
 | FR9 | AD-18, AD-14; `service::graphql::handler` (422 for a body that is not a GraphQL request; pinned explorer page; policy naming the origin) | `graphql/handler/tests.rs`; `graphql.feature` |
 | FR10 | AD-13; `service::http::{request_id, trace}`, `telemetry` | `integration/serve.rs` (also `entries_inside_nested_spans_carry_the_request_id`, `LOG_LEVEL=debug`); `request_id/tests.rs`, `trace/tests.rs` |
 | FR11 | AD-14; `service::http::security_headers`; the two page policies | `router/tests.rs`, `docs/tests.rs`, `graphql/handler/tests.rs`; `http_errors.feature` |
