@@ -2538,7 +2538,7 @@ Verify: `make bats BATS_PATH="tests/CLI/bats/make_contracts.bats tests/CLI/bats/
 
 **Given** the production image and the rendered production reference
 **When** the inspection tests run
-**Then** the image runs as uid `65532`, has no `/bin/sh`, holds no package manager, compiler or test file (its `docker export` listing; NFR12), is at most 100 MiB and becomes healthy through its own healthcheck (interval 10 s, timeout 3 s, 3 retries, start period at most 30 s) with a read-only root and no capabilities; the rendered reference has resource limits, a read-only root file system, all capabilities dropped and `no-new-privileges`; rendering it with `--env-file /dev/null` fails and names each required variable, `DATABASE_URL` and `AWS_REGION`, with one of them unset at a time (a Compose version may stop at the first missing variable, and its order is not fixed)
+**Then** the image runs as uid `65532`, has no `/bin/sh`, holds no shell, package manager, compiler or test file (its `docker export` listing, which has no file or link named `sh`, `ash`, `bash`, `dash`, `ksh`, `mksh`, `zsh`, `busybox` or `toybox` in any directory; NFR12), is at most 100 MiB and becomes healthy through its own healthcheck (interval 10 s, timeout 3 s, 3 retries, start period at most 30 s) with a read-only root and no capabilities; the rendered reference has resource limits, a read-only root file system, all capabilities dropped and `no-new-privileges`; rendering it with `--env-file /dev/null` fails and names each required variable, `DATABASE_URL` and `AWS_REGION`, with one of them unset at a time (a Compose version may stop at the first missing variable, and its order is not fixed)
 
 **Given** the run of the Verify line
 **When** its TAP output is read
