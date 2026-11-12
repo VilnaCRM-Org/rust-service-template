@@ -19,7 +19,7 @@ lastStep: 8
 status: 'complete'
 completedAt: '2026-11-10'
 revisedAt: '2026-11-12'
-revision: 'aligned with the final PRD (FR1 to FR126, NFR1 to NFR47, G1 to G31, PD-1 to PD-31) after the validation round of three reviewers; the deviation entries of the implementation and of the remediation batches of the FR/NFR review gate (iterations 1 to 3) were applied'
+revision: 'aligned with the final PRD (FR1 to FR126, NFR1 to NFR47, G1 to G31, PD-1 to PD-31) after the validation round of three reviewers; the deviation entries of the implementation and of the remediation batches of the FR/NFR review gate (iterations 1 to 4) were applied'
 companionDocument: '_bmad-output/planning-artifacts/architecture-delivery.md'
 ---
 
@@ -2412,7 +2412,7 @@ Rules are numbered so a review can cite them. "Must" rules are checked by a gate
 
 ### Lint suppression
 
-14. `#[allow(..)]` is forbidden. A suppression is `#[expect(clippy::<lint>, reason = "<why this lint does not apply here>")]` on the smallest item that needs it. Each attribute names exactly one lint, never a lint group (NFR16). The reason states a fact about the code, for example `reason = "axum handlers must be async"`; "false positive" is not a reason. An `expect` is added only where the lint really fires: an unfulfilled expectation is itself a finding.
+14. `#[allow(..)]` is forbidden. A suppression is `#[expect(clippy::<lint>, reason = "<why this lint does not apply here>")]` on the smallest item that needs it. Each attribute names exactly one lint, never a lint group (NFR16). The reason states a fact about the code, for example `reason = "axum handlers must be async"`; "false positive" is not a reason. An `expect` is added only where the lint really fires: an unfulfilled expectation is itself a finding. An inline directive of shellcheck, hadolint, yamllint, markdownlint, ESLint or zizmor follows the same rule: it names exactly one rule and carries a reason, after it where the linter accepts one or on the comment line above (G31 rule (g), delivery document).
 15. Module-level `#![expect(..)]` is allowed in exactly one case: a file whose derive macro generates the offending code where no item-level attribute can reach it (`service/src/graphql/schema.rs`, AD-18). No crate root (`lib.rs`, `main.rs`, `build.rs`, the `main.rs` of a test, example, bench or binary target, every `*.rs` file directly in `src/bin/`, `tests/`, `examples/` or `benches/` of a package, which cargo discovers as crate roots, and every file that a manifest names as one: the `path` of `[lib]`, `[[bin]]`, `[[test]]`, `[[example]]` and `[[bench]]` and the `build` string of `[package]` or of the legacy `[project]`) carries an `#![expect(..)]`. Helper functions of test targets need no suppression for the test relaxations (rule 3a). Cucumber fixes the signature of a step function (`&mut World`, owned captures); a step that does not mutate the world carries `#[expect(clippy::needless_pass_by_ref_mut, reason = "cucumber fixes the step signature")]`, and a step that does not consume a capture carries a second attribute for `clippy::needless_pass_by_value`, both on the function itself, below the step attribute (verified: item-level expectations are fulfilled on the `then` steps of the skeleton and QG-03 exits 0; the run used one attribute for both lints, which the one-lint-per-attribute rule splits in two).
 16. Thresholds in `clippy.toml` and lint levels in `Cargo.toml` are never changed to make code pass; the code is refactored.
 
@@ -2464,6 +2464,7 @@ Each item names its gate; "review" means no gate exists.
 | `unsafe` code | rustc `unsafe_code = "forbid"` |
 | `#[allow]`; a suppression without a reason | clippy `allow_attributes`, `allow_attributes_without_reason` |
 | A suppression that names a lint group, or `#![expect]` in a crate root | G31 rule (g) (delivery document) |
+| An inline directive of shellcheck, hadolint, yamllint, markdownlint, ESLint or zizmor that names no rule (or all rules, or a group), names more than one rule, or carries no reason (after it where the linter allows one, or on the comment line above) | G31 rule (g) (delivery document) |
 | `mod.rs` files | clippy `mod_module_files` |
 | `impl Trait` in argument position (use a named generic) | clippy `impl_trait_in_params` |
 | `SystemTime::now()` outside `SystemClock`; `Instant::now()` of `std`; `Uuid::now_v7()` or `new_v4()` outside `UuidV7Generator`; opening a socket outside the two commands that own one; reading the environment outside clap | clippy `disallowed_methods` |

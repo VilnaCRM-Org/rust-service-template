@@ -1076,7 +1076,7 @@ Verify: `COMMIT_TITLE='feat(#12): add health endpoint' make check-commit-message
 **And** for each of `feat: add x`, `feat(api): add x`, `feature(#12): add x`, `feat(#12):missing space` and `chore(release): v1.2.0 [skip ci]` it exits 1 and prints `The commit message should be in the format: feat|fix|refactor|build|chore|ci|docs|style|perf|test(#1): description` and `got: <subject>`; with neither `COMMIT_TITLE` nor `COMMIT_MSG_FILE` set it exits 2
 
 **Given** hook mode (`COMMIT_MSG_FILE` pointing at a message file)
-**When** the first non-comment line starts with `Merge `, `Revert "`, `fixup! `, `squash! ` or `amend! `
+**When** the first non-comment line starts with `Merge `, `Revert "`, `Reapply "`, `fixup! `, `squash! ` or `amend! `
 **Then** the script exits 0 without checking the pattern, and a non-matching ordinary subject still exits 1
 
 **Given** `make install-hooks` was run in a clone
@@ -2729,7 +2729,7 @@ Verify: `make lint-actions`; `make lint-yaml`; `make lint-prettier`; `make lint-
 
 **Given** `quality.yml`
 **When** its jobs are compared with the job table
-**Then** it has one job per gate with the check names of the table (G1, G2, G3, G4, G5, G29, G30, G6, G7, G8), each gate step is a `make <target>` call, tools are installed with `taiki-e/install-action` at the versions of `make/tool-versions.mk` and `fallback: none` (`sqlx-cli` and `clippy-sarif` in a second step with `fallback: cargo-binstall`), and each Rust cache key is saved by one job on `main` only
+**Then** it has one job per gate with the check names of the table (G1, G2, G3, G4, G5, G29, G30, G6, G7, G8), each gate step is a `make <target>` call (in `crate-isolation` and `query-metadata` written to `target/<job>.log` through `tee` behind `set -o pipefail`, and followed by the count step of NFR40), tools are installed with `taiki-e/install-action` at the versions of `make/tool-versions.mk` and `fallback: none` (`sqlx-cli` and `clippy-sarif` in a second step with `fallback: cargo-binstall`), and each Rust cache key is saved by one job on `main` only
 **And** the `static-analysis` job holds a read-only token, runs `make static-analysis-sarif` with `if: ${{ !cancelled() }}` and stores `target/sarif/clippy.sarif` as artifact `clippy-sarif`; the job `clippy-sarif-upload` (`contents: read`, `security-events: write`) downloads it and uploads it with category `clippy`, also when the gate failed, and skips with the notice of block D on fork and Dependabot pull requests, when `CODE_SCANNING_ENABLED` is `false`, and when it is unset in a repository that is not public
 
 **Given** `tests.yml`
