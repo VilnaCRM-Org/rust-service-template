@@ -1714,14 +1714,19 @@ rule_g_directives() {
       }
       return 0
     }
-    # One YAML line of a file of the kind yml or wf. The lines of a block scalar (| or >) are no YAML comments: in a
-    # workflow, the run blocks are shell, which actionlint hands to shellcheck; other block scalars are skipped. A
-    # yamllint directive is honoured only without text after it, so its reason is the comment line above.
+    # One YAML line of a file of the kind yml or wf. The lines of a block scalar (| or >, after an anchor or a tag)
+    # are no YAML comments: in a workflow, the run blocks are shell, which actionlint hands to shellcheck without the
+    # content indentation (an indentation indicator added to the column of the node, or else the indentation of the
+    # first line that is not empty); other block scalars are skipped. A yamllint directive is honoured only without
+    # text after it, so its reason is the comment line above.
     function yaml_line(s, ln, wf,   p, content, comment, x, rest, n, k, single, reason, b) {
       if (yblock) {
         match(s, /^ */)
         if (s ~ /^[ \t]*$/ || RLENGTH > ybase) {
-          if (yrun) sh_line(s, ln)
+          if (yrun) {
+            if (!yind && s !~ /^[ \t]*$/) yind = RLENGTH
+            sh_line(substr(s, yind + 1), ln)
+          }
           return
         }
         yblock = 0
@@ -1729,16 +1734,20 @@ rule_g_directives() {
       p = yaml_comment(s)
       content = p ? substr(s, 1, p - 1) : s
       comment = p ? substr(s, p) : ""
-      if (content ~ /(^|[ \t])[|>][-+0-9]*[ \t]*$/ && content ~ /(:|^[ \t]*-|[ \t]-)[ \t]+[|>][-+0-9]*[ \t]*$/) {
+      if (content ~ /(^|[ \t])[|>][-+0-9]*[ \t]*$/ &&
+        content ~ /(:|^[ \t]*-|[ \t]-)[ \t]+([&!][^ \t]*[ \t]+)*[|>][-+0-9]*[ \t]*$/) {
         yblock = 1
         match(content, /^[ \t]*(-[ \t]+)*/)
         ybase = RLENGTH
         x = substr(content, RLENGTH + 1)
-        if (x ~ /^[|>]/) {
+        if (x ~ /^([&!][^ \t]*[ \t]+)*[|>]/) {
           b = substr(content, 1, RLENGTH)
           sub(/-[ \t]+$/, "", b)
           ybase = length(b)
         }
+        rest = content
+        sub(/^.*[|>]/, "", rest)
+        yind = match(rest, /[1-9]/) ? ybase + substr(rest, RSTART, 1) : 0
         yrun = wf && x ~ /^["\047]?run["\047]?[ \t]*:/
         if (yrun) sh_reset()
       }
@@ -1886,7 +1895,8 @@ rule_g_directives() {
     # A comment of the text t that starts on line from (a block comment when block is set). As ESLint does, the
     # reason (after white space, two or more - and white space) is split off first, then the directive is read:
     # eslint-disable and a configuration of rules (`eslint <rule>: <setting>`, which can switch a rule off or relax
-    # it) in a block comment, eslint-disable-line and -next-line in both forms.
+    # it) in a block comment, eslint-disable-line and -next-line in both forms. A block comment global, globals or
+    # exported is an ESLint directive too, so it is no reason line.
     function js_comment(t, from, block,   x, kw, desc, n, k) {
       x = t
       desc = ""
@@ -1895,7 +1905,7 @@ rule_g_directives() {
         x = substr(x, 1, RSTART - 1)
       }
       x = trim(x)
-      if (x ~ /^eslint/) jdir = 1
+      if (x ~ /^eslint/ || (block && x ~ /^(globals?|exported)([ \t\r\n]|$)/)) jdir = 1
       if (!match(x, /^eslint(-disable(-next-line|-line)?)?([ \t\r\n]|$)/)) return
       kw = trim(substr(x, 1, RLENGTH))
       if (!block && (kw == "eslint-disable" || kw == "eslint")) return

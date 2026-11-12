@@ -2169,6 +2169,16 @@ echo $words
 # shellcheck disable=SC2086 #
 echo $words
 echo $words # shellcheck disable=SC2086
+cat <<TEXT
+body
+TEXT
+# shellcheck disable=SC2086
+echo $words
+cat <<-TEXT
+@T@body
+@T@TEXT
+# shellcheck disable=SC2086
+echo $words
 EOF
   put scripts/lib.bash <<'EOF'
 #shellcheck disable=SC2148
@@ -2185,16 +2195,35 @@ setup() {
   true
 }
 EOF
-  replace .github/workflows/quality.yml '          make lint' $'          # shellcheck disable=SC2086\n          make lint'
+  replace .github/workflows/quality.yml '          make lint' $'          # shellcheck disable=SC2086\n          make lint\n          cat <<TEXT\n          body\n          TEXT\n          # shellcheck disable=SC2086\n          echo done'
+  # A block scalar with an indentation indicator (content at column 8 + 2) and one with a tag and an anchor.
+  append .github/workflows/quality.yml '      - run: |2
+            cat <<TEXT
+          body
+          TEXT
+          # shellcheck disable=SC2086
+          echo done
+      - run: !!str &script |
+            cat <<TEXT
+            body
+            TEXT
+            # shellcheck disable=SC2086
+            echo done
+      - run: *script'
   check
   assert_findings <<'EOF'
 (g) .githooks/pre-commit:2: a shellcheck directive carries no reason
 (g) .github/workflows/quality.yml:29: a shellcheck directive carries no reason
+(g) .github/workflows/quality.yml:34: a shellcheck directive carries no reason
+(g) .github/workflows/quality.yml:40: a shellcheck directive carries no reason
+(g) .github/workflows/quality.yml:46: a shellcheck directive carries no reason
 (g) scripts/lib.bash:1: a shellcheck directive carries no reason
 (g) scripts/lint.sh:2: a shellcheck directive carries no reason
 (g) scripts/lint.sh:5: a shellcheck directive carries no reason
 (g) scripts/lint.sh:7: a shellcheck directive carries no reason
 (g) scripts/lint.sh:9: a shellcheck directive carries no reason
+(g) scripts/lint.sh:13: a shellcheck directive carries no reason
+(g) scripts/lint.sh:18: a shellcheck directive carries no reason
 (g) tests/other/sample.bats:2: a shellcheck directive carries no reason
 EOF
 }
@@ -2416,6 +2445,15 @@ console.log(4); // eslint-disable-line
 /* eslint-disable */
 /* eslint-disable-next-line -- the reason is split off first, so no rule is named */
 console.log(5);
+/* global foo */
+// eslint-disable-next-line no-console
+console.log(foo);
+/* globals foo, bar */
+// eslint-disable-next-line no-console
+console.log(bar);
+/* exported smoke */
+// eslint-disable-next-line no-console
+console.log(6);
 EOF
   check
   assert_findings <<'EOF'
@@ -2429,6 +2467,9 @@ EOF
 (g) tests/Load/scripts/smoke.js:9: an ESLint directive names no single rule
 (g) tests/Load/scripts/smoke.js:9: an ESLint directive carries no reason
 (g) tests/Load/scripts/smoke.js:10: an ESLint directive names no single rule
+(g) tests/Load/scripts/smoke.js:13: an ESLint directive carries no reason
+(g) tests/Load/scripts/smoke.js:16: an ESLint directive carries no reason
+(g) tests/Load/scripts/smoke.js:19: an ESLint directive carries no reason
 EOF
 }
 
@@ -2463,6 +2504,9 @@ const template = `
 ${text} ${quoted} ${loose}`;
 const pattern = /["'`]/; // eslint-disable-line no-unused-vars -- the pattern documents the quotes
 /* eslint no-console: ["warn"] -- the smoke run prints its summary */
+// globals of the k6 runtime are printed: a line comment is no ESLint configuration comment
+// eslint-disable-next-line no-console
+console.log(3);
 /* eslint-env node */
 // eslint-disable no-console
 // eslint no-console: off
@@ -2498,7 +2542,12 @@ EOF
             // eslint-disable-next-line
             # zizmor: ignore[artipacked]
             # shellcheck disable=all
-      - run: make lint # shellcheck disable=all'
+      - run: make lint # shellcheck disable=all
+      - run: |
+          cat <<TEXT
+            TEXT
+          # shellcheck disable=all
+          TEXT'
   put config/settings.yml <<'EOF'
 message: "# yamllint disable"
 other: '# yamllint disable'
@@ -2510,6 +2559,8 @@ folded: >-
   # yamllint disable-line
 list:
   - |
+    # yamllint disable
+  - &text |
     # yamllint disable
 EOF
   append Dockerfile 'RUN echo "# hadolint ignore=DL3008"
