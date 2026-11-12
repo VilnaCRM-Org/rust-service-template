@@ -16,8 +16,8 @@ Give the App exactly these repository permissions, and no others:
 
 | Permission | Access | Why |
 | --- | --- | --- |
-| Contents | read and write | the action pushes its sync branch |
-| Pull requests | read and write | the action opens and updates the pull request |
+| Contents | read and write | the action pushes its sync branch and deletes the branch of each sync pull request it closes |
+| Pull requests | read and write | the action opens, updates and closes sync pull requests |
 | Workflows | read and write | a sync may change files under `.github/workflows/`, which a token needs this permission for |
 | Metadata | read | mandatory |
 
@@ -25,7 +25,9 @@ Install the App on the repository. The App does not need permission to push to `
 
 ## Schedule
 
-The workflow runs every Monday at 09:00 UTC (`0 9 * * MON`) and on demand through "Run workflow" (`workflow_dispatch`). An open sync pull request is updated in place (`is_force_push_pr`), so a week without a merge does not pile up pull requests.
+The workflow runs every Monday at 09:00 UTC (`0 9 * * MON`) and on demand through "Run workflow" (`workflow_dispatch`). Each run works on the branch `chore/template_sync_<short hash of the template's main>`. While the template's `main` is unchanged, a run force-pushes that branch and updates its open pull request in place (`is_force_push_pr`). After the template's `main` has moved on, the run opens the pull request of the new branch and closes the older open `template_sync` pull requests, deleting their branches (`is_pr_cleanup`). At most one sync pull request is therefore open, so a week without a merge does not pile up pull requests.
+
+This is how `src/sync_template.sh` of the pinned `AndreasAugustin/actions-template-sync` v2.6.0 works: the branch name is built at line 90, the force push and the update are at lines 567, 601 to 602 and 439 to 455, and the cleanup is at lines 255 to 294 and 585 to 594. `is_pr_cleanup` is off unless the workflow sets it (`action.yml`, lines 60 to 62). The test "FR100(b): both sync workflows update the open sync pull request in place and close older ones" of `make_repository.bats` fails when a sync workflow drops one of the inputs `pr_labels: template_sync`, `is_force_push_pr: true` or `is_pr_cleanup: true`.
 
 ## `.templatesyncignore`
 

@@ -78,3 +78,4 @@ jobs:
           pr_labels: template_sync
           pr_title: 'chore(template): merge template changes'
           is_force_push_pr: true
+          is_pr_cleanup: true

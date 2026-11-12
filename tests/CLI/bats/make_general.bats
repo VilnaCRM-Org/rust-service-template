@@ -93,6 +93,28 @@ run_hook() {
   [[ "${actual}" == "${expected}" ]] || fail "${reason}; its sha256 is ${actual}, the PHP file's is ${expected}"
 }
 
+@test "FR97: .coderabbit.yaml is the PHP template file with the request-changes workflow" {
+  # The CodeRabbit configuration of FR97 enables the request-changes workflow (`request_changes_workflow: true` under
+  # `reviews:`) and is the PHP template's .coderabbit.yaml, whose SHA-256 is below. The review App reads the file
+  # outside every workflow, so no other gate notices a missing file or another value.
+  local file=.coderabbit.yaml expected=f48b563190bff75997715046c487790732c2331e5206b2985a30c41641e78641
+  local actual reason setting='reviews.request_changes_workflow: true'
+  reason="FR97: ${file} must stay identical to the PHP template's file and changes only together with it"
+  [[ -f "${file}" ]] || fail "FR97: ${file} is missing"
+  awk '
+    /^reviews:$/ { inside = 1; next }
+    /^[^[:space:]#]/ { inside = 0 }
+    inside && /^  request_changes_workflow: true$/ { found = 1 }
+    END { exit !found }' "${file}" ||
+    fail "FR97: ${file} must set ${setting} (the line '  request_changes_workflow: true' under 'reviews:')"
+  if command -v sha256sum >/dev/null 2>&1; then
+    actual="$(sha256sum "${file}" | cut -d ' ' -f 1)"
+  else
+    actual="$(shasum -a 256 "${file}" | cut -d ' ' -f 1)"
+  fi
+  [[ "${actual}" == "${expected}" ]] || fail "${reason}; its sha256 is ${actual}, the PHP file's is ${expected}"
+}
+
 @test "make doctor passes and prints the platform line first" {
   run make --no-print-directory doctor
   assert_success

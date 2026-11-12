@@ -3,8 +3,9 @@
 # still runs every linter, and the Make-level tests of the documentation-drift gate G26, the architecture-model gate
 # G27 and the invariants gate G31. There is no passing-run test of a gate: the passing run of lint-repo is the gate
 # itself (DD-02, DD-07), and the dry run runs no linter. The template-sync checks (the synchronised Rust files, Bats
-# files and fixtures, and the sync ignore list read as the sync action reads it) have no Make target, so their passing
-# runs are tests here, next to their negatives (architecture-delivery.md "CLI Tests (Bats)", file
+# files and fixtures, the sync ignore list read as the sync action reads it, and the inputs of the sync step that
+# leave at most one sync pull request open, FR100(b)) have no Make target, so their passing runs are tests here, next
+# to their negatives (architecture-delivery.md "CLI Tests (Bats)", file
 # make_repository.bats). The same holds for the check of the home directory of the development stage of the
 # Dockerfile (FR95).
 #
@@ -425,6 +426,163 @@ template_owned_files_kept_out_of_sync() {
   run template_owned_files_kept_out_of_sync "${tmp}/list"
   assert_success
   assert_output ''
+}
+
+# --- Template sync: one open sync pull request (FR100(b)) ---------------------------------------------------
+#
+# The pinned AndreasAugustin/actions-template-sync v2.6.0 names its branch after the template's main
+# (`chore/template_sync_<short hash>`, src/sync_template.sh line 90). With `is_force_push_pr: true` a run for the
+# template commit of the open sync pull request force-pushes that branch and edits the pull request (lines 567 and
+# 601 to 602, 439 to 455); a run for a newer template commit opens the pull request of a new branch. Only
+# `is_pr_cleanup: true` (default false, action.yml lines 60 to 62) makes that run close the older open pull requests
+# with the label of `pr_labels` and delete their branches (lines 255 to 294 and 585 to 594), so that no second sync
+# pull request stays open.
+
+# The inputs of FR100(b) that the step of AndreasAugustin/actions-template-sync in the workflow $1 does not pass in
+# its `with:` mapping, one line `missing: <input>` for each of `pr_labels: template_sync`, `is_force_push_pr: true`
+# and `is_pr_cleanup: true`, or the one line `missing: actions-template-sync step` when the workflow has no such step.
+# A comment, a key outside the `with:` mapping of that step and the lines of a block value do not count. awk only, so
+# that it runs with mawk and BusyBox awk too.
+template_sync_input_findings() {
+  awk '
+    function flush(    i) {
+      if (sync) {
+        found++
+        for (i = 1; i <= count; i++) {
+          if (!(required[i] in passed)) print "missing: " required[i]
+        }
+      }
+      sync = 0
+      in_with = 0
+      split("", passed)
+    }
+    BEGIN {
+      count = split("pr_labels: template_sync|is_force_push_pr: true|is_pr_cleanup: true", required, "|")
+      steps_indent = -1
+      item_indent = -1
+      key_indent = -1
+    }
+    { sub(/\r$/, "") }
+    /^[[:space:]]*(#|$)/ { next }
+    {
+      match($0, /^ */)
+      indent = RLENGTH
+      line = $0
+      sub(/[[:space:]]+#.*$/, "", line)
+      sub(/[[:space:]]+$/, "", line)
+    }
+    # A line left of the steps, or level with them and no item, ends the steps of a job.
+    steps_indent >= 0 && (indent < steps_indent || (indent == steps_indent && line !~ /^ *- /)) {
+      flush()
+      steps_indent = -1
+      item_indent = -1
+      key_indent = -1
+    }
+    steps_indent < 0 {
+      if (line ~ /^ *steps:$/) steps_indent = indent
+      next
+    }
+    # A new step: its first key is read like the keys below it.
+    line ~ /^ *- / && (item_indent < 0 || indent == item_indent) {
+      flush()
+      item_indent = indent
+      key_indent = indent + 2
+      sub(/- /, "  ", line)
+      indent = key_indent
+    }
+    key_indent < 0 { next }
+    indent == key_indent {
+      in_with = 0
+      if (line ~ /^ *uses:[[:space:]]*AndreasAugustin\/actions-template-sync@/) sync = 1
+      if (line ~ /^ *with:$/) {
+        in_with = 1
+        entry_indent = -1
+      }
+      next
+    }
+    indent > key_indent && in_with {
+      if (entry_indent < 0) entry_indent = indent
+      if (indent != entry_indent) next
+      key = substr(line, indent + 1)
+      value = key
+      sub(/:.*/, "", key)
+      if (value !~ /:/) next
+      sub(/^[^:]*:[[:space:]]*/, "", value)
+      passed[key ": " value] = 1
+    }
+    END {
+      flush()
+      if (!found) print "missing: actions-template-sync step"
+    }' "$1"
+}
+
+@test "FR100(b): both sync workflows update the open sync pull request in place and close older ones" {
+  local workflow findings='' reason='FR100(b): the sync step must update the open sync pull request and close older ones'
+  for workflow in .github/workflows/template-sync-app.yml .github/workflows/template-sync-pat.yml; do
+    # A repository keeps one flavour: the sync guides delete the workflow of the other one and add its path to the
+    # sync ignore list, so that the sync does not restore it.
+    if [[ ! -e "${workflow}" ]] && sync_ignore_entries | grep -qxF -- "${workflow}"; then
+      continue
+    fi
+    [[ -f "${workflow}" ]] || fail "FR100: ${workflow} is missing and the sync ignore list does not name it"
+    run template_sync_input_findings "${workflow}"
+    assert_success
+    [[ -z "${output}" ]] || findings="${findings}"$'\n'"${workflow}: ${output}"
+  done
+  [[ -z "${findings}" ]] || fail "${reason}:${findings}"
+}
+
+@test "FR100(b): a sync workflow without is_pr_cleanup, with it false, or without force push is reported" {
+  local source=.github/workflows/template-sync-app.yml copies="${BATS_TEST_TMPDIR}"
+  [[ -f "${source}" ]] || source=.github/workflows/template-sync-pat.yml
+  sed '/^[[:space:]]*is_pr_cleanup:/d' "${source}" >"${copies}/no-cleanup.yml"
+  sed 's/^\([[:space:]]*is_pr_cleanup:\).*/\1 false/' "${source}" >"${copies}/cleanup-false.yml"
+  sed '/^[[:space:]]*is_force_push_pr:/d' "${source}" >"${copies}/no-force-push.yml"
+  grep -qx '[[:space:]]*is_pr_cleanup: false' "${copies}/cleanup-false.yml" ||
+    fail "the copy of ${source} does not set is_pr_cleanup: false"
+  run template_sync_input_findings "${copies}/no-cleanup.yml"
+  assert_success
+  assert_output 'missing: is_pr_cleanup: true'
+  run template_sync_input_findings "${copies}/cleanup-false.yml"
+  assert_success
+  assert_output 'missing: is_pr_cleanup: true'
+  run template_sync_input_findings "${copies}/no-force-push.yml"
+  assert_success
+  assert_output 'missing: is_force_push_pr: true'
+}
+
+@test "FR100(b): a sync input outside the with mapping of the sync step, or a workflow without the sync step, is reported" {
+  # is_pr_cleanup appears in the with mapping of another step, in the env mapping of the sync step and inside a block
+  # value of its with mapping, never as an input of the sync step; the sync step starts with its uses key.
+  cat >"${tmp}/elsewhere.yml" <<'EOF'
+jobs:
+  sync:
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          is_pr_cleanup: true
+      - uses: AndreasAugustin/actions-template-sync@6e1d0089686f8940604fc15baae62367bf6ee860 # v2.6.0
+        env:
+          is_pr_cleanup: true
+        with:
+          pr_labels: template_sync # the label
+          hooks: |
+            is_pr_cleanup: true
+          is_force_push_pr: true
+  other:
+    steps:
+      - run: echo
+        with:
+          is_pr_cleanup: true
+EOF
+  run template_sync_input_findings "${tmp}/elsewhere.yml"
+  assert_success
+  assert_output 'missing: is_pr_cleanup: true'
+  sed 's,AndreasAugustin/actions-template-sync@,AndreasAugustin/other-action@,' "${tmp}/elsewhere.yml" >"${tmp}/none.yml"
+  run template_sync_input_findings "${tmp}/none.yml"
+  assert_success
+  assert_output 'missing: actions-template-sync step'
 }
 
 # --- FR95: the home directory of the development stage ------------------------------------------------------
