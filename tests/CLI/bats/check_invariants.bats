@@ -1861,6 +1861,223 @@ EOF
   assert_output ''
 }
 
+# Writes a file of the tree whose first line is an inner expect of one lint with a reason.
+put_expect() {
+  printf '%s\n' '#![expect(dead_code, reason = "fixture")]' | put "$1"
+}
+
+@test "(g) #![expect( in a library root named by [lib] path is refused" {
+  append crates/a/Cargo.toml $'\n[lib]\npath = "src/core.rs"'
+  put_expect crates/a/src/core.rs
+  # Cargo compiles the file a manifest names whatever its name ends in and wherever it stands.
+  put crates/b/Cargo.toml <<'EOF'
+[package]
+name = "b"
+
+[lib]
+path = "lib.txt"
+EOF
+  put_expect crates/b/lib.txt
+  put crates/c/Cargo.toml <<'EOF'
+[package]
+name = "c"
+
+[lib]
+path = "./../shared/../common/root.rs"
+EOF
+  put_expect crates/common/root.rs
+  check
+  assert_violation g 'crates/a/src/core.rs:1: #!\[expect\( in a crate root'
+  assert_violation g 'crates/b/lib.txt:1: #!\[expect\( in a crate root'
+  assert_violation g 'crates/common/root.rs:1: #!\[expect\( in a crate root'
+}
+
+@test "(g) #![expect( in a binary root named by [[bin]] path is refused" {
+  append crates/a/Cargo.toml '
+[[bin]]
+name = "seed"
+path = "tools/seed.rs"
+
+[[bin]]
+name = "load"
+path = "src/cli/load.rs"'
+  put_expect crates/a/tools/seed.rs
+  put_expect crates/a/src/cli/load.rs
+  check
+  assert_violation g 'crates/a/tools/seed.rs:1: #!\[expect\( in a crate root'
+  assert_violation g 'crates/a/src/cli/load.rs:1: #!\[expect\( in a crate root'
+}
+
+@test "(g) #![expect( in a test, example or bench root named by its path is refused" {
+  append crates/a/Cargo.toml '
+[[test]]
+name = "smoke"
+path = "checks/smoke.rs"
+
+[[example]]
+name = "demo"
+path = "samples/demo.rs"
+
+[[bench]]
+name = "speed"
+path = "perf/speed.rs"'
+  put_expect crates/a/checks/smoke.rs
+  put_expect crates/a/samples/demo.rs
+  put_expect crates/a/perf/speed.rs
+  check
+  assert_violation g 'crates/a/checks/smoke.rs:1: #!\[expect\( in a crate root'
+  assert_violation g 'crates/a/samples/demo.rs:1: #!\[expect\( in a crate root'
+  assert_violation g 'crates/a/perf/speed.rs:1: #!\[expect\( in a crate root'
+}
+
+@test "(g) #![expect( in a build script named by build = is refused" {
+  replace crates/a/Cargo.toml 'name = "a"' $'name = "a"\nbuild = "tools/gen.rs"'
+  put_expect crates/a/tools/gen.rs
+  # The legacy table [project], which cargo still reads below edition 2024.
+  put crates/old/Cargo.toml <<'EOF'
+[project]
+name = "old"
+edition = "2021"
+build = "codegen.rs"
+EOF
+  put_expect crates/old/codegen.rs
+  check
+  assert_violation g 'crates/a/tools/gen.rs:1: #!\[expect\( in a crate root'
+  assert_violation g 'crates/old/codegen.rs:1: #!\[expect\( in a crate root'
+}
+
+@test "(g) #![expect( in a module file next to a path-named root is accepted" {
+  replace crates/a/Cargo.toml 'name = "a"' $'name = "a"\nbuild = "tools/gen.rs"'
+  append crates/a/Cargo.toml '
+[lib]
+path = "src/core.rs"
+
+[[bin]]
+name = "seed"
+path = "tools/seed.rs"'
+  put crates/a/src/core.rs <<<'#![forbid(unsafe_code)]'
+  put crates/a/tools/seed.rs <<<'fn main() {}'
+  put crates/a/tools/gen.rs <<<'fn main() {}'
+  put_expect crates/a/src/helper.rs
+  put_expect crates/a/src/core/inner.rs
+  put_expect crates/a/tools/util.rs
+  put_expect crates/a/tools/gen/support.rs
+  check
+  assert_success
+  assert_output ''
+}
+
+@test "(g) a crate root named in another TOML form of its key is refused" {
+  # No white space around =; white space and a tab around =, a literal string, comments after header and value.
+  put crates/f1/Cargo.toml <<'EOF'
+[lib]
+path="src/core.rs"
+EOF
+  printf '[ lib ]   # the library\npath \t =   %s   # not "src/other.rs"\n' "'src/core.rs'" | put crates/f2/Cargo.toml
+  # A quoted key and a # inside the string.
+  put crates/f3/Cargo.toml <<'EOF'
+[lib]
+"path" = "src/c#re.rs" # the root
+EOF
+  # A dotted key before the first table and a multi-line literal string.
+  put crates/f4/Cargo.toml <<'EOF'
+lib.path = '''src/core.rs'''
+
+[package]
+name = "f4"
+EOF
+  # An inline table and an escape in a basic string: "src/", a backslash, "u0063ore.rs" (the escape of c).
+  printf 'lib = { name = "f5", path = "src/\\%s0063ore.rs" }\n' u | put crates/f5/Cargo.toml
+  # An array of inline tables over several lines, the second one broken over lines with a trailing comma.
+  put crates/f6/Cargo.toml <<'EOF'
+bin = [
+  { name = "first", path = "src/core.rs" }, # the first binary
+  {
+    name = "second",
+    path = 'src/other.rs',
+  },
+]
+EOF
+  # White space inside the header of an array of tables.
+  put crates/f7/Cargo.toml <<'EOF'
+[[ bin ]]
+name = "seed"
+path = "src/core.rs"
+EOF
+  local file
+  local -a roots=(f1/src/core.rs f2/src/core.rs 'f3/src/c#re.rs' f4/src/core.rs f5/src/core.rs f6/src/core.rs
+    f6/src/other.rs f7/src/core.rs)
+  for file in "${roots[@]}"; do
+    put_expect "crates/${file}"
+  done
+  check
+  for file in "${roots[@]}"; do
+    echo "root ${file}"
+    assert_violation g "crates/${file}:1: #!\\[expect\\( in a crate root"
+  done
+}
+
+@test "(g) a path of a dependency table and a key in a string, a comment or another table name no crate root" {
+  put crates/a/Cargo.toml <<'EOF'
+[package]
+name = "a"
+version.workspace = true
+license.workspace = true
+build = false
+description = 'not a build script: build = "src/text.rs"'
+
+[package.metadata.docs]
+build = "src/docs.rs"
+
+[lib]
+# path = "src/comment.rs"
+name = "a" # not path = "src/note.rs"
+
+[dependencies]
+other = { version = "1", path = "src/other.rs" }
+lib = { path = "src/libdep.rs" }
+
+[dependencies.helper]
+path = "src/helper.rs"
+
+[target.'cfg(unix)'.dependencies.sys]
+path = "src/sys.rs"
+
+[dev-dependencies]
+fixture = { path = "src/fixture.rs" }
+
+[build-dependencies.gen]
+path = "src/gen.rs"
+EOF
+  append Cargo.toml '
+[workspace.dependencies]
+shared = { path = "crates/a/src/shared.rs" }
+
+[patch.crates-io]
+serde = { path = "crates/a/src/patch.rs" }'
+  # A comment inside an array and inside an inline table over several lines.
+  put crates/d/Cargo.toml <<'EOF'
+bin = [
+  # "x", { path = "src/aside.rs" },
+  { name = "d", path = "src/main.rs" },
+]
+lib = {
+  # path = "src/aside.rs",
+  name = "d",
+}
+EOF
+  put_expect crates/d/src/aside.rs
+  local file
+  for file in text docs comment note other libdep helper sys fixture gen shared patch; do
+    put_expect "crates/a/src/${file}.rs"
+  done
+  # build = false names nothing, not a file named false.
+  put_expect crates/a/false
+  check
+  assert_success
+  assert_output ''
+}
+
 @test "(g) a suppression that names a lint group on a later line is refused" {
   put crates/a/src/extra.rs <<'EOF'
 #[expect(

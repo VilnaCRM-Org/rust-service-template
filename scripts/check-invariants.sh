@@ -18,8 +18,8 @@
 #       only gate and CI-only targets); Bats groups; required checks
 #   (e) the repository name occurs only where DD-23 allows it
 #   (f) the licence identifier is CC0-1.0 everywhere it is stated
-#   (g) no `allow` attribute, no `expect` in a crate root, no lint group in an `allow` or `expect` (also inside a
-#       `cfg_attr`)
+#   (g) no `allow` attribute, no `expect` in a crate root (by name, by place or named by a manifest), no lint group in
+#       an `allow` or `expect` (also inside a `cfg_attr`)
 #   (h) toolchain commands run behind $(EXEC)
 #
 # Usage: check-invariants.sh [--root <dir>]
@@ -1126,20 +1126,234 @@ rule_f() {
 # ---------------------------------------------------------------------------------------------------------------
 # (g) Suppressions
 # ---------------------------------------------------------------------------------------------------------------
+
+# Prints, sorted and one per line, the file of every crate root that a manifest names: the `path` string of each
+# [lib], [[bin]], [[test]], [[example]] and [[bench]] table and the `build` string of [package] (or of the legacy
+# [project], which cargo still reads below edition 2024; `build = false` names nothing), relative to the directory
+# of the manifest, with `.` and `..` removed. Every Cargo.toml of the tree is read (the walk of the Rust sources).
+# The manifest is parsed as TOML, not matched line by line: white space around `=` and in table headers, basic and
+# literal strings (also multi-line), comments, quoted and dotted keys (lib.path = ...), inline tables
+# (lib = { path = ... }) and arrays of them (bin = [{ path = ... }]) give the same key, while the `path` of a
+# dependency ([dependencies.x] path = ..., x = { path = ... }) and keys inside strings and comments are other keys.
+# A basic string decodes \" and \\ and a \u, \U or \x escape of a printable ASCII character; any other escape, and
+# a multi-line string, is read as written. An absolute path, or one that leaves the tree, names no file of it.
+manifest_roots() {
+  local -a manifests=()
+  local file
+  while IFS= read -r file; do
+    manifests+=("${file}")
+  done < <(find . \( -name target -o -name node_modules -o -name .git -o -name '_bmad*' \) -prune -o -type f -name Cargo.toml -print | sed 's|^\./||' | LC_ALL=C sort)
+  ((${#manifests[@]} > 0)) || return 0
+  awk '
+    BEGIN {
+      # The key paths whose string value names a crate root; "[]" stands for an element of an array of tables.
+      roots["lib" SUBSEP "path"] = 1
+      roots["bin" SUBSEP "[]" SUBSEP "path"] = 1
+      roots["test" SUBSEP "[]" SUBSEP "path"] = 1
+      roots["example" SUBSEP "[]" SUBSEP "path"] = 1
+      roots["bench" SUBSEP "[]" SUBSEP "path"] = 1
+      roots["package" SUBSEP "build"] = 1
+      roots["project" SUBSEP "build"] = 1
+    }
+    # A manifest is read whole and parsed when the next one starts, and at the end.
+    FNR == 1 {
+      if (NR > 1) parse()
+      src = ""
+      dir = FILENAME
+      sub(/Cargo\.toml$/, "", dir)
+    }
+    { src = src $0 "\n" }
+    END { if (NR > 0) parse() }
+    function parse() {
+      len = length(src)
+      pos = 1
+      table = ""
+      while (pos <= len) statement()
+    }
+    # One line: a table header or a key with its value (which may span lines); the rest of the line is skipped.
+    function statement(   key) {
+      blank()
+      if (substr(src, pos, 1) == "[") header()
+      else {
+        key = dotted_key()
+        blank()
+        if (key != "" && substr(src, pos, 1) == "=") {
+          pos++
+          blank()
+          value((table == "") ? key : (table SUBSEP key))
+        }
+      }
+      while (pos <= len && substr(src, pos, 1) != "\n") pos++
+      pos++
+    }
+    function header(   list) {
+      pos++
+      list = (substr(src, pos, 1) == "[")
+      if (list) pos++
+      table = dotted_key()
+      if (list) table = table SUBSEP "[]"
+    }
+    function blank() {
+      while (pos <= len && (substr(src, pos, 1) == " " || substr(src, pos, 1) == "\t")) pos++
+    }
+    # White space, line ends and comments between the parts of an array or an inline table.
+    function gap(   c) {
+      while (pos <= len) {
+        c = substr(src, pos, 1)
+        if (c == "#") {
+          while (pos <= len && substr(src, pos, 1) != "\n") pos++
+        } else if (c == " " || c == "\t" || c == "\n" || c == "\r") pos++
+        else return
+      }
+    }
+    # A key of bare and quoted parts joined by dots; its parts are joined with SUBSEP. Empty when there is none.
+    function dotted_key(   key, part, c) {
+      key = ""
+      while (1) {
+        blank()
+        c = substr(src, pos, 1)
+        if (c == "\"" || c == "\047") part = string()
+        else if (match(substr(src, pos), /^[A-Za-z0-9_-]+/)) {
+          part = substr(src, pos, RLENGTH)
+          pos += RLENGTH
+        } else return key
+        key = (key == "") ? part : (key SUBSEP part)
+        blank()
+        if (substr(src, pos, 1) != ".") return key
+        pos++
+      }
+    }
+    function value(key,   c) {
+      c = substr(src, pos, 1)
+      if (c == "\"" || c == "\047") {
+        c = resolve(string())
+        if ((key in roots) && c != "") print c
+      } else if (c == "{") inline_table(key)
+      else if (c == "[") array(key)
+      else {
+        # A number, a boolean or a date: up to the next delimiter.
+        while (pos <= len && index(",]}#\n", substr(src, pos, 1)) == 0) pos++
+      }
+    }
+    function inline_table(key,   c, k, before) {
+      pos++
+      while (pos <= len) {
+        gap()
+        c = substr(src, pos, 1)
+        if (c == "}") {
+          pos++
+          return
+        }
+        before = pos
+        if (c != ",") {
+          k = dotted_key()
+          blank()
+          if (k != "" && substr(src, pos, 1) == "=") {
+            pos++
+            blank()
+            value(key SUBSEP k)
+          }
+        }
+        if (pos == before) pos++
+      }
+    }
+    function array(key,   c, before) {
+      pos++
+      while (pos <= len) {
+        gap()
+        c = substr(src, pos, 1)
+        if (c == "]") {
+          pos++
+          return
+        }
+        before = pos
+        if (c != ",") value(key SUBSEP "[]")
+        if (pos == before) pos++
+      }
+    }
+    function string(   q, out, c, end) {
+      q = substr(src, pos, 1)
+      if (substr(src, pos, 3) == q q q) {
+        pos += 3
+        if (substr(src, pos, 1) == "\n") pos++
+        end = index(substr(src, pos), q q q)
+        if (!end) end = len - pos + 2
+        out = substr(src, pos, end - 1)
+        pos += end + 2
+        return out
+      }
+      out = ""
+      pos++
+      while (pos <= len) {
+        c = substr(src, pos, 1)
+        if (c == "\n") return out
+        pos++
+        if (c == q) return out
+        if (c == "\\" && q == "\"") c = escaped()
+        out = out c
+      }
+      return out
+    }
+    # The text of the escape sequence after a backslash (see manifest_roots).
+    function escaped(   c, n, k, d, v) {
+      c = substr(src, pos, 1)
+      if (c == "\n" || c == "") return "\\"
+      pos++
+      if (c == "\"" || c == "\\") return c
+      n = (c == "u") ? 4 : ((c == "U") ? 8 : ((c == "x") ? 2 : 0))
+      v = 0
+      for (k = 0; k < n; k++) {
+        d = index("0123456789abcdef", tolower(substr(src, pos + k, 1)))
+        if (!d) return "\\" c
+        v = v * 16 + d - 1
+      }
+      if (n == 0 || v < 32 || v > 126) return "\\" c
+      pos += n
+      return sprintf("%c", v)
+    }
+    function resolve(path,   n, parts, i, depth, kept, out) {
+      if (path == "" || substr(path, 1, 1) == "/") return ""
+      n = split(dir path, parts, "/")
+      depth = 0
+      for (i = 1; i <= n; i++) {
+        if (parts[i] == "" || parts[i] == ".") continue
+        if (parts[i] != "..") kept[++depth] = parts[i]
+        else if (depth > 0) depth--
+        else return ""
+      }
+      out = ""
+      for (i = 1; i <= depth; i++) out = out ((i > 1) ? "/" : "") kept[i]
+      return out
+    }
+  ' "${manifests[@]}" | LC_ALL=C sort -u
+  return 0
+}
+
 rule_g() {
   local -a sources=()
-  local file
+  local file named
+  named=$(manifest_roots)
   while IFS= read -r file; do
     sources+=("${file}")
   done < <(find . \( -name target -o -name node_modules -o -name .git -o -name '_bmad*' \) -prune -o -type f -name '*.rs' -print | sed 's|^\./||' | LC_ALL=C sort)
+  # A file that a manifest names is a Rust source file whatever its name ends in ([lib] path = "lib.txt").
+  while IFS= read -r file; do
+    [[ -n "${file}" && "${file}" != *.rs && -f "${file}" ]] || continue
+    case "/${file}" in
+      */target/* | */node_modules/* | */.git/* | */_bmad*) continue ;;
+    esac
+    sources+=("${file}")
+  done <<<"${named}"
   ((${#sources[@]} > 0)) || return 0
   emit < <(awk '
     function out(msg) { print "(g) " FILENAME ":" start ": " msg }
-    # A crate root that cargo infers: lib.rs, main.rs and build.rs by name, and every direct *.rs child of the
-    # tests/, examples/ and benches/ directories of a package and of its src/bin/ (main.rs below them is caught by
-    # its name). A package is a directory with a Cargo.toml, so a module directory named tests or bin below src/
-    # holds module files, not crate roots.
+    # A crate root: a file that a manifest names (manifest_roots, the first operand); and one that cargo infers:
+    # lib.rs, main.rs and build.rs by name, and every direct *.rs child of the tests/, examples/ and benches/
+    # directories of a package and of its src/bin/ (main.rs below them is caught by its name). A package is a
+    # directory with a Cargo.toml, so a module directory named tests or bin below src/ holds module files, not crate
+    # roots.
     function is_root(path,   base, n, parts, cut, dir, i, manifest, probe, found) {
+      if (path in named) return 1
       n = split(path, parts, "/")
       base = parts[n]
       if (base == "lib.rs" || base == "main.rs" || base == "build.rs") return 1
@@ -1169,6 +1383,11 @@ rule_g() {
     function judge() {
       if (kind == "allow") out("#[allow or #![allow is not permitted")
       if (kind == "expect" && inner && root) out("#![expect( in a crate root is not permitted")
+    }
+    # The first operand lists the files that a manifest names, one per line.
+    FILENAME == ARGV[1] {
+      if ($0 != "") named[$0] = 1
+      next
     }
     FNR == 1 { collecting = 0; root = is_root(FILENAME) }
     /^[[:space:]]*\/\// { next }
@@ -1202,7 +1421,7 @@ rule_g() {
         }
       }
     }
-  ' "${sources[@]}")
+  ' <(printf '%s\n' "${named}") "${sources[@]}")
   return 0
 }
 
