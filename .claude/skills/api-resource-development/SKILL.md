@@ -80,7 +80,7 @@ These recipes live in this skill, which the template sync delivers, so they stay
 **Add a health probe.**
 
 1. Add a variant to `Dependency` in `crates/internal/health-check/domain/src/value_object/dependency.rs` with its identifier and failure message.
-2. Implement `HealthProbe` in `crates/internal/health-check/infrastructure/src/probe.rs`.
+2. Implement `HealthProbe` in `crates/internal/health-check/infrastructure/src/probe.rs`. A client crate the probe needs goes into `crates/internal/health-check/infrastructure/Cargo.toml`; that manifest is synchronised, so list it by its full path in `.templatesyncignore` in the same pull request.
 3. Append it to `Adapters::probes` in `Adapters::connect` of `crates/service/src/bootstrap.rs`. The handler and `HealthService` do not change.
 
 ## Verification
