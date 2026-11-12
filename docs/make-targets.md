@@ -201,8 +201,8 @@ A gate target has its negative test in the Bats suite and no second passing run 
 | G8 | `unused-dependencies` | stage 2 | `make_quality_gates.bats` (a misplaced dependency) |
 | G9 | `secrets-scan` | stage 1 | `make_security.bats` (a key pair generated at test time; a key that exists only in the history) |
 | G10 | `image-scan` | stage 6 | `make_security.bats` (a vulnerable fixture image) |
-| G11 | `doc-tests`, `tests-with-coverage` | stage 3 | `make_tests.bats` (a failing test appended to `xtask`, run by `unit-tests`; a failing documentation example appended to the test-support crate, run by `doc-tests`) |
-| G12 | `tests-with-coverage` | stage 3 | `make_tests.bats` (a failing integration test) |
+| G11 | `doc-tests`, `tests-with-coverage` | stage 3 | `make_tests.bats` (a failing test appended to `xtask`, run by `tests-with-coverage` together with the failing integration test of G12 in the test "G11, G12: a failing unit test and a failing integration test make tests-with-coverage fail and name both", and also by `unit-tests`, which `pre-push` runs; a failing documentation example appended to the test-support crate, run by `doc-tests`) |
+| G12 | `tests-with-coverage` | stage 3 | `make_tests.bats` (a failing integration test appended to `xtask`, run by `tests-with-coverage` together with the failing unit test of G11 in the test "G11, G12: a failing unit test and a failing integration test make tests-with-coverage fail and name both", and also by `integration-tests`) |
 | G13 | `e2e-tests` | stage 3 | `make_tests.bats` (a feature with an undefined step; the same step in a scenario tagged `@allow.skipped`) |
 | G14 | `tests-with-coverage` | stage 3 | `make_tests.bats` (an uncovered function) |
 | G15 | `mutation-tests-diff` | stage 5 | `make_tests.bats` (an uncovered function: a `MISSED` line) |
@@ -213,7 +213,7 @@ A gate target has its negative test in the Bats suite and no second passing run 
 | G20 | `graphql-diff` | stage 4 | `make_contracts.bats` (a field removed; the same change approved with `BREAKING_CHANGE_APPROVED=true`; a base ref that does not exist) |
 | G21 | `schemathesis-validate` | stage 6 | `make_contracts.bats` (an undocumented path added) |
 | G22 | `smoke-load-tests` | stage 6 | `make_load_tests.bats` (a budget that cannot be met; a scenario whose check cannot pass) |
-| G23 | `lint-repo` | stage 1 | `make_repository.bats` (one test per linter) |
+| G23 | `lint-repo` | stage 1 | `make_repository.bats` (one test per linter, each through its `lint-*` target; and the test "G23: make -n lint-repo runs every linter of the repository lint", a dry run that fails when a linter is dropped from the prerequisites of `lint-repo`) |
 | G24 | `lint-load-tests` | stage 1 | `make_load_tests.bats` (a script with `console.log` and `==`, which ESLint rejects; a script that ESLint accepts but that is not formatted, which Prettier rejects) |
 | G25 | `validate-configuration` | stage 1 | `make_quality_gates.bats` (a comment appended to `clippy.toml`) |
 | G26 | `docs-check` | stage 2 | `make_repository.bats` (an unknown target cited in `README.md`) |

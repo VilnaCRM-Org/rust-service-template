@@ -1,11 +1,12 @@
 #!/usr/bin/env bats
-# Negative tests of the repository gates: one test per linter of G23 (lint-repo), and the Make-level tests of the
-# documentation-drift gate G26, the architecture-model gate G27 and the invariants gate G31. There is no passing-run
-# test of a gate: the passing run of lint-repo is the gate itself (DD-02, DD-07). The template-sync checks (the
-# synchronised Rust files, Bats files and fixtures, and the sync ignore list read as the sync action reads it) have no
-# Make target, so their passing runs are tests here, next to their negatives (architecture-delivery.md "CLI Tests
-# (Bats)", file make_repository.bats). The same holds for the check of the home directory of the development stage of
-# the Dockerfile (FR95).
+# Negative tests of the repository gates: one test per linter of G23 (lint-repo) plus a dry run that shows lint-repo
+# still runs every linter, and the Make-level tests of the documentation-drift gate G26, the architecture-model gate
+# G27 and the invariants gate G31. There is no passing-run test of a gate: the passing run of lint-repo is the gate
+# itself (DD-02, DD-07), and the dry run runs no linter. The template-sync checks (the synchronised Rust files, Bats
+# files and fixtures, and the sync ignore list read as the sync action reads it) have no Make target, so their passing
+# runs are tests here, next to their negatives (architecture-delivery.md "CLI Tests (Bats)", file
+# make_repository.bats). The same holds for the check of the home directory of the development stage of the
+# Dockerfile (FR95).
 #
 # A violation is planted under a name that the linter picks up (the fixtures keep the extension .txt and are excluded
 # from every linter) and is removed by restore_planted, which the teardown calls.
@@ -135,6 +136,18 @@ teardown() {
   assert_failure
   assert_output --partial 'planted_unformatted.json'
   assert_output --partial 'Code style issues found'
+}
+
+# lint-repo has no recipe of its own: it is the list of the eight lint-* targets above, which `make ci` (stage 1) and
+# the hosted job run. A prerequisite dropped from that list would drop its linter from both while every test above,
+# which runs a lint-* target directly, stays green. The dry run starts no container.
+@test "G23: make -n lint-repo runs every linter of the repository lint" {
+  local tool
+  run make --no-print-directory -n lint-repo
+  assert_success
+  for tool in actionlint zizmor yamllint markdownlint-cli2 shellcheck hadolint 'taplo fmt --check' typos 'prettier --check'; do
+    assert_output --partial "${tool}"
+  done
 }
 
 # --- Template sync: synchronised tests stay free of what a service owns --------------------------------------

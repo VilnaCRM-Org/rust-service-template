@@ -167,6 +167,24 @@ dev_sql() {
   assert_output --partial 'planted_failing_integration_test'
 }
 
+# --- G11 and G12: the target that make ci and the hosted job run -------------------------------------------
+
+# `make ci` (stage 3) and the hosted job `tests` run the unit and integration suites only once, through
+# tests-with-coverage (DD-02 "One execution of the suites"); unit-tests and integration-tests above are the targets of
+# pre-push and of the developer. The planted tests run to their failing assertion, so the coverage floor that the
+# recipe checks afterwards still holds: only the failing run can fail the target, and a run line whose status the
+# recipe ignores lets this test fail. The nextest profile ci has fail-fast = false, so both planted tests are reported.
+# bats test_tags=slow
+@test "G11, G12: a failing unit test and a failing integration test make tests-with-coverage fail and name both" {
+  require_docker
+  plant_append xtask/src/cli/tests.rs "${BATS_TEST_DIRNAME}/fixtures/failing_unit_test.rs.txt"
+  plant_append xtask/tests/integration/main.rs "${BATS_TEST_DIRNAME}/fixtures/failing_integration_test.rs.txt"
+  run make --no-print-directory tests-with-coverage
+  assert_failure
+  assert_output --partial 'planted_failing_unit_test'
+  assert_output --partial 'planted_failing_integration_test'
+}
+
 # --- the seed of a failing randomised test (FR51, NFR29) ------------------------------------------------------
 
 # bats test_tags=slow
