@@ -5,7 +5,8 @@
 #       security-events in the code-scanning jobs codeql, clippy-sarif-upload and code-scanning, or any scope in the
 #       release and sync jobs of a workflow that no pull request starts; write-all nowhere), concurrency, timeouts
 #       (declared, an integer of at most 45 minutes, 75 for the clean-clone job clean-bootstrap-ci of scheduled.yml);
-#       a quoted key ('jobs':, "pull-requests":) is read as the key it names
+#       a quoted key ('jobs':, "pull-requests":) is read as the key it names, and a permissions value is read-all,
+#       write-all or a mapping whose every value is read, write or none (a tag, anchor or alias is reported)
 #   (b) pinned images, tools, features and downloads (Dockerfile, make files, workflows and every shell script): no
 #       file has more downloads by URL than checksum verifications (sha256sum, sha512sum or shasum run as a command,
 #       or a call of a shell function whose body runs one; comments and image digests are no evidence), and an ADD
@@ -155,7 +156,8 @@ runs_on_pull_requests() {
 # refused in every job. Job timeouts (NFR39): an integer literal of at most 45 minutes, 75 for the clean-clone job
 # clean-bootstrap-ci of scheduled.yml. A quoted key at the start of a line ('jobs':, "lint":, 'timeout-minutes':,
 # - 'uses':, 'pull-requests':) is read as the key it names, so quoting a key hides nothing; YAML and prettier both
-# accept that form.
+# accept that form. A permissions value, of the workflow or of a job, is read in full and fails closed (see
+# perm_start below).
 check_workflow_hygiene() {
   local file=$1 pull_requests=0
   runs_on_pull_requests "${file}" && pull_requests=1
@@ -170,6 +172,15 @@ check_workflow_hygiene() {
       return key substr(line, RLENGTH + 1)
     }
     function unquoted(text) { gsub(/["\047]/, "", text); return text }
+    function indent(s) { match(s, /^ */); return RLENGTH }
+    # The text of a line without the white space around it and without its comment (a # after white space).
+    function bare(text) {
+      sub(/^[[:space:]]+/, "", text)
+      if (text ~ /^#/) return ""
+      sub(/[[:space:]]+#.*$/, "", text)
+      sub(/[[:space:]]+$/, "", text)
+      return text
+    }
     function flush_job() {
       if (job != "") {
         if (!has_timeout) out("job " job " has no timeout-minutes")
@@ -184,17 +195,58 @@ check_workflow_hygiene() {
       if (!pull_requests && (job in exempt)) return
       out("job " job " grants " scope ": write")
     }
-    # Every `<scope>: write` of a permissions line (a key of the block or an inline mapping), comment removed.
-    function write_scopes(text,   scope) {
-      sub(/[[:space:]]*#.*$/, "", text)
-      gsub(/["\047]/, "", text)
-      if (text ~ /write-all/) { out("job " job " grants write-all; a job names each scope it writes"); return }
-      while (match(text, /[A-Za-z][A-Za-z-]*[[:space:]]*:[[:space:]]*write([^A-Za-z-]|$)/)) {
-        scope = substr(text, RSTART, RLENGTH)
-        sub(/[[:space:]]*:.*$/, "", scope)
-        grant(scope)
-        text = substr(text, RSTART + RLENGTH)
+    # The value of a permissions key, read in full and failing closed: read-all, write-all, or a mapping (a block or
+    # a flow mapping, also on the lines after the key) whose every value is read, write or none, quotes and comments
+    # removed. A tag, an anchor or an alias (!!str write, &w write, *w), a folded or literal block scalar and any
+    # other spelling hides the value from this rule and is reported. p_top is 1 for the workflow, 0 for a job.
+    function subject() { return p_top ? "the workflow" : "job " job }
+    function perm_start(rest, top) {
+      p_on = 1; p_top = top; p_base = top ? 0 : 4; p_flow = ""; p_member = ""; p_indent = 0
+      rest = bare(rest)
+      if (rest == "") p_mode = "open"
+      else if (rest ~ /^\{/) { p_mode = "flow"; p_flow = rest }
+      else { p_mode = "scalar"; perm_scalar(unquoted(rest)) }
+    }
+    # A line deeper than the key: a flow mapping takes every such line (prettier puts each brace and each member on
+    # a line of its own when the mapping is long); in a block mapping a line at the indentation of the first key
+    # starts an entry and a deeper line continues the value of the entry before it (>- and the like).
+    function perm_line(line,   n, text) {
+      n = indent(line); text = bare(line)
+      if (text == "" || p_mode == "scalar") return
+      if (p_mode == "open" && text ~ /^\{/) { p_mode = "flow"; p_flow = text; return }
+      if (p_mode == "open") { p_mode = "block"; p_indent = n; p_member = text; return }
+      if (p_mode == "flow") { p_flow = p_flow " " text; return }
+      if (n > p_indent) { p_member = p_member " " text; return }
+      perm_member(p_member); p_member = text; p_indent = n
+    }
+    function perm_end(   n, i, parts) {
+      if (!p_on) return
+      p_on = 0
+      if (p_mode == "block") perm_member(p_member)
+      if (p_mode != "flow") return
+      sub(/^\{/, "", p_flow); sub(/\}$/, "", p_flow)
+      n = split(p_flow, parts, ",")
+      for (i = 1; i <= n; i++) if (parts[i] !~ /^[[:space:]]*$/) perm_member(parts[i])
+    }
+    function perm_scalar(value) {
+      if (value == "read-all" || (value == "write-all" && p_top)) return
+      if (value == "write-all") out("job " job " grants write-all; a job names each scope it writes")
+      else out(subject() " has permissions: " value ", but only read-all, write-all or a mapping of scopes is read")
+    }
+    # One <scope>: <value> entry. A write of the workflow is reported line by line by the top-level check.
+    function perm_member(text,   scope, value) {
+      text = unquoted(text)
+      sub(/^[[:space:]]+/, "", text); sub(/[[:space:]]+$/, "", text)
+      if (!match(text, /^[A-Za-z][A-Za-z-]*[[:space:]]*:([[:space:]]|$)/)) {
+        out(subject() " has the permissions entry " text ", which is no <scope>: <value> pair"); return
       }
+      scope = text; sub(/[[:space:]]*:.*$/, "", scope)
+      value = substr(text, RLENGTH + 1); sub(/^[[:space:]]+/, "", value)
+      if (value == "") out(subject() " gives " scope " no value; a scope takes read, write or none")
+      else if (value == "write" && !p_top) grant(scope)
+      else if (value == "read" && scope == "contents" && !p_top) perm_ok = 1
+      else if (value != "read" && value != "write" && value != "none")
+        out(subject() " gives " scope " the value " value "; a scope takes read, write or none")
     }
     # The timeout of the job: an integer literal of at most 45 minutes, 75 for the clean-clone job.
     function timeout_value(text,   limit) {
@@ -213,7 +265,17 @@ check_workflow_hygiene() {
     }
     { $0 = plain_key($0) }
     /^[[:space:]]*#/ { next }
-    /^permissions:/ { top_perm = 1 }
+    # The lines of the value of a permissions key: deeper than the key. A job-level value line is nothing else.
+    p_on && $0 !~ /^[[:space:]]*$/ {
+      if (indent($0) > p_base) { perm_line($0); if (!p_top) next }
+      else perm_end()
+    }
+    /^permissions:/ {
+      top_perm = 1
+      v = $0
+      sub(/^permissions:/, "", v)
+      perm_start(v, 1)
+    }
     /^[^[:space:]#]/ { in_top_perm = ($0 ~ /^permissions:/) }
     in_top_perm {
       v = $0
@@ -238,31 +300,23 @@ check_workflow_hygiene() {
       flush_job()
       job = $1
       sub(/:$/, "", job)
-      has_timeout = 0; has_perm = 0; perm_ok = 0; in_perm = 0
+      has_timeout = 0; has_perm = 0; perm_ok = 0
       next
     }
     in_jobs && job != "" {
       if ($0 ~ /^    timeout-minutes:/) { has_timeout = 1; timeout_value($0) }
+      # The value of the key ends at the next line of the indentation of the key (the next key of the job, such as
+      # steps:), so the `with:` inputs of a step, such as permission-contents: write of create-github-app-token,
+      # are no scopes of the job token.
       if ($0 ~ /^    permissions:/) {
-        has_perm = 1; in_perm = 1
-        if (unquoted($0) ~ /contents:[[:space:]]*read/) perm_ok = 1
+        has_perm = 1
         v = $0
         sub(/^    permissions:/, "", v)
-        write_scopes(v)
-        next
-      }
-      if (in_perm) {
-        if ($0 ~ /^      /) {
-          if (unquoted($0) ~ /contents:[[:space:]]*read/) perm_ok = 1
-          # Keys of the block only (six spaces, quoted or not) and an inline mapping on the line after the key: the
-          # `with:` inputs of a step, such as permission-contents: write of create-github-app-token, stand deeper
-          # and are no scopes of the job token.
-          if ($0 ~ /^      [A-Za-z{]/) write_scopes($0)
-        }
-        else if ($0 !~ /^[[:space:]]*$/) in_perm = 0
+        perm_start(v, 0)
       }
     }
     END {
+      perm_end()
       flush_job()
       if (!top_perm) out("the workflow declares no permissions")
       if (!top_conc) out("the workflow declares no concurrency")

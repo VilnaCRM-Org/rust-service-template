@@ -396,15 +396,32 @@ EOF
   replace .github/workflows/quality.yml $'permissions:\n  contents: read\nconcurrency:' $'permissions:\n  contents: write\nconcurrency:'
   check
   assert_violation a 'quality.yml: line 6: the top-level permissions block grants write access'
+  # One finding: the write is not reported a second time as a value.
+  assert_equal "${#lines[@]}" 1
 }
 
 @test "(a) a top-level permissions: write-all is refused and a comment that says write is not" {
   replace .github/workflows/quality.yml $'permissions:\n  contents: read\nconcurrency:' $'permissions: write-all\nconcurrency:'
   check
   assert_violation a 'the top-level permissions block grants write access'
+  assert_equal "${#lines[@]}" 1
   replace .github/workflows/quality.yml 'permissions: write-all' $'permissions:\n  contents: read # never write here'
   check
   assert_success
+}
+
+@test "(a) a top-level permissions value or scope behind an alias is refused" {
+  # The alias names no write but stands for write-all (prettier, yamllint, actionlint and zizmor accept it).
+  replace .github/workflows/quality.yml $'permissions:\n  contents: read\nconcurrency:' \
+    $'env:\n  LEVEL: &level write-all\npermissions: *level\nconcurrency:'
+  check
+  assert_failure 1
+  assert_output '(a) .github/workflows/quality.yml: the workflow has permissions: *level, but only read-all, write-all or a mapping of scopes is read'
+  replace .github/workflows/quality.yml $'  LEVEL: &level write-all\npermissions: *level' \
+    $'  LEVEL: &level write\npermissions:\n  contents: *level'
+  check
+  assert_failure 1
+  assert_output '(a) .github/workflows/quality.yml: the workflow gives contents the value *level; a scope takes read, write or none'
 }
 
 # A workflow that a push starts, with one job and the given job-level permissions block (two lines).
@@ -455,6 +472,85 @@ EOF
   check
   assert_violation a 'quality.yml: job lint grants packages: write$'
   refute_line --partial 'without contents: read'
+}
+
+@test "(a) a flow mapping that prettier breaks over several lines is read" {
+  # The form prettier writes for a long flow mapping: each brace and each member on a line of its own, the members
+  # deeper than the keys of a block mapping would stand.
+  replace .github/workflows/quality.yml $'    permissions:\n      contents: read\n      pull-requests: read' \
+    $'    permissions:\n      {\n        contents: read,\n        actions: read,\n        pull-requests: write,\n      }'
+  check
+  assert_failure 1
+  assert_output '(a) .github/workflows/quality.yml: job lint grants pull-requests: write'
+}
+
+@test "(a) a job-level scope whose value is not read, write or none is refused" {
+  # An explicit tag, a folded block scalar and an anchor with its alias spell write without the plain value; each
+  # passes prettier, yamllint, actionlint and zizmor.
+  replace .github/workflows/quality.yml '      pull-requests: read' '      pull-requests: !!str write'
+  check
+  assert_failure 1
+  assert_output '(a) .github/workflows/quality.yml: job lint gives pull-requests the value !!str write; a scope takes read, write or none'
+  replace .github/workflows/quality.yml '      pull-requests: !!str write' $'      pull-requests: >-\n        write'
+  check
+  assert_failure 1
+  assert_output '(a) .github/workflows/quality.yml: job lint gives pull-requests the value >- write; a scope takes read, write or none'
+  replace .github/workflows/quality.yml $'      pull-requests: >-\n        write' \
+    $'      security-events: &level write\n      pull-requests: *level'
+  check
+  assert_violation a 'quality.yml: job lint gives security-events the value &level write; a scope takes read, write or none$'
+  assert_line '(a) .github/workflows/quality.yml: job lint gives pull-requests the value *level; a scope takes read, write or none'
+  # A scope without a value and an entry without a scope (actionlint rejects both too).
+  replace .github/workflows/quality.yml $'      security-events: &level write\n      pull-requests: *level' \
+    '      pull-requests:'
+  check
+  assert_failure 1
+  assert_output '(a) .github/workflows/quality.yml: job lint gives pull-requests no value; a scope takes read, write or none'
+  replace .github/workflows/quality.yml $'      contents: read\n      pull-requests:' '      { contents: read, issues }'
+  check
+  assert_failure 1
+  assert_output '(a) .github/workflows/quality.yml: job lint has the permissions entry issues, which is no <scope>: <value> pair'
+  # read and none pass, also quoted and with a comment.
+  replace .github/workflows/quality.yml '      { contents: read, issues }' \
+    $'      contents: read\n      pull-requests: \'read\' # reviews\n      issues: "none"'
+  check
+  assert_success
+  assert_output ''
+}
+
+@test "(a) a permissions block at the end of the workflow is read" {
+  append .github/workflows/quality.yml '  label:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - run: echo label
+    permissions:
+      contents: read
+      issues: write'
+  append docs/repository-settings.md "| \`label\` | Label |"
+  check
+  assert_failure 1
+  assert_output '(a) .github/workflows/quality.yml: job label grants issues: write'
+}
+
+@test "(a) a job-level permissions value with an alias or a tag is refused, also in the release job" {
+  # The release job of a workflow that a push starts may write any scope, but not write-all, which the alias hides.
+  put_push_workflow publish.yml release 'packages: write'
+  replace .github/workflows/publish.yml 'concurrency:' $'env:\n  LEVEL: &level write-all\nconcurrency:'
+  replace .github/workflows/publish.yml $'    permissions:\n      contents: read\n      packages: write' '    permissions: *level'
+  check
+  assert_failure 1
+  assert_output '(a) .github/workflows/publish.yml: job release has permissions: *level, but only read-all, write-all or a mapping of scopes is read'
+  replace .github/workflows/publish.yml $'env:\n  LEVEL: &level write-all\n' ''
+  replace .github/workflows/publish.yml '    permissions: *level' $'    permissions: !!map\n      contents: read\n      packages: write'
+  check
+  assert_failure 1
+  assert_output '(a) .github/workflows/publish.yml: job release has permissions: !!map, but only read-all, write-all or a mapping of scopes is read'
+  # read-all is a value of its own.
+  replace .github/workflows/publish.yml $'    permissions: !!map\n      contents: read\n      packages: write' '    permissions: read-all'
+  check
+  assert_success
+  assert_output ''
 }
 
 @test "(a) a quoted key is read as the key it names" {
