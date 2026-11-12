@@ -19,7 +19,10 @@
 #   (e) the repository name occurs only where DD-23 allows it
 #   (f) the licence identifier is CC0-1.0 everywhere it is stated
 #   (g) no `allow` attribute, no `expect` in a crate root (by name, by place or named by a manifest), no lint group in
-#       an `allow` or `expect` (also inside a `cfg_attr`)
+#       an `allow` or `expect` (also inside a `cfg_attr`); an inline suppression directive of shellcheck, hadolint,
+#       yamllint, markdownlint, ESLint or zizmor names exactly one rule (not all rules, not a group, not a list) and
+#       carries a reason: `# <reason>` after a shellcheck, hadolint or zizmor directive, ` -- <reason>` after an
+#       ESLint one, or for every directive a comment line directly above it
 #   (h) toolchain commands run behind $(EXEC)
 #
 # Usage: check-invariants.sh [--root <dir>]
@@ -408,7 +411,7 @@ check_dockerfile_images() {
     fi
     [[ "${line}" =~ ^[[:space:]]*[Ff][Rr][Oo][Mm][[:space:]]+(.*)$ ]] || continue
     rest=${BASH_REMATCH[1]}
-    # shellcheck disable=SC2206
+    # shellcheck disable=SC2206 # the FROM line is split into words on purpose
     local -a words=(${rest})
     image=''
     local word
@@ -1329,7 +1332,7 @@ manifest_roots() {
   return 0
 }
 
-rule_g() {
+rule_g_attributes() {
   local -a sources=()
   local file named
   named=$(manifest_roots)
@@ -1422,6 +1425,588 @@ rule_g() {
       }
     }
   ' <(printf '%s\n' "${named}") "${sources[@]}")
+  return 0
+}
+
+# ---------------------------------------------------------------------------------------------------------------
+# (g) Inline directives of the repository linters
+# ---------------------------------------------------------------------------------------------------------------
+# A linter of G23 or the load-test kit accepts an inline directive that names no rule or several and carries no
+# reason; rule (g) refuses it (FR125(g), the definition of a blanket suppression). The directives that suppress are
+# read where the linter itself reads them (the directive words are quoted, so that no line here is a directive):
+#   - `# shellcheck disable=...`: a comment (outside quotes, expansions and here-document bodies) of the shell files
+#     and of the run blocks of the workflows; `source=`, `shell=` and `enable=` suppress nothing
+#   - `# hadolint ignore=...` and `# hadolint global ignore=...`: a comment line of a Dockerfile*
+#   - `# yamllint disable`, `disable-line` and `disable-file` (on the first line): a YAML comment outside quoted and
+#     block scalars of a *.yml or *.yaml file
+#   - `<!-- markdownlint-disable -->`, `-disable-line`, `-disable-next-line`, `-disable-file` and
+#     `markdownlint-configure-file`: anywhere in a line of a *.md file, as markdownlint matches them
+#   - `eslint-disable` and a configuration of rules (`eslint <rule>: <setting>`) in a block comment,
+#     `eslint-disable-line` and `-next-line` in any comment: a *.js, *.mjs or *.cjs file below tests/Load/, outside
+#     strings, template literals and regular expression literals
+#   - `# zizmor: ignore[...]`: a YAML comment of a workflow
+# The files are those git lists below the root, tracked or new and not ignored (every file when the root has no
+# .git); specs/, _bmad*/, tests/CLI/bats/fixtures/ and every node_modules/ and target/ directory are not read.
+
+# Prints `<kind> <path>` for every file whose inline directives rule (g) reads: sh, wf (a workflow), yml, docker, md
+# or js.
+directive_files() {
+  local listing file kind
+  if [[ -e .git ]]; then
+    # The repository of the root, not one that GIT_DIR or GIT_WORK_TREE of the caller names.
+    listing=$(
+      unset GIT_DIR GIT_WORK_TREE
+      git -c core.quotePath=false ls-files --cached --others --exclude-standard
+    ) || {
+      echo "check-invariants: git ls-files failed in ${root}" >&2
+      exit 2
+    }
+  else
+    listing=$(find . \( -name .git -o -name target -o -name node_modules -o -name '_bmad*' \) -prune -o -type f -print |
+      sed 's|^\./||')
+  fi
+  listing=$(printf '%s\n' "${listing}" | LC_ALL=C sort)
+  while IFS= read -r file; do
+    [[ -n "${file}" && -f "${file}" ]] || continue
+    case "/${file}" in
+      /specs/* | /_bmad* | /tests/CLI/bats/fixtures/* | */node_modules/* | */target/*) continue ;;
+    esac
+    kind=''
+    case "${file}" in
+      *.sh | *.bash | *.bats) kind='sh' ;;
+      *.yml | *.yaml) kind='yml' ;;
+      *.md) kind='md' ;;
+      tests/Load/*.js | tests/Load/*.mjs | tests/Load/*.cjs) kind='js' ;;
+      .githooks/*) kind='sh' ;;
+    esac
+    case "${file##*/}" in
+      Dockerfile*) kind='docker' ;;
+    esac
+    if [[ "${kind}" == yml && "${file}" == .github/workflows/* && "${file#.github/workflows/}" != */* ]]; then
+      kind='wf'
+    fi
+    [[ -z "${kind}" ]] || printf '%s %s\n' "${kind}" "${file}"
+  done <<<"${listing}"
+  return 0
+}
+
+rule_g_directives() {
+  local list line
+  local -a files=()
+  list=$(directive_files)
+  [[ -n "${list}" ]] || return 0
+  while IFS= read -r line; do
+    files+=("./${line#* }")
+  done <<<"${list}"
+  # Each finding names the linter and one of the three checks: the directive names no single rule (no name, all
+  # rules or a group), names more than one rule, or carries no reason. The paths reach awk as ./<path>, so that no
+  # file name is read as an assignment.
+  emit < <(awk '
+    function out(ln, msg,   f) {
+      f = FILENAME
+      sub(/^\.\//, "", f)
+      print "(g) " f ":" ln ": " msg
+    }
+    # The three checks of one suppression directive: the number of names it holds, whether its one name is a
+    # single rule (not all rules, not a group), and whether it carries a reason.
+    function judge(tool, ln, n, single, reason,   a) {
+      a = ((tool == "ESLint") ? "an " : "a ") tool " directive "
+      if (n == 0 || (n == 1 && !single)) out(ln, a "names no single rule")
+      else if (n > 1) out(ln, a "names more than one rule")
+      if (!reason) out(ln, a "carries no reason")
+    }
+    function has_text(s) { return s ~ /[A-Za-z0-9]/ }
+    function trim(s) {
+      sub(/^[ \t\r\n]+/, "", s)
+      sub(/[ \t\r\n]+$/, "", s)
+      return s
+    }
+    # The number of words of s that the expression word matches; the first one is kept in word1. (A loop of match,
+    # not split: BusyBox awk 1.30 returns a stray last element when the text ends in a separator.)
+    function count_words(s, word,   k) {
+      k = 0
+      word1 = ""
+      while (match(s, word)) {
+        if (++k == 1) word1 = substr(s, RSTART, RLENGTH)
+        s = substr(s, RSTART + RLENGTH)
+      }
+      return k
+    }
+    # ---- shell: *.sh, *.bash, *.bats, .githooks/* and the run blocks of the workflows ----
+    function sh_reset() {
+      sp = 1
+      st[1] = "C"
+      hn = 0
+      hcur = 0
+    }
+    # Reads the delimiter of a here-document whose << ends before position i (quotes and backslashes removed, a
+    # leading - strips tabs) and queues it; returns the position after the word.
+    function sh_heredoc(s, i,   n, c, word, strip) {
+      n = length(s)
+      strip = 0
+      if (substr(s, i, 1) == "-") {
+        strip = 1
+        i++
+      }
+      while (i <= n && index(" \t", substr(s, i, 1))) i++
+      word = ""
+      while (i <= n) {
+        c = substr(s, i, 1)
+        if (index(" \t;&|()<>", c)) break
+        if (c == "\\") {
+          word = word substr(s, i + 1, 1)
+          i += 2
+          continue
+        }
+        if (c != "\"" && c != "\047") word = word c
+        i++
+      }
+      if (word != "") {
+        hn++
+        hdel[hn] = word
+        hstrip[hn] = strip
+      }
+      return i
+    }
+    # One line of shell. The context stack st holds C (the top level), P (a subshell or a command substitution),
+    # M (arithmetic), B (a backquoted command), S (single quotes), A (ANSI-C quotes, $ before a single quote), D
+    # (double quotes) and E (${...}); it carries over to the next line, and so do the queued here-documents, whose
+    # bodies are skipped. A comment starts at a # that begins a word in a command context.
+    function sh_line(s, ln,   n, i, c, d, top, start, lead) {
+      if (hcur) {
+        d = s
+        if (hstrip[hcur]) sub(/^\t+/, "", d)
+        if (d == hdel[hcur] && ++hcur > hn) {
+          hcur = 0
+          hn = 0
+        }
+        return
+      }
+      n = length(s)
+      start = (st[sp] == "C" || st[sp] == "P")
+      match(s, /^[ \t]*/)
+      lead = RLENGTH + 1
+      i = 1
+      while (i <= n) {
+        c = substr(s, i, 1)
+        top = st[sp]
+        if (top == "S") {
+          if (c == "\047") sp--
+          i++
+          continue
+        }
+        if (top == "A") {
+          if (c == "\\") i++
+          else if (c == "\047") sp--
+          i++
+          continue
+        }
+        if (c == "\\") {
+          i += 2
+          continue
+        }
+        d = substr(s, i + 1, 1)
+        if (top == "D" || top == "E") {
+          if (top == "D" && c == "\"") sp--
+          else if (top == "E" && c == "}") sp--
+          else if (top == "E" && c == "\"") st[++sp] = "D"
+          else if (top == "E" && c == "\047") st[++sp] = "S"
+          else if (c == "`") st[++sp] = "B"
+          else if (c == "$" && (d == "(" || d == "{")) {
+            st[++sp] = (d == "(") ? ((substr(s, i + 2, 1) == "(") ? "M" : "P") : "E"
+            i += (st[sp] == "M") ? 2 : 1
+          }
+          i++
+          continue
+        }
+        # A command context: C, P, M or B.
+        if (c == "\047") st[++sp] = "S"
+        else if (c == "\"") st[++sp] = "D"
+        else if (c == "`") {
+          if (top == "B") sp--
+          else st[++sp] = "B"
+        } else if (c == "$" && d == "\047") {
+          st[++sp] = "A"
+          i++
+        } else if (c == "$" && d == "\"") {
+          st[++sp] = "D"
+          i++
+        } else if (c == "$" && d == "{") {
+          st[++sp] = "E"
+          i++
+        } else if (c == "$" && d == "(") {
+          st[++sp] = (substr(s, i + 2, 1) == "(") ? "M" : "P"
+          i += (st[sp] == "M") ? 2 : 1
+        } else if (c == "(" && d == "(" && top != "M" && (i == lead || index(" \t;&|(", substr(s, i - 1, 1)))) {
+          st[++sp] = "M"
+          i++
+        } else if (c == "(") st[++sp] = "P"
+        else if (c == ")") {
+          if (top == "P") sp--
+          else if (top == "M" && d == ")") {
+            sp--
+            i++
+          }
+        } else if (c == "<" && d == "<" && top != "M") {
+          if (substr(s, i + 2, 1) == "<") i += 2
+          else {
+            i = sh_heredoc(s, i + 2)
+            continue
+          }
+        } else if (c == "#" && top != "M" && top != "B" && (i == 1 || index(" \t;&|()<>", substr(s, i - 1, 1)))) {
+          sh_comment(substr(s, i), ln, start && i == lead)
+          break
+        }
+        i++
+      }
+      if (hn && !hcur) hcur = 1
+    }
+    # A shell comment (text from its # sign); whole is set when it is the whole line. A shellcheck directive
+    # (`# shellcheck key=value ...`) suppresses when it has a disable key; a `# <reason>` may follow it.
+    function sh_comment(t, ln, whole,   x, p, reason, n, w, v, single) {
+      x = substr(t, 2)
+      sub(/^[ \t]+/, "", x)
+      if (x !~ /^shellcheck([ \t]|$)/) {
+        if (whole && has_text(x) && !(ln == 1 && t ~ /^#!/)) cline[ln] = 1
+        return
+      }
+      x = substr(x, 11)
+      reason = ""
+      p = index(x, "#")
+      if (p) {
+        reason = substr(x, p + 1)
+        x = substr(x, 1, p - 1)
+      }
+      if (x !~ /(^|[ \t])disable=/) return
+      n = 0
+      single = 1
+      while (match(x, /[^ \t]+/)) {
+        w = substr(x, RSTART, RLENGTH)
+        x = substr(x, RSTART + RLENGTH)
+        if (w !~ /^disable=/) continue
+        v = substr(w, 9)
+        while (match(v, /[^,]+/)) {
+          w = substr(v, RSTART, RLENGTH)
+          v = substr(v, RSTART + RLENGTH)
+          n += index(w, "-") ? 2 : 1
+          if (tolower(w) == "all") single = 0
+        }
+      }
+      judge("shellcheck", ln, n, single, has_text(reason) || cline[ln - 1])
+    }
+    # ---- YAML: comments outside quoted scalars and block scalars ----
+    # The position of the # sign that starts the comment of a YAML line, 0 when it has none. A quote opens a
+    # quoted scalar only where a value starts.
+    function yaml_comment(s,   n, i, c, q, prev) {
+      n = length(s)
+      q = ""
+      prev = ""
+      for (i = 1; i <= n; i++) {
+        c = substr(s, i, 1)
+        if (q != "") {
+          if (q == "\"" && c == "\\") i++
+          else if (c == q) q = ""
+          continue
+        }
+        if (c == "#" && (i == 1 || index(" \t", substr(s, i - 1, 1)))) return i
+        if ((c == "\"" || c == "\047") && (prev == "" || index(":-[{,?", prev))) q = c
+        if (!index(" \t", c)) prev = c
+      }
+      return 0
+    }
+    # One YAML line of a file of the kind yml or wf. The lines of a block scalar (| or >) are no YAML comments: in a
+    # workflow, the run blocks are shell, which actionlint hands to shellcheck; other block scalars are skipped. A
+    # yamllint directive is honoured only without text after it, so its reason is the comment line above.
+    function yaml_line(s, ln, wf,   p, content, comment, x, rest, n, k, single, reason, b) {
+      if (yblock) {
+        match(s, /^ */)
+        if (s ~ /^[ \t]*$/ || RLENGTH > ybase) {
+          if (yrun) sh_line(s, ln)
+          return
+        }
+        yblock = 0
+      }
+      p = yaml_comment(s)
+      content = p ? substr(s, 1, p - 1) : s
+      comment = p ? substr(s, p) : ""
+      if (content ~ /(^|[ \t])[|>][-+0-9]*[ \t]*$/ && content ~ /(:|^[ \t]*-|[ \t]-)[ \t]+[|>][-+0-9]*[ \t]*$/) {
+        yblock = 1
+        match(content, /^[ \t]*(-[ \t]+)*/)
+        ybase = RLENGTH
+        x = substr(content, RLENGTH + 1)
+        if (x ~ /^[|>]/) {
+          b = substr(content, 1, RLENGTH)
+          sub(/-[ \t]+$/, "", b)
+          ybase = length(b)
+        }
+        yrun = wf && x ~ /^["\047]?run["\047]?[ \t]*:/
+        if (yrun) sh_reset()
+      }
+      if (comment == "") return
+      x = substr(comment, 2)
+      sub(/^[ \t]+/, "", x)
+      if (x ~ /^yamllint[ \t]+disable(-line|-file)?([ \t]|$)/) {
+        sub(/^yamllint[ \t]+/, "", x)
+        if (x ~ /^disable-file/) {
+          if (ln == 1) judge("yamllint", ln, 0, 0, 0)
+          return
+        }
+        sub(/^disable(-line)?/, "", x)
+        n = count_words(x, "[^ \t]+")
+        judge("yamllint", ln, n, n == 1 && word1 ~ /^rule:./, cline[ln - 1])
+        return
+      }
+      if (wf && match(comment, /#[ \t]*zizmor:[ \t]*ignore\[/)) {
+        rest = substr(comment, RSTART + RLENGTH)
+        k = index(rest, "]")
+        if (k) {
+          n = count_words(substr(rest, 1, k - 1), "[^ \t,]+")
+          single = (word1 != "all" && word1 != "*")
+          reason = substr(rest, k + 1)
+          sub(/^[ \t]*#?/, "", reason)
+          judge("zizmor", ln, n, single, has_text(reason) || cline[ln - 1])
+          return
+        }
+      }
+      if (content ~ /^[ \t]*$/ && has_text(x) && x !~ /^yamllint[ \t]/ && comment !~ /zizmor:/) cline[ln] = 1
+    }
+    # ---- Dockerfile: comment lines (hadolint honours `# hadolint ignore=<rule> # <reason>`) ----
+    function docker_line(s, ln,   x, reason, p, n) {
+      if (s !~ /^[ \t]*#/) return
+      x = s
+      sub(/^[ \t]*#[ \t]*/, "", x)
+      if (x ~ /^hadolint[ \t]+(global[ \t]+)?ignore[ \t]*=/) {
+        sub(/^[^=]*=/, "", x)
+        reason = ""
+        p = index(x, "#")
+        if (p) {
+          reason = substr(x, p + 1)
+          x = substr(x, 1, p - 1)
+        }
+        n = count_words(x, "[^ \t,]+")
+        judge("hadolint", ln, n, tolower(word1) != "all", has_text(reason) || cline[ln - 1])
+        return
+      }
+      if (x !~ /^hadolint[ \t]/ && has_text(x)) cline[ln] = 1
+    }
+    # ---- Markdown: the comments <!-- markdownlint-<action> ... --> that markdownlint reads ----
+    # markdownlint matches them in every line, inside code spans and fenced blocks too, and splits the text before
+    # --> into names, so a reason can only stand on the comment line above. A name is one rule when it is MD<digits>
+    # or an alias (all aliases hold a hyphen, no tag does: headings, code, html, ... name groups).
+    function md_rule(w) { return w ~ /^md[0-9]+$/ || index(w, "-") }
+    # The number of top-level keys of a configuration (markdownlint-configure-file, an ESLint configuration
+    # comment); md_single tells whether every key is one markdownlint rule (not default, not a tag).
+    function md_config(p,   n, i, c, depth, q, tok, k, single, j) {
+      n = length(p)
+      depth = 0
+      k = 0
+      single = 1
+      tok = ""
+      mbase = (trim(p) ~ /^\{/) ? 1 : 0
+      for (i = 1; i <= n; i++) {
+        c = substr(p, i, 1)
+        if (c == "\"" || c == "\047") {
+          q = c
+          tok = ""
+          for (i++; i <= n && substr(p, i, 1) != q; i++) {
+            if (substr(p, i, 1) == "\\") i++
+            tok = tok substr(p, i, 1)
+          }
+          c = "Q"
+        } else if (c ~ /[A-Za-z0-9_@\/-]/) {
+          tok = ""
+          while (i <= n && substr(p, i, 1) ~ /[A-Za-z0-9_@\/-]/) tok = tok substr(p, i++, 1)
+          i--
+          c = "Q"
+        }
+        if (c == "Q") {
+          j = i + 1
+          while (j <= n && index(" \t\r\n", substr(p, j, 1))) j++
+          if (depth == mbase && substr(p, j, 1) == ":") {
+            k++
+            if (!md_rule(tolower(tok))) single = 0
+          }
+          continue
+        }
+        if (c == "{" || c == "[") depth++
+        else if (c == "}" || c == "]") depth--
+      }
+      md_single = single
+      return k
+    }
+    function md_line(s, ln,   low, rest, off, act, e, n) {
+      low = tolower(s)
+      if (mcfg) {
+        e = index(low, "-->")
+        if (!e) {
+          mtext = mtext "\n" s
+          return
+        }
+        mtext = mtext "\n" substr(s, 1, e - 1)
+        mcfg = 0
+        n = md_config(mtext)
+        judge("markdownlint", mstart, n, md_single, cline[mstart - 1])
+        low = substr(low, e + 3)
+        s = substr(s, e + 3)
+      }
+      if (low ~ /^[ \t]*<!--.*-->[ \t]*$/ && low !~ /<!--[ \t]*markdownlint-/ && has_text(low)) cline[ln] = 1
+      rest = low
+      off = 0
+      while (match(rest, md_start)) {
+        act = substr(rest, RSTART, RLENGTH)
+        sub(/^<!--[ \t]*markdownlint-/, "", act)
+        off += RSTART + RLENGTH - 1
+        rest = substr(rest, RSTART + RLENGTH)
+        if (rest !~ /^([ \t\r]|-->|$)/) continue
+        if (act == "configure-file") {
+          e = index(rest, "-->")
+          if (!e) {
+            mcfg = 1
+            mstart = ln
+            mtext = substr(s, off + 1)
+            return
+          }
+          n = md_config(substr(s, off + 1, e - 1))
+          judge("markdownlint", ln, n, md_single, cline[ln - 1])
+        } else if (act ~ /^disable/) {
+          e = index(rest, "-->")
+          if (!e) continue
+          n = count_words(substr(rest, 1, e - 1), "[^ \t\r]+")
+          judge("markdownlint", ln, n, n == 1 && md_rule(word1), cline[ln - 1])
+        }
+      }
+    }
+    # ---- JavaScript: comments outside strings, template literals and regular expression literals ----
+    function js_reset() {
+      jsp = 1
+      js[1] = "C"
+      jblock = 0
+      jprev = ""
+    }
+    # A comment of the text t that starts on line from (a block comment when block is set). As ESLint does, the
+    # reason (after white space, two or more - and white space) is split off first, then the directive is read:
+    # eslint-disable and a configuration of rules (`eslint <rule>: <setting>`, which can switch a rule off or relax
+    # it) in a block comment, eslint-disable-line and -next-line in both forms.
+    function js_comment(t, from, block,   x, kw, desc, n, k) {
+      x = t
+      desc = ""
+      if (match(x, /[ \t\r\n]--+[ \t\r\n]/)) {
+        desc = substr(x, RSTART + RLENGTH)
+        x = substr(x, 1, RSTART - 1)
+      }
+      x = trim(x)
+      if (x ~ /^eslint/) jdir = 1
+      if (!match(x, /^eslint(-disable(-next-line|-line)?)?([ \t\r\n]|$)/)) return
+      kw = trim(substr(x, 1, RLENGTH))
+      if (!block && (kw == "eslint-disable" || kw == "eslint")) return
+      x = substr(x, RLENGTH + 1)
+      for (k = from; k <= FNR; k++) cline[k] = 0
+      n = (kw == "eslint") ? md_config(x) : count_words(x, "[^ \t\r\n,]+")
+      judge("ESLint", from, n, 1, has_text(desc) || cline[from - 1])
+    }
+    function js_line(s, ln,   n, i, c, d, top, code, lc, q, cls) {
+      n = length(s)
+      i = 1
+      code = 0
+      lc = ""
+      jdir = 0
+      while (i <= n) {
+        c = substr(s, i, 1)
+        if (jblock) {
+          if (substr(s, i, 2) == "*/") {
+            jblock = 0
+            js_comment(jtext, jstart, 1)
+            i += 2
+            continue
+          }
+          jtext = jtext c
+          lc = lc c
+          i++
+          continue
+        }
+        top = js[jsp]
+        if (top == "T") {
+          if (c == "\\") i++
+          else if (c == "`") jsp--
+          else if (c == "$" && substr(s, i + 1, 1) == "{") {
+            js[++jsp] = "K"
+            i++
+          }
+          i++
+          continue
+        }
+        if (c == " " || c == "\t" || c == "\r") {
+          i++
+          continue
+        }
+        d = substr(s, i + 1, 1)
+        if (c == "/" && d == "/") {
+          lc = lc substr(s, i + 2)
+          js_comment(substr(s, i + 2), ln, 0)
+          break
+        }
+        if (c == "/" && d == "*") {
+          jblock = 1
+          jtext = ""
+          jstart = ln
+          i += 2
+          continue
+        }
+        code = 1
+        if (c == "\"" || c == "\047") {
+          for (i++; i <= n && substr(s, i, 1) != c; i++) if (substr(s, i, 1) == "\\") i++
+        } else if (c == "`") js[++jsp] = "T"
+        else if (c == "{") js[++jsp] = "{"
+        else if (c == "}") {
+          if (top == "{" || top == "K") jsp--
+        } else if (c == "/" && (jprev == "" || index("(,=:[!&|?{};+-*%<>~^", jprev))) {
+          cls = 0
+          for (i++; i <= n; i++) {
+            q = substr(s, i, 1)
+            if (q == "\\") i++
+            else if (q == "[") cls = 1
+            else if (q == "]") cls = 0
+            else if (q == "/" && !cls) break
+          }
+        }
+        jprev = c
+        i++
+      }
+      if (jblock) jtext = jtext "\n"
+      cline[ln] = !code && !jdir && has_text(lc)
+    }
+    BEGIN {
+      # The comments that markdownlint reads (its own expression, which also matches the actions that suppress
+      # nothing: enable, enable-file, capture and restore).
+      md_start = "<!--[ \t]*markdownlint-(disable-next-line|disable-line|disable-file|disable|configure-file"
+      md_start = md_start "|enable-file|enable|capture|restore)"
+    }
+    # The first operand lists the files as `<kind> <path>`.
+    FILENAME == ARGV[1] {
+      kind_of["./" substr($0, index($0, " ") + 1)] = substr($0, 1, index($0, " ") - 1)
+      next
+    }
+    FNR == 1 {
+      kind = kind_of[FILENAME]
+      split("", cline)
+      sh_reset()
+      js_reset()
+      yblock = 0
+      mcfg = 0
+    }
+    kind == "sh" { sh_line($0, FNR); next }
+    kind == "wf" { yaml_line($0, FNR, 1); next }
+    kind == "yml" { yaml_line($0, FNR, 0); next }
+    kind == "docker" { docker_line($0, FNR); next }
+    kind == "md" { md_line($0, FNR); next }
+    kind == "js" { js_line($0, FNR); next }
+  ' <(printf '%s\n' "${list}") "${files[@]}")
+  return 0
+}
+
+rule_g() {
+  rule_g_attributes
+  rule_g_directives
   return 0
 }
 

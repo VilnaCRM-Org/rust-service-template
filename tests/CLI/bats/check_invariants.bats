@@ -2148,6 +2148,415 @@ EOF
   assert_output ''
 }
 
+# --- rule (g): inline directives of the linters ----------------------------------------------------------------
+
+# Asserts status 1 and exactly the findings given on standard input, one per line, in the order of the script.
+assert_findings() {
+  local expected
+  expected="$(cat)"
+  assert_failure 1
+  assert_output "${expected}"
+}
+
+@test "(g) a shellcheck directive without a reason is refused" {
+  put scripts/lint.sh <<'EOF'
+#!/usr/bin/env bash
+# shellcheck disable=SC2034
+unused=1
+words="a b"
+# shellcheck disable=SC2086
+echo $words
+# shellcheck disable=SC2086 #
+echo $words
+echo $words # shellcheck disable=SC2086
+EOF
+  put scripts/lib.bash <<'EOF'
+#shellcheck disable=SC2148
+true
+EOF
+  put .githooks/pre-commit <<'EOF'
+#!/usr/bin/env bash
+	# shellcheck disable=SC2317
+true
+EOF
+  put tests/other/sample.bats <<'EOF'
+setup() {
+  # shellcheck disable=SC2030
+  true
+}
+EOF
+  replace .github/workflows/quality.yml '          make lint' $'          # shellcheck disable=SC2086\n          make lint'
+  check
+  assert_findings <<'EOF'
+(g) .githooks/pre-commit:2: a shellcheck directive carries no reason
+(g) .github/workflows/quality.yml:29: a shellcheck directive carries no reason
+(g) scripts/lib.bash:1: a shellcheck directive carries no reason
+(g) scripts/lint.sh:2: a shellcheck directive carries no reason
+(g) scripts/lint.sh:5: a shellcheck directive carries no reason
+(g) scripts/lint.sh:7: a shellcheck directive carries no reason
+(g) scripts/lint.sh:9: a shellcheck directive carries no reason
+(g) tests/other/sample.bats:2: a shellcheck directive carries no reason
+EOF
+}
+
+@test "(g) a shellcheck directive of all or of two rules is refused" {
+  put scripts/lint.sh <<'EOF'
+#!/usr/bin/env bash
+# The script is a fixture.
+# shellcheck disable=all
+true
+# shellcheck disable=ALL # any letter case
+true
+# shellcheck disable=SC2086,SC2016 # two rules in a list
+true
+# shellcheck disable=SC2086 disable=SC2016 # two disable keys
+true
+# shellcheck disable=SC2000-SC2099 # a range of rules
+true
+EOF
+  check
+  assert_findings <<'EOF'
+(g) scripts/lint.sh:3: a shellcheck directive names no single rule
+(g) scripts/lint.sh:5: a shellcheck directive names no single rule
+(g) scripts/lint.sh:7: a shellcheck directive names more than one rule
+(g) scripts/lint.sh:9: a shellcheck directive names more than one rule
+(g) scripts/lint.sh:11: a shellcheck directive names more than one rule
+EOF
+}
+
+@test "(g) a shellcheck directive of one rule with a reason on its line or on the comment line above passes" {
+  put scripts/lint.sh <<'EOF'
+#!/usr/bin/env bash
+# shellcheck disable=SC2034 # the variable is read by the caller, who sources this file
+unused=1
+words="a b"
+# The words are split on purpose: the list holds flags.
+# shellcheck disable=SC2086
+echo $words
+if true; then
+  # shellcheck disable=SC2086 # a # in the reason is text
+  echo $words
+fi
+EOF
+  replace .github/workflows/quality.yml '          make lint' \
+    $'          # The flags are split on purpose.\n          # shellcheck disable=SC2086\n          make lint'
+  check
+  assert_success
+  assert_output ''
+}
+
+@test "(g) a shellcheck source= or shell= directive is not read" {
+  put scripts/lint.sh <<'EOF'
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# shellcheck source=/dev/null
+. /dev/null
+# shellcheck source=scripts/hello.sh disable=SC1091 # the file is generated
+. scripts/hello.sh
+# shellcheck enable=require-variable-braces
+true
+EOF
+  check
+  assert_success
+  assert_output ''
+}
+
+@test "(g) a hadolint ignore without a reason is refused" {
+  replace Dockerfile 'RUN cargo build --release' $'# hadolint ignore=DL3059\nRUN cargo build --release'
+  replace Dockerfile 'WORKDIR /app' $'WORKDIR /app\n# The base image pins its packages.\n# hadolint global ignore=DL3008'
+  replace Dockerfile 'FROM gcr.io' $'# hadolint ignore=DL3006 # the stage is never pushed\nFROM gcr.io'
+  check
+  assert_findings <<'EOF'
+(g) Dockerfile:10: a hadolint directive carries no reason
+EOF
+}
+
+@test "(g) a hadolint ignore of all or of two rules is refused" {
+  replace Dockerfile 'WORKDIR /app' $'WORKDIR /app\n# Fixture lines.\n# hadolint ignore=DL3008,DL3009\n# hadolint ignore=DL3008 DL3009 # two words\n# hadolint ignore=all # all rules'
+  check
+  assert_findings <<'EOF'
+(g) Dockerfile:5: a hadolint directive names more than one rule
+(g) Dockerfile:6: a hadolint directive names more than one rule
+(g) Dockerfile:7: a hadolint directive names no single rule
+EOF
+}
+
+@test "(g) a yamllint disable that names no single rule is refused" {
+  put config/settings.yml <<'EOF'
+# yamllint disable-file
+# The truthy rule reads on: as a boolean.
+# yamllint disable
+first: yes
+# The truthy and comments rules do not apply here.
+# yamllint disable rule:truthy rule:comments
+second: yes
+# A rule is named as rule:<id>.
+third: yes  # yamllint disable-line truthy
+EOF
+  check
+  assert_findings <<'EOF'
+(g) config/settings.yml:1: a yamllint directive names no single rule
+(g) config/settings.yml:1: a yamllint directive carries no reason
+(g) config/settings.yml:3: a yamllint directive names no single rule
+(g) config/settings.yml:6: a yamllint directive names more than one rule
+(g) config/settings.yml:9: a yamllint directive names no single rule
+EOF
+}
+
+@test "(g) a yamllint directive of one rule needs the comment line above as its reason" {
+  put config/settings.yml <<'EOF'
+first: yes
+# yamllint disable rule:truthy
+second: yes
+# The value is read as a string by the tool.
+# yamllint disable-line rule:truthy
+third: yes
+fourth: yes  # yamllint disable-line rule:truthy
+# yamllint enable
+EOF
+  check
+  assert_findings <<'EOF'
+(g) config/settings.yml:2: a yamllint directive carries no reason
+(g) config/settings.yml:7: a yamllint directive carries no reason
+EOF
+}
+
+@test "(g) a zizmor ignore without a reason or of two rules is refused" {
+  replace .github/workflows/quality.yml "actions/checkout@${d40} # v7.0.1" \
+    "actions/checkout@${d40} # v7.0.1 # zizmor: ignore[artipacked]"
+  replace .github/workflows/tests.yml "actions/checkout@${d40} # v7.0.1" \
+    "actions/checkout@${d40} # v7.0.1 # zizmor: ignore[artipacked,cache-poisoning] the job keeps its token"
+  check
+  assert_findings <<'EOF'
+(g) .github/workflows/quality.yml:15: a zizmor directive carries no reason
+(g) .github/workflows/tests.yml:20: a zizmor directive names more than one rule
+EOF
+}
+
+@test "(g) a zizmor ignore of one rule with a reason on its line or above passes" {
+  replace .github/workflows/quality.yml "actions/checkout@${d40} # v7.0.1" \
+    "actions/checkout@${d40} # v7.0.1 # zizmor: ignore[artipacked] the job pushes with this token"
+  replace .github/workflows/tests.yml "      - uses: actions/checkout@${d40} # v7.0.1" \
+    $'      # The job pushes with the credentials of this checkout.\n      - uses: actions/checkout@'"${d40}"' # zizmor: ignore[artipacked]'
+  check
+  assert_success
+  assert_output ''
+}
+
+@test "(g) a markdownlint-disable that names no rule is refused" {
+  put docs/guide.md <<'EOF'
+# Guide
+
+<!-- markdownlint-disable -->
+<!-- The headings rules do not apply to this page. -->
+<!-- markdownlint-disable headings -->
+<!-- The table and the banner are wide. -->
+<!-- markdownlint-disable MD013 MD033 -->
+<!-- markdownlint-disable-file -->
+Text <!-- markdownlint-disable-line --> here.
+<!-- markdownlint-configure-file { "default": false } -->
+<!-- MARKDOWNLINT-DISABLE-NEXT-LINE -->
+EOF
+  check
+  assert_findings <<'EOF'
+(g) docs/guide.md:3: a markdownlint directive names no single rule
+(g) docs/guide.md:3: a markdownlint directive carries no reason
+(g) docs/guide.md:5: a markdownlint directive names no single rule
+(g) docs/guide.md:7: a markdownlint directive names more than one rule
+(g) docs/guide.md:8: a markdownlint directive names no single rule
+(g) docs/guide.md:8: a markdownlint directive carries no reason
+(g) docs/guide.md:9: a markdownlint directive names no single rule
+(g) docs/guide.md:9: a markdownlint directive carries no reason
+(g) docs/guide.md:10: a markdownlint directive names no single rule
+(g) docs/guide.md:10: a markdownlint directive carries no reason
+(g) docs/guide.md:11: a markdownlint directive names no single rule
+(g) docs/guide.md:11: a markdownlint directive carries no reason
+EOF
+}
+
+@test "(g) a markdownlint directive of one rule needs the comment line above, also inside a code span or fence" {
+  put docs/guide.md <<'EOF'
+# Guide
+
+<!-- The table is wider than a line. -->
+<!-- markdownlint-disable-next-line MD013 -->
+<!-- The banner is HTML. -->
+<!-- markdownlint-disable no-inline-html -->
+<!-- markdownlint-disable-next-line MD013 -->
+Write `<!-- markdownlint-disable-line MD013 -->` to suppress a rule on one line.
+
+```markdown
+<!-- markdownlint-disable MD001 -->
+```
+
+<!-- markdownlint-configure-file
+{ "MD013": false, "MD033": { "allowed_elements": ["a"] } }
+-->
+EOF
+  check
+  assert_findings <<'EOF'
+(g) docs/guide.md:7: a markdownlint directive carries no reason
+(g) docs/guide.md:8: a markdownlint directive carries no reason
+(g) docs/guide.md:11: a markdownlint directive carries no reason
+(g) docs/guide.md:14: a markdownlint directive names more than one rule
+(g) docs/guide.md:14: a markdownlint directive carries no reason
+EOF
+}
+
+@test "(g) an eslint-disable-next-line without a rule or without -- reason is refused" {
+  put tests/Load/scripts/smoke.js <<'EOF'
+// eslint-disable-next-line
+console.log(1);
+// eslint-disable-next-line no-console
+console.log(2);
+/* eslint-disable-next-line no-console -- */
+console.log(3);
+/* eslint-disable no-console, eqeqeq -- two rules in a list */
+console.log(4); // eslint-disable-line
+/* eslint-disable */
+/* eslint-disable-next-line -- the reason is split off first, so no rule is named */
+console.log(5);
+EOF
+  check
+  assert_findings <<'EOF'
+(g) tests/Load/scripts/smoke.js:1: an ESLint directive names no single rule
+(g) tests/Load/scripts/smoke.js:1: an ESLint directive carries no reason
+(g) tests/Load/scripts/smoke.js:3: an ESLint directive carries no reason
+(g) tests/Load/scripts/smoke.js:5: an ESLint directive carries no reason
+(g) tests/Load/scripts/smoke.js:7: an ESLint directive names more than one rule
+(g) tests/Load/scripts/smoke.js:8: an ESLint directive names no single rule
+(g) tests/Load/scripts/smoke.js:8: an ESLint directive carries no reason
+(g) tests/Load/scripts/smoke.js:9: an ESLint directive names no single rule
+(g) tests/Load/scripts/smoke.js:9: an ESLint directive carries no reason
+(g) tests/Load/scripts/smoke.js:10: an ESLint directive names no single rule
+EOF
+}
+
+@test "(g) an ESLint configuration comment without a reason or of two rules is refused" {
+  put tests/Load/scripts/smoke.js <<'EOF'
+/* eslint no-console: "off" */
+console.log(1);
+/* eslint no-console: "off", eqeqeq: ["warn", "smart"] -- the summary is printed */
+console.log(2);
+EOF
+  check
+  assert_findings <<'EOF'
+(g) tests/Load/scripts/smoke.js:1: an ESLint directive carries no reason
+(g) tests/Load/scripts/smoke.js:3: an ESLint directive names more than one rule
+EOF
+}
+
+@test "(g) an eslint-disable-next-line of one rule with -- reason passes" {
+  put tests/Load/scripts/smoke.js <<'EOF'
+// eslint-disable-next-line no-console -- the smoke run prints its summary, eqeqeq is a word here
+console.log(1);
+// The summary is printed once.
+// eslint-disable-next-line no-console
+console.log(2);
+/* eslint-disable-next-line eqeqeq --
+   the loose comparison is the subject of the check */
+const loose = 1 == '1';
+const text = "// eslint-disable-next-line";
+const quoted = '/* eslint-disable */';
+const template = `
+// eslint-disable-line
+${text} ${quoted} ${loose}`;
+const pattern = /["'`]/; // eslint-disable-line no-unused-vars -- the pattern documents the quotes
+/* eslint no-console: ["warn"] -- the smoke run prints its summary */
+/* eslint-env node */
+// eslint-disable no-console
+// eslint no-console: off
+// eslint-enable no-console
+EOF
+  check
+  assert_success
+  assert_output ''
+}
+
+@test "(g) directive words in strings, here-documents, block scalars and code spans are not read" {
+  put scripts/lint.sh <<'EOF'
+#!/usr/bin/env bash
+echo "# shellcheck disable=all" '# shellcheck disable=all' $'# shellcheck disable=all'
+cat <<'TEXT'
+# shellcheck disable=all
+TEXT
+@T@cat <<-TEXT
+@T@# shellcheck disable=all
+@T@TEXT
+text='first line
+# shellcheck disable=all
+last line'
+count=$(( 1 << 2 ))
+size="${#text} $# ${text#first}"
+output=$(printf '%s' "it's")
+echo "${count} ${size} ${output}" `echo '# shellcheck disable=all'`
+EOF
+  append .github/workflows/quality.yml '      - name: "# yamllint disable"
+        uses: actions/github-script@@D40@ # v8.0.0
+        with:
+          script: |
+            // eslint-disable-next-line
+            # zizmor: ignore[artipacked]
+            # shellcheck disable=all
+      - run: make lint # shellcheck disable=all'
+  put config/settings.yml <<'EOF'
+message: "# yamllint disable"
+other: '# yamllint disable'
+url: https://example.org/#yamllint-disable
+# zizmor: ignore[artipacked] is read in workflows only
+script: |
+  # yamllint disable
+folded: >-
+  # yamllint disable-line
+list:
+  - |
+    # yamllint disable
+EOF
+  append Dockerfile 'RUN echo "# hadolint ignore=DL3008"
+# hadolint shell=bash'
+  put docs/guide.md <<'EOF'
+# Guide
+
+Write `markdownlint-disable MD013` in an HTML comment to suppress a rule.
+
+```text
+markdownlint-disable-next-line
+```
+
+<!-- A comment about markdownlint-disable is no directive. -->
+EOF
+  check
+  assert_success
+  assert_output ''
+}
+
+@test "(g) the directives below specs/, _bmad*/, tests/CLI/bats/fixtures/, node_modules/ and target/ are not read" {
+  local dir
+  for dir in specs _bmad _bmad-output tests/CLI/bats/fixtures tests/Load/node_modules target crates/a/target; do
+    printf '%s\n' '# shellcheck disable=all' | put "${dir}/lint.sh"
+  done
+  printf '%s\n' '/* eslint-disable */' | put tests/Load/node_modules/pkg/index.js
+  printf '%s\n' '<!-- markdownlint-disable -->' | put specs/guide.md
+  check
+  assert_success
+  assert_output ''
+}
+
+@test "(g) in a git work tree the directives of tracked and new files are read, those of ignored files are not" {
+  printf '%s\n' ignored.sh build/ >"${tree}/.gitignore"
+  printf '%s\n' '# shellcheck disable=all' | put ignored.sh
+  printf '%s\n' '# shellcheck disable=all' | put build/lint.sh
+  printf '%s\n' '# shellcheck disable=SC2086' | put scripts/new.sh
+  append scripts/hello.sh '# shellcheck disable=SC2034'
+  git -C "${tree}" init -q
+  git -C "${tree}" add scripts/hello.sh
+  check
+  assert_findings <<'EOF'
+(g) scripts/hello.sh:3: a shellcheck directive carries no reason
+(g) scripts/new.sh:1: a shellcheck directive carries no reason
+EOF
+}
+
 # --- rule (h) ------------------------------------------------------------------------------------------------
 
 @test "(h) a recipe that calls cargo without the execution prefix is refused" {

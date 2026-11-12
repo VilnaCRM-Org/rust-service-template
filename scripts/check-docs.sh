@@ -390,7 +390,7 @@ AWK
 if [[ -s "${work}/markdown" ]]; then
   (
     cd "${root}"
-    # shellcheck disable=SC2046
+    # shellcheck disable=SC2046 # the file list is split into awk operands on purpose
     awk -v targets="${work}/targets" -v commands="${work}/commands" -v subcommands="${work}/subcommands" \
       -v slashes="${work}/slash" -v gates="${work}/gates" -v tops="${work}/tops" -v specials="${work}/specials" \
       -v cand="${work}/candidates" -v slashcand="${work}/slash-candidates" -f "${work}/rules.awk" $(tr '\n' ' ' <"${work}/markdown")
