@@ -35,6 +35,7 @@
       "Bash(make check-security-offline:*)",
       "Bash(make secrets-scan:*)",
       "Bash(make image-scan:*)",
+      "Bash(make build-prod-image:*)",
       "Bash(make docs-check:*)",
       "Bash(make validate-architecture-model:*)",
       "Bash(make lint-repo:*)",

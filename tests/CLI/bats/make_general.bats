@@ -517,6 +517,20 @@ PROBE
   assert_output ''
 }
 
+@test "every target of make ci-list runs without a prompt" {
+  require_command jq
+  local target missing=''
+  run make --no-print-directory ci-list
+  assert_success
+  [[ -n "${output}" ]]
+  # FR111: the assistant runs each gate of the verification list without a prompt.
+  for target in ${output}; do
+    jq -e --arg entry "Bash(make ${target}:*)" '.permissions.allow | index($entry) != null' .claude/settings.json >/dev/null \
+      || missing+=" ${target}"
+  done
+  assert_equal "${missing}" ''
+}
+
 @test "require_command skips with a reason" {
   run bash -c 'source tests/CLI/bats/test_helper.bash; skip() { echo "skipped: $*"; return 0; }; require_command no-such-command-anywhere'
   assert_output 'skipped: the command '"'"'no-such-command-anywhere'"'"' is required'
