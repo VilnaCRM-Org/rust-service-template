@@ -66,7 +66,7 @@ A service adds to these files, and the template sync ignores them so that the ad
 | `.claude/skills/README.md` | the index lines of its own skills |
 | `architecture.toml` | third-party crates on a layer's allow-list (a labelled change) |
 | `deny.toml`, `.trivyignore`, `.gitleaksignore`, `_typos.toml`, `.cargo/mutants.toml` | dated exceptions: advisories and licences, image findings, scan fingerprints, accepted words, equivalent mutants |
-| `crates/internal/health-check/domain/src/value_object/dependency.rs` and `crates/internal/health-check/infrastructure/src/probe.rs` | a dependency and the module declaration of its probe |
+| `crates/internal/health-check/domain/src/value_object/dependency.rs` and `crates/internal/health-check/infrastructure/src/probe.rs` | a dependency and the module declaration of its probe; a probe that needs a new client crate also changes `crates/internal/health-check/infrastructure/Cargo.toml`, which the template synchronises, so list that file by its full path in your `.templatesyncignore` in the same pull request, or the next sync removes the dependency |
 | `crates/service/Cargo.toml` and the bootstrap, command-line, configuration, routes, OpenAPI and GraphQL schema modules of that crate | wiring, commands, configuration, routes and schema roots of its contexts |
 | `tests/support/`, `tests/e2e/` | test doubles, world and step definitions |
 | `crates/service/src/http/router/tests.rs` and `crates/service/tests/integration/{bootstrap,migrate,serve,panic}.rs` | the tests that construct `Adapters` and call the routes, the table and the migration of the example context; keep them in step with your wiring |

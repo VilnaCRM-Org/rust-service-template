@@ -242,24 +242,23 @@ sync_ignore_entries_outside_the_root() {
 
 # The files that the ignore list $1 (default .templatesyncignore) keeps out of the sync although the template owns
 # them and no entry names them: everything below crates/shared/, xtask/, tests/CLI/ and .github/workflows/,
-# docs/README.md, and every Cargo manifest and lock file other than the root files, crates/service/Cargo.toml and
-# those of the service-owned crates (the example context, tests/support/, tests/e2e/). An entry that names a file is a
-# decision of the repository (a service that uses an extension seam adds each synchronised file it changes), while a
-# directory or a pattern that reaches such a file withholds template changes that nobody chose to withhold.
+# docs/README.md, and the manifests of the health-check crates (crates/internal/health-check/<layer>/Cargo.toml, the
+# template-owned manifests that the directories above do not hold). No other manifest is checked: those of the
+# example context and of every context a service adds are service-owned (FR100(d)), so a service lists their
+# directories as it likes, and the template's own list ignores tests/support/ and tests/e2e/ whole. An entry that names
+# a file is a decision of the repository (a service that uses an extension seam adds each synchronised file it
+# changes), while a directory or a pattern that reaches such a file withholds template changes that nobody chose to
+# withhold.
 template_owned_files_kept_out_of_sync() {
   local list="${1:-.templatesyncignore}" ignored
   ignored="$(sync_ignored_files "${list}")" || return 1
   [[ -n "${ignored}" ]] || return 0
-  awk -v owned="crates/company""-subdomain/ tests/support/ tests/e2e/" '
-    BEGIN { count = split(owned, crate, " ") }
+  awk '
     FILENAME == ARGV[1] { named[$0] = 1; next }
     ($0 in named) { next }
     /^(crates\/shared|xtask|tests\/CLI|\.github\/workflows)\// || $0 == "docs/README.md" { print; next }
-    /(^|\/)Cargo\.(toml|lock)$/ {
-      if ($0 == "Cargo.toml" || $0 == "Cargo.lock" || $0 == "crates/service/Cargo.toml") next
-      for (i = 1; i <= count; i++) if (index($0, crate[i]) == 1) next
-      print
-    }' <(sync_ignore_entries "${list}") <(printf '%s\n' "${ignored}")
+    /^crates\/internal\/health-check\/[^\/]+\/Cargo\.toml$/ { print }' \
+    <(sync_ignore_entries "${list}") <(printf '%s\n' "${ignored}")
 }
 
 @test "no synchronised Rust file names the example context or builds the Adapters literal" {
@@ -385,8 +384,10 @@ template_owned_files_kept_out_of_sync() {
   assert_success
   assert_line 'crates/shared/infrastructure/Cargo.toml'
   assert_line 'xtask/Cargo.toml'
+  assert_line 'crates/internal/health-check/infrastructure/Cargo.toml'
   refute_line 'crates/service/Cargo.toml'
   refute_line 'Cargo.toml'
+  refute_line "crates/company""-subdomain/some""-module/domain/Cargo.toml"
   cp .templatesyncignore "${tmp}/directory"
   printf 'crates/shared/\n' >>"${tmp}/directory"
   run template_owned_files_kept_out_of_sync "${tmp}/directory"
@@ -396,6 +397,19 @@ template_owned_files_kept_out_of_sync() {
   cp .templatesyncignore "${tmp}/named"
   printf 'crates/shared/infrastructure/Cargo.toml\ncrates/shared/infrastructure/src/cache.rs\n' >>"${tmp}/named"
   run template_owned_files_kept_out_of_sync "${tmp}/named"
+  assert_success
+  assert_output ''
+}
+
+@test "the directory of a context that a service adds keeps its manifests out of the sync without a report" {
+  # FR100(d): the source and tests of every context a service adds are service-owned, manifests included.
+  printf '[package]\nname = "invoices-domain"\n' >"${tmp}/Cargo.toml"
+  plant_new crates/billing/invoices/domain/Cargo.toml "${tmp}/Cargo.toml"
+  cp .templatesyncignore "${tmp}/list"
+  printf 'crates/billing/\n' >>"${tmp}/list"
+  run sync_ignored_files "${tmp}/list"
+  assert_line 'crates/billing/invoices/domain/Cargo.toml'
+  run template_owned_files_kept_out_of_sync "${tmp}/list"
   assert_success
   assert_output ''
 }

@@ -104,8 +104,11 @@ fn the_swagger_ui_assets_come_from_the_vendored_crate() {
         lock.contains("name = \"utoipa-swagger-ui-vendored\""),
         "the lock file has no utoipa-swagger-ui-vendored: the vendored feature is off"
     );
+    // An active line: a commented-out guard stops nothing.
     assert!(
-        config.contains("SWAGGER_UI_DOWNLOAD_URL = \"vendored-only\""),
+        config
+            .lines()
+            .any(|line| line.trim() == "SWAGGER_UI_DOWNLOAD_URL = \"vendored-only\""),
         ".cargo/config.toml does not stop a build that would download Swagger UI"
     );
 }

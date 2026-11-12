@@ -5,8 +5,10 @@
 #       security-events in the code-scanning jobs codeql, clippy-sarif-upload and code-scanning, or any scope in the
 #       release and sync jobs of a workflow that no pull request starts; write-all nowhere), concurrency, timeouts
 #       (declared, an integer of at most 45 minutes, 75 for the clean-clone job clean-bootstrap-ci of scheduled.yml);
-#       a quoted key ('jobs':, "pull-requests":) is read as the key it names, and a permissions value is read-all,
-#       write-all or a mapping whose every value is read, write or none (a tag, anchor or alias is reported)
+#       a quoted key ('jobs':, "pull-requests":) is read as the key it names, a permissions value is read-all,
+#       write-all or a mapping whose every value is read, write or none (a tag, anchor or alias is reported), and a
+#       job is a block mapping under a plain key at two spaces with its keys at four (a flow mapping, an anchor, an
+#       alias, a merge key, a tag or another indentation is reported)
 #   (b) pinned images, tools, features and downloads (Dockerfile, make files, workflows and every shell script): no
 #       file has more downloads by URL than checksum verifications (sha256sum, sha512sum or shasum run as a command,
 #       or a call of a shell function whose body runs one; comments and image digests are no evidence), and an ADD
@@ -157,7 +159,10 @@ runs_on_pull_requests() {
 # clean-bootstrap-ci of scheduled.yml. A quoted key at the start of a line ('jobs':, "lint":, 'timeout-minutes':,
 # - 'uses':, 'pull-requests':) is read as the key it names, so quoting a key hides nothing; YAML and prettier both
 # accept that form. A permissions value, of the workflow or of a job, is read in full and fails closed (see
-# perm_start below).
+# perm_start below). So does a job: only a block mapping under a plain key at two spaces (  <id>:) with its keys at
+# four spaces is read, and a job written as a flow mapping, with an anchor, an alias, a merge key or a tag, or at
+# another indentation is reported (see refuse_job below), because its permissions and timeout would go unchecked and
+# its lines would count under the job before it.
 check_workflow_hygiene() {
   local file=$1 pull_requests=0
   runs_on_pull_requests "${file}" && pull_requests=1
@@ -187,6 +192,13 @@ check_workflow_hygiene() {
         if (has_perm && !perm_ok && !(job in exempt)) out("job " job " has a permissions block without contents: read")
       }
       job = ""
+    }
+    # A job that is not a block mapping under a plain key at two spaces hides its permissions and its timeout: the
+    # line is reported, and the lines below it are read as part of no job until the next plain job key.
+    function refuse_job() {
+      flush_job()
+      skip = 1
+      out("line " NR ": a job is not a block mapping under a plain key at two spaces (a flow mapping, an anchor, an alias, a tag or another indentation), so its permissions and timeout cannot be read")
     }
     # One write scope of the job: allowed for security-events in a code-scanning job and for any scope in the
     # release and sync jobs of a workflow that no pull request starts.
@@ -294,16 +306,37 @@ check_workflow_hygiene() {
         if (length(ref) != 40 || ref !~ /^[0-9a-f]+$/) out("line " NR ": uses: " v " is not pinned to a 40-character commit SHA")
       }
     }
-    /^jobs:/ { in_jobs = 1; next }
+    # The jobs are read from a block mapping under a plain key at two spaces (  <id>:) whose keys stand at four spaces.
+    # Anything else fails closed: a value on the line of the jobs key (a flow mapping, an anchor, an alias, a tag), a
+    # line at two spaces that is not a plain job key (a flow mapping, an anchor, an alias or a tag on the job, or a
+    # brace of a flow mapping of the jobs), a line below the jobs key before the first job (another indentation), a
+    # first line of a job that is not a plain key at four spaces (a flow mapping, an alias, a merge key or another
+    # indentation), and a later line at four spaces that is neither a plain key, a sequence entry nor the closing
+    # bracket of a flow collection that a key opened (a merge key, say). What was read of such a job is dropped. The
+    # closing bracket of a refused flow mapping is part of the refused job.
+    /^jobs:/ {
+      in_jobs = 1
+      if (bare(substr($0, 6)) != "") refuse_job()
+      next
+    }
     in_jobs && /^[^[:space:]#]/ { flush_job(); in_jobs = 0 }
     in_jobs && /^  [A-Za-z0-9_-]+:[[:space:]]*(#.*)?$/ {
       flush_job()
       job = $1
       sub(/:$/, "", job)
-      has_timeout = 0; has_perm = 0; perm_ok = 0
+      has_timeout = 0; has_perm = 0; perm_ok = 0; body = 0
+      next
+    }
+    in_jobs && job == "" && !skip && $0 ~ /[^[:space:]]/ { refuse_job(); next }
+    in_jobs && /^  [^[:space:]]/ && !(skip && /^  []}]/) { refuse_job(); next }
+    in_jobs && job != "" && /[^[:space:]]/ && !/^    [A-Za-z0-9_-]+:([[:space:]]|$)/ &&
+      (!body || (/^    [^[:space:]]/ && !/^    (-([[:space:]]|$)|[]}])/)) {
+      job = ""
+      refuse_job()
       next
     }
     in_jobs && job != "" {
+      if ($0 ~ /[^[:space:]]/) body = 1
       if ($0 ~ /^    timeout-minutes:/) { has_timeout = 1; timeout_value($0) }
       # The value of the key ends at the next line of the indentation of the key (the next key of the job, such as
       # steps:), so the `with:` inputs of a step, such as permission-contents: write of create-github-app-token,

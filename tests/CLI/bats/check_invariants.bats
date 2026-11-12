@@ -693,6 +693,145 @@ EOF
   assert_violation a 'quality.yml: job clean-bootstrap-ci has timeout-minutes 75, above the limit of 45 of NFR39'
 }
 
+# The finding for a job that the rule cannot read.
+unread_job='a job is not a block mapping under a plain key at two spaces (a flow mapping, an anchor, an alias, a tag or another indentation), so its permissions and timeout cannot be read'
+
+@test "(a) a job written as a flow mapping is refused" {
+  # A one-line flow mapping hides the write and the missing timeout (prettier, yamllint, actionlint and zizmor accept
+  # it).
+  append docs/repository-settings.md "| \`label\` | Label |"
+  append .github/workflows/quality.yml '  label: { runs-on: ubuntu-24.04, permissions: { pull-requests: write }, steps: [{ run: "true" }] }'
+  check
+  assert_failure 1
+  assert_output "(a) .github/workflows/quality.yml: line 30: ${unread_job}"
+  # The flow mapping on the line after the job key, with the timeout on a line of its own at the indentation of the
+  # keys of a job (actionlint accepts it): the job is refused as a whole, its timeout line counts for nothing.
+  replace .github/workflows/quality.yml '  label: { runs-on: ubuntu-24.04, permissions: { pull-requests: write }, steps: [{ run: "true" }] }' \
+    $'  label:\n    { runs-on: ubuntu-24.04, permissions: { pull-requests: write }, steps: [{ run: "true" }],\n    timeout-minutes: 10\n    }'
+  check
+  assert_failure 1
+  assert_output "(a) .github/workflows/quality.yml: line 31: ${unread_job}"
+  # The same with the opening brace deeper, after a blank line, so that the timeout and the closing brace are the
+  # only lines at four spaces (actionlint accepts it as well).
+  replace .github/workflows/quality.yml '    { runs-on: ubuntu-24.04,' $'\n      { runs-on: ubuntu-24.04,'
+  check
+  assert_failure 1
+  assert_output "(a) .github/workflows/quality.yml: line 32: ${unread_job}"
+  # Every job in a flow mapping on the line of the jobs key, and the form prettier writes when that line is too long:
+  # each brace on a line of its own (one finding, the closing brace belongs to the refused job).
+  put .github/workflows/flow.yml <<'EOF'
+name: Flow
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: flow
+  cancel-in-progress: false
+jobs: { label: { runs-on: ubuntu-24.04, permissions: write-all, steps: [{ run: echo label }] } }
+EOF
+  check
+  assert_line "(a) .github/workflows/flow.yml: line 10: ${unread_job}"
+  assert_equal "${#lines[@]}" 2
+  replace .github/workflows/flow.yml 'jobs: { label: { runs-on: ubuntu-24.04, permissions: write-all, steps: [{ run: echo label }] } }' \
+    $'jobs:\n  {\n    label: { runs-on: ubuntu-24.04, permissions: write-all, steps: [{ run: echo label }] },\n  }'
+  check
+  assert_line "(a) .github/workflows/flow.yml: line 11: ${unread_job}"
+  assert_equal "${#lines[@]}" 2
+}
+
+@test "(a) an anchored job and its alias are refused" {
+  # The anchored job follows a job without a timeout: that timeout is still reported, and neither the write nor the
+  # timeout of the anchored job is counted under it.
+  replace .github/workflows/quality.yml $'    timeout-minutes: 20\n' ''
+  append .github/workflows/quality.yml '  label: &job
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - run: echo label
+  label-again: *job'
+  check
+  assert_failure 1
+  assert_output "$(printf '%s\n' \
+    '(a) .github/workflows/quality.yml: job lint has no timeout-minutes' \
+    "(a) .github/workflows/quality.yml: line 29: ${unread_job}" \
+    "(a) .github/workflows/quality.yml: line 37: ${unread_job}")"
+  # A merge key that copies the anchored job under a job key of its own hides the same scopes.
+  append docs/repository-settings.md "| \`label-again\` | Label again |"
+  replace .github/workflows/quality.yml '  label-again: *job' $'  label-again:\n    <<: *job\n    timeout-minutes: 10'
+  check
+  assert_failure 1
+  assert_line "(a) .github/workflows/quality.yml: line 38: ${unread_job}"
+  assert_equal "${#lines[@]}" 3
+  # A tag on the job hides it the same way.
+  replace .github/workflows/quality.yml '  label: &job' '  label: !!map'
+  replace .github/workflows/quality.yml $'  label-again:\n    <<: *job\n    timeout-minutes: 10' ''
+  check
+  assert_failure 1
+  assert_line "(a) .github/workflows/quality.yml: line 29: ${unread_job}"
+  assert_equal "${#lines[@]}" 2
+}
+
+@test "(a) a job at another indentation than two spaces is refused" {
+  # yamllint and prettier refuse the indentation, but the rule must not depend on them: no job is read below it.
+  put .github/workflows/indented.yml <<'EOF'
+name: Indented
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: indented
+  cancel-in-progress: false
+jobs:
+    label:
+        runs-on: ubuntu-24.04
+        permissions: write-all
+        steps:
+            - run: echo label
+EOF
+  check
+  assert_failure 1
+  assert_output "(a) .github/workflows/indented.yml: line 11: ${unread_job}"
+  # The job key at two spaces, its keys deeper than four.
+  replace .github/workflows/indented.yml '    label:' '  label:'
+  check
+  assert_failure 1
+  assert_output "(a) .github/workflows/indented.yml: line 12: ${unread_job}"
+  # A comment on the jobs key and a blank line before the first job are no job, and neither a sequence entry nor the
+  # closing brace of a flow mapping at the indentation of the keys of a job (yamllint and actionlint accept both) is
+  # a key of the job.
+  put .github/workflows/indented.yml <<'EOF'
+name: Indented
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: indented
+  cancel-in-progress: false
+jobs: # one job
+
+  label:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {
+      contents: read
+    }
+    steps:
+    - run: echo label
+EOF
+  check
+  assert_success
+  assert_output ''
+}
+
 # --- rule (b) ------------------------------------------------------------------------------------------------
 
 @test "(b) a Dockerfile image with the tag latest is refused" {
