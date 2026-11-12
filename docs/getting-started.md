@@ -11,7 +11,17 @@ Required on the host in every mode:
 
 Required for native mode only (the default):
 
-- rustup 1.26 or newer. The first `cargo` command in the checkout installs the toolchain pinned in `rust-toolchain.toml`. Every other tool is installed by `make bootstrap` at its pinned version.
+- rustup 1.26 or newer.
+- The toolchain pinned in `rust-toolchain.toml`: Rust 1.99.1, profile `minimal`, with the components `rustfmt`, `clippy` and `llvm-tools-preview`. Install it in the checkout before the first `make bootstrap`:
+
+  ```bash
+  rustup toolchain install 1.99.1
+  rustup component add llvm-tools-preview --toolchain 1.99.1
+  ```
+
+  The first command is the one `make doctor` prints. It installs rustup's default profile, which includes `rustfmt` and `clippy` but not `llvm-tools-preview`; the coverage targets need that component, so the second command adds it. While the toolchain is missing, `make bootstrap` stops at its first line with `[MISSING] toolchain 1.99.1` when rustup's automatic installation is turned off (`rustup set auto-install disable`, or `RUSTUP_AUTO_INSTALL=0`). With automatic installation on, which is rustup's default setting, the first rustup call of the doctor installs the toolchain with the profile and components of `rust-toolchain.toml` instead.
+
+Every other tool is installed by `make bootstrap` at its pinned version.
 
 Optional: Node and npm, only for the `bmalph-*` targets.
 

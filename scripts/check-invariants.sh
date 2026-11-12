@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 # Repository invariants (gate G31, FR125): pins, toolchain agreement, gate set, repository name, licence,
 # blanket suppressions and the execution switch. One rule per letter:
-#   (a) workflow hygiene: pinned actions, permissions (declared, none that writes at the top level), concurrency, timeouts
-#   (b) pinned images, tools, features and downloads (Dockerfile, make files, workflows and every shell script)
+#   (a) workflow hygiene: pinned actions, permissions (declared, none that writes at the top level; a job writes only
+#       security-events in the code-scanning jobs codeql, clippy-sarif-upload and code-scanning, or any scope in the
+#       release and sync jobs of a workflow that no pull request starts; write-all nowhere), concurrency, timeouts
+#       (declared, an integer of at most 45 minutes, 75 for the clean-clone job clean-bootstrap-ci of scheduled.yml)
+#   (b) pinned images, tools, features and downloads (Dockerfile, make files, workflows and every shell script): no
+#       file has more downloads by URL than checksum verifications (sha256sum, sha512sum or shasum run as a command,
+#       or a call of a shell function whose body runs one; comments and image digests are no evidence), and an ADD
+#       of a URL in the Dockerfile carries --checksum=
 #   (c) one toolchain version in rust-toolchain.toml, the builder image tag and rust-version
 #   (d) the gate set of `make ci-list` equals the gate set of the pull-request workflows (and every workflow runs
 #       only gate and CI-only targets); Bats groups; required checks
@@ -122,12 +128,30 @@ workflow_run_lines() {
   return 0
 }
 
+# True when the workflow has a pull_request trigger (`on: pull_request`, `on: [push, pull_request]`, a
+# `pull_request:` key or a `- pull_request` list entry).
+has_pull_request_trigger() {
+  grep -qE '^[[:space:]]*(-[[:space:]]*)?pull_request[[:space:]]*(:|$)|^on:[[:space:]]*\[?.*\bpull_request\b' "$1"
+}
+
+# True when a pull request starts the workflow: a pull_request or a pull_request_target trigger (NFR14).
+runs_on_pull_requests() {
+  has_pull_request_trigger "$1" \
+    || grep -qE '^[[:space:]]*(-[[:space:]]*)?pull_request_target[[:space:]]*(:|$)|^on:[[:space:]]*\[?.*\bpull_request_target\b' "$1"
+}
+
 # ---------------------------------------------------------------------------------------------------------------
 # (a) Workflows
 # ---------------------------------------------------------------------------------------------------------------
+# Job-level write scopes (NFR14): `security-events: write` only in the code-scanning jobs, any other write scope
+# only in the release and sync jobs of a workflow that no pull request starts; `write-all` names no scope and is
+# refused in every job. Job timeouts (NFR39): an integer literal of at most 45 minutes, 75 for the clean-clone job
+# clean-bootstrap-ci of scheduled.yml.
 check_workflow_hygiene() {
-  local file=$1
-  awk -v exempt_list='release sync' '
+  local file=$1 pull_requests=0
+  runs_on_pull_requests "${file}" && pull_requests=1
+  awk -v exempt_list='release sync' -v scanning_list='codeql clippy-sarif-upload code-scanning' \
+    -v pull_requests="${pull_requests}" '
     function out(msg) { print "(a) " FILENAME ": " msg }
     function flush_job() {
       if (job != "") {
@@ -136,9 +160,39 @@ check_workflow_hygiene() {
       }
       job = ""
     }
+    # One write scope of the job: allowed for security-events in a code-scanning job and for any scope in the
+    # release and sync jobs of a workflow that no pull request starts.
+    function grant(scope) {
+      if (scope == "security-events" && (job in scanning)) return
+      if (!pull_requests && (job in exempt)) return
+      out("job " job " grants " scope ": write")
+    }
+    # Every `<scope>: write` of a permissions line (a key of the block or an inline mapping), comment removed.
+    function write_scopes(text,   scope) {
+      sub(/[[:space:]]*#.*$/, "", text)
+      gsub(/["\047]/, "", text)
+      if (text ~ /write-all/) { out("job " job " grants write-all; a job names each scope it writes"); return }
+      while (match(text, /[A-Za-z][A-Za-z-]*[[:space:]]*:[[:space:]]*write([^A-Za-z-]|$)/)) {
+        scope = substr(text, RSTART, RLENGTH)
+        sub(/[[:space:]]*:.*$/, "", scope)
+        grant(scope)
+        text = substr(text, RSTART + RLENGTH)
+      }
+    }
+    # The timeout of the job: an integer literal of at most 45 minutes, 75 for the clean-clone job.
+    function timeout_value(text,   limit) {
+      sub(/^    timeout-minutes:[[:space:]]*/, "", text)
+      sub(/[[:space:]]*#.*$/, "", text)
+      sub(/[[:space:]]+$/, "", text)
+      limit = (job == "clean-bootstrap-ci" && FILENAME ~ /(^|\/)scheduled\.yml$/) ? 75 : 45
+      if (text !~ /^[0-9]+$/) out("job " job " has timeout-minutes " text ", which is not an integer literal (limit " limit " of NFR39)")
+      else if (text + 0 > limit) out("job " job " has timeout-minutes " text ", above the limit of " limit " of NFR39")
+    }
     BEGIN {
       n = split(exempt_list, e, " ")
       for (i = 1; i <= n; i++) exempt[e[i]] = 1
+      n = split(scanning_list, e, " ")
+      for (i = 1; i <= n; i++) scanning[e[i]] = 1
     }
     /^[[:space:]]*#/ { next }
     /^permissions:/ { top_perm = 1 }
@@ -170,14 +224,22 @@ check_workflow_hygiene() {
       next
     }
     in_jobs && job != "" {
-      if ($0 ~ /^    timeout-minutes:/) has_timeout = 1
+      if ($0 ~ /^    timeout-minutes:/) { has_timeout = 1; timeout_value($0) }
       if ($0 ~ /^    permissions:/) {
         has_perm = 1; in_perm = 1
         if ($0 ~ /contents:[[:space:]]*read/) perm_ok = 1
+        v = $0
+        sub(/^    permissions:/, "", v)
+        write_scopes(v)
         next
       }
       if (in_perm) {
-        if ($0 ~ /^      /) { if ($0 ~ /contents:[[:space:]]*read/) perm_ok = 1 }
+        if ($0 ~ /^      /) {
+          if ($0 ~ /contents:[[:space:]]*read/) perm_ok = 1
+          # Keys of the block only (six spaces): the `with:` inputs of a step, such as permission-contents: write
+          # of create-github-app-token, stand deeper and are no scopes of the job token.
+          if ($0 ~ /^      [A-Za-z]/) write_scopes($0)
+        }
         else if ($0 !~ /^[[:space:]]*$/) in_perm = 0
       }
     }
@@ -470,45 +532,162 @@ shell_scripts() {
   return 0
 }
 
+# Words of the download commands and of the checksum commands. The patterns are assembled from them, so that no
+# line of this script reads as a download.
+fetch_words='curl|wget'
+verify_words='sha256sum|sha512sum|shasum'
+download_re="\\b(${fetch_words})\\b[^#]*(https?://|--output|--remote-name|[[:space:]]-[A-Za-z]*[oOL][A-Za-z]*[[:space:]]|--location|--fail)"
+
+# Number of download lines of a file: a curl or wget line, outside comments, with a URL or a download option.
+download_count() {
+  local file=$1
+  # A request whose only address is the loopback interface (a probe of the service under test, as the Bats
+  # files of the lifecycle targets send) fetches no file from elsewhere and is not a download. A loopback URL
+  # is the host localhost, 127.0.0.1 or [::1], an optional port, an optional path without `@`, then a quote,
+  # white space or the end of the line (so `http://localhost@host/` names a remote host). A line is a probe and
+  # left out only when, once its loopback URLs are removed, it holds exactly one curl or wget, no other URL, no
+  # `$` expansion and no backtick (an address computed elsewhere), no dotted word (a host, an IPv4 address or a
+  # file name), no word with a `/` that starts like a host name or a bracketed IPv6 address, also after `=`
+  # (`intranet/tool`, `'[2001:db8::1]/tool'`, `--url=intranet/tool`: an address without a scheme;
+  # `--input-file=lists/tools`: a file of addresses), no option
+  # that names the address or sends the request elsewhere (`--url`, `--resolve`, `--connect-to`, `-x`,
+  # `--proxy*`, `--preproxy`, `--socks*`) or proxy variable (`https_proxy=`), and no continuation backslash. A
+  # probe may stand in a command substitution that starts with it (`status=$(curl -s -o /dev/null -w
+  # '%{http_code}' http://...)`); the backtick form is not read as a probe. The decision reads that copy; every
+  # other line goes unchanged to the download pattern, so a loopback proxy still counts as the URL of the
+  # command. Known limits: an expansion in the port position of a loopback URL (`http://127.0.0.1:${APP_PORT}/`)
+  # is trusted; a bare word without a dot or a `/` (a one-label host such as `intranet`) cannot be told from an
+  # option argument (`--max-time 10`, `--noproxy '*'`, which the probes of the tree use) and is trusted; a proxy
+  # exported on an earlier line is not seen.
+  grep -vE '^[[:space:]]*#' "${file}" \
+    | awk '{
+        rest = $0
+        n = gsub(/[A-Za-z]+:\/\/(localhost|127\.0\.0\.1|\[::1\])(:[^\/?@[:space:]"\047]*)?([\/?][^@[:space:]"\047]*)?(["\047]|[[:space:]]|$)/, " ", rest)
+        gsub(/\$\(curl/, " curl", rest)
+        gsub(/\$\(wget/, " wget", rest)
+        probe = n > 0 && rest !~ /:\/\// && rest !~ /\$/ && rest !~ /`/ && rest !~ /\\[[:space:]]*$/ && rest !~ /[A-Za-z0-9]\.[A-Za-z0-9]/
+        if (probe && rest ~ /(^|[[:space:]=])["\047]?([A-Za-z0-9_][A-Za-z0-9_.:@%+~-]*\/|\[[0-9A-Fa-f.]*:[0-9A-Fa-f:.]*\])/) probe = 0
+        if (probe && rest ~ /(^|[[:space:]])(--(resolve|connect-to|proxy|preproxy|socks|url)|-[A-Za-z]*x)/) probe = 0
+        if (probe && tolower(rest) ~ /(^|[^a-z0-9_])(https?|all|ftp)_proxy=/) probe = 0
+        if (probe && gsub(/(^|[^A-Za-z0-9_-])(curl|wget)([^A-Za-z0-9_-]|$)/, "&", rest) != 1) probe = 0
+        if (!probe) print
+      }' \
+    | grep -cE "${download_re}" || true
+  return 0
+}
+
+# Number of checksum verifications of a file. A verification is a run of sha256sum, sha512sum or shasum, or a call
+# of a shell function whose body runs one (sha256_of of scripts/install-tools.sh), in the position of a command:
+# at the start of a line or after `|`, `;`, `&`, `(`, `{`, `!`, `@`, a backtick, `$(`, `then`, `do`, `else`, `if`,
+# `elif`, `while`, `until`, `exec`, `time`, `sudo`, `RUN` or `run:`. Comments and image digests (`@sha256:...`) are
+# no evidence, and neither is a lookup such as `command -v sha256sum` or a word in a message. Each call of such a
+# function counts once and the runs inside its body do not; a function the file never calls counts once (a library
+# function that a caller uses). Known limits: a command behind another prefix (`xargs sha256sum`, `env X=1
+# sha256sum`) is not counted, and a comment sign after white space ends the line even inside quotes, so both make
+# the rule stricter, never weaker.
+verification_count() {
+  awk -v base="${verify_words}" '
+    function runs(s, words) {
+      return s ~ ("(^|[;&|({!@`]|[$][(]|(^|[^A-Za-z0-9_])(then|do|else|if|elif|while|until|exec|time|sudo|RUN|run:))[[:space:]]*(" words ")([^A-Za-z0-9_.-]|$)")
+    }
+    {
+      s = $0
+      if (s ~ /^[[:space:]]*#/) s = ""
+      sub(/(^|[[:space:]])#.*$/, "", s)
+      gsub(/@sha(256|512):[0-9A-Fa-f]+/, "", s)
+      text[NR] = s
+    }
+    END {
+      nf = 0
+      for (i = 1; i <= NR; i++) {
+        s = text[i]
+        if (s !~ /^[[:space:]]*(function[[:space:]]+)?[A-Za-z_][A-Za-z0-9_-]*[[:space:]]*\(\)/ && s !~ /^[[:space:]]*function[[:space:]]+[A-Za-z_]/) continue
+        name = s
+        sub(/^[[:space:]]*(function[[:space:]]+)?/, "", name)
+        sub(/[^A-Za-z0-9_-].*$/, "", name)
+        indent = s
+        sub(/[^[:space:]].*$/, "", indent)
+        # The body ends on the same line when its braces balance there, otherwise at the first closing brace at the
+        # indentation of the definition.
+        last = i
+        opens = gsub(/[{]/, "{", s)
+        closes = gsub(/[}]/, "}", s)
+        if (opens == 0 || opens != closes) {
+          for (j = i + 1; j <= NR; j++) if (text[j] ~ ("^" indent "[}]")) { last = j; break }
+        }
+        verifier = 0
+        for (j = i; j <= last; j++) {
+          s = text[j]
+          if (j == i && !sub(/^[^{]*[{]/, "", s)) s = ""
+          if (runs(s, base)) verifier = 1
+        }
+        if (!verifier) continue
+        nf++
+        fname[nf] = name
+        for (j = i; j <= last; j++) body[j] = nf
+      }
+      words = base
+      for (k = 1; k <= nf; k++) words = words "|" fname[k]
+      count = 0
+      for (i = 1; i <= NR; i++) {
+        if (body[i] == 0 && runs(text[i], words)) count++
+        for (k = 1; k <= nf; k++) if (body[i] != k && runs(text[i], fname[k])) called[k] = 1
+      }
+      for (k = 1; k <= nf; k++) if (!called[k]) count++
+      print count
+    }
+  ' "$1"
+  return 0
+}
+
+# An ADD of a URL in the Dockerfile is a download that its own --checksum= verifies: a sha256, sha384 or sha512
+# digest. Continued lines are joined, comment lines are left out.
+check_dockerfile_add() {
+  local file=$1 number text word url checksum digest='^(sha256:[0-9a-f]{64}|sha384:[0-9a-f]{96}|sha512:[0-9a-f]{128})$'
+  local -a words
+  while IFS=$'\t' read -r number text; do
+    url=''
+    checksum=''
+    read -r -a words <<<"${text}"
+    for word in "${words[@]}"; do
+      word=${word//[\"\'\[\],]/}
+      case "${word}" in
+        --checksum=*) checksum=${word#--checksum=} ;;
+        http://* | https://*) [[ -n "${url}" ]] || url=${word} ;;
+        *) ;;
+      esac
+    done
+    [[ -n "${url}" ]] || continue
+    if [[ -z "${checksum}" ]]; then
+      report b "${file}:${number}: ADD downloads ${url} without --checksum="
+    elif [[ ! "${checksum}" =~ ${digest} ]]; then
+      report b "${file}:${number}: ADD downloads ${url} with --checksum=${checksum}, which is not a sha256, sha384 or sha512 digest"
+    fi
+  done < <(awk '
+    /^[[:space:]]*#/ { next }
+    {
+      line = $0
+      if (!cont) { start = NR; logical = "" }
+      cont = (line ~ /\\[[:space:]]*$/)
+      if (cont) sub(/\\[[:space:]]*$/, " ", line)
+      logical = logical line
+      if (!cont && logical ~ /^[[:space:]]*[Aa][Dd][Dd][[:space:]]/) print start "\t" logical
+    }
+  ' "${file}")
+  return 0
+}
+
+# A file whose download lines outnumber its checksum verifications downloads a file by URL without a checksum.
 check_downloads() {
-  local file
+  local file downloads verifications
+  [[ -f Dockerfile ]] && check_dockerfile_add Dockerfile
   for file in Dockerfile "${make_files[@]+"${make_files[@]}"}" "${workflows[@]+"${workflows[@]}"}" $(shell_scripts); do
     [[ -f "${file}" ]] || continue
-    # A request whose only address is the loopback interface (a probe of the service under test, as the Bats
-    # files of the lifecycle targets send) fetches no file from elsewhere and is not a download. A loopback URL
-    # is the host localhost, 127.0.0.1 or [::1], an optional port, an optional path without `@`, then a quote,
-    # white space or the end of the line (so `http://localhost@host/` names a remote host). A line is a probe and
-    # left out only when, once its loopback URLs are removed, it holds exactly one curl or wget, no other URL, no
-    # `$` expansion and no backtick (an address computed elsewhere), no dotted word (a host, an IPv4 address or a
-    # file name), no word with a `/` that starts like a host name or a bracketed IPv6 address, also after `=`
-    # (`intranet/tool`, `'[2001:db8::1]/tool'`, `--url=intranet/tool`: an address without a scheme;
-    # `--input-file=lists/tools`: a file of addresses), no option
-    # that names the address or sends the request elsewhere (`--url`, `--resolve`, `--connect-to`, `-x`,
-    # `--proxy*`, `--preproxy`, `--socks*`) or proxy variable (`https_proxy=`), and no continuation backslash. A
-    # probe may stand in a command substitution that starts with it (`status=$(curl -s -o /dev/null -w
-    # '%{http_code}' http://...)`); the backtick form is not read as a probe. The decision reads that copy; every
-    # other line goes unchanged to the download pattern, so a loopback proxy still counts as the URL of the
-    # command. Known limits: an expansion in the port position of a loopback URL (`http://127.0.0.1:${APP_PORT}/`)
-    # is trusted; a bare word without a dot or a `/` (a one-label host such as `intranet`) cannot be told from an
-    # option argument (`--max-time 10`, `--noproxy '*'`, which the probes of the tree use) and is trusted; a proxy
-    # exported on an earlier line is not seen.
-    if grep -vE '^[[:space:]]*#' "${file}" \
-      | awk '{
-          rest = $0
-          n = gsub(/[A-Za-z]+:\/\/(localhost|127\.0\.0\.1|\[::1\])(:[^\/?@[:space:]"\047]*)?([\/?][^@[:space:]"\047]*)?(["\047]|[[:space:]]|$)/, " ", rest)
-          gsub(/\$\(curl/, " curl", rest)
-          gsub(/\$\(wget/, " wget", rest)
-          probe = n > 0 && rest !~ /:\/\// && rest !~ /\$/ && rest !~ /`/ && rest !~ /\\[[:space:]]*$/ && rest !~ /[A-Za-z0-9]\.[A-Za-z0-9]/
-          if (probe && rest ~ /(^|[[:space:]=])["\047]?([A-Za-z0-9_][A-Za-z0-9_.:@%+~-]*\/|\[[0-9A-Fa-f.]*:[0-9A-Fa-f:.]*\])/) probe = 0
-          if (probe && rest ~ /(^|[[:space:]])(--(resolve|connect-to|proxy|preproxy|socks|url)|-[A-Za-z]*x)/) probe = 0
-          if (probe && tolower(rest) ~ /(^|[^a-z0-9_])(https?|all|ftp)_proxy=/) probe = 0
-          if (probe && gsub(/(^|[^A-Za-z0-9_-])(curl|wget)([^A-Za-z0-9_-]|$)/, "&", rest) != 1) probe = 0
-          if (!probe) print
-        }' \
-      | grep -qE '\b(curl|wget)\b[^#]*(https?://|--output|--remote-name|[[:space:]]-[A-Za-z]*[oOL][A-Za-z]*[[:space:]]|--location|--fail)'; then
-      if ! grep -qiE 'sha256|sha512|shasum|checksum' "${file}"; then
-        report b "${file}: a file is downloaded by URL without a checksum"
-      fi
+    downloads=$(download_count "${file}")
+    ((downloads > 0)) || continue
+    verifications=$(verification_count "${file}")
+    if ((downloads > verifications)); then
+      report b "${file}: a file is downloaded by URL without a checksum"
     fi
   done
   return 0
@@ -594,12 +773,6 @@ workflow_make_targets() {
     done < <(workflow_run_lines "${file}" | grep -E 'make' || true)
   done | LC_ALL=C sort -u
   return 0
-}
-
-# True when the workflow has a pull_request trigger (`on: pull_request`, `on: [push, pull_request]`, a
-# `pull_request:` key or a `- pull_request` list entry).
-has_pull_request_trigger() {
-  grep -qE '^[[:space:]]*(-[[:space:]]*)?pull_request[[:space:]]*(:|$)|^on:[[:space:]]*\[?.*\bpull_request\b' "$1"
 }
 
 rule_d_gates() {

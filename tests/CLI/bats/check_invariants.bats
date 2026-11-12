@@ -25,13 +25,19 @@ teardown() {
 
 # --- the tree ----------------------------------------------------------------------------------------------
 
-# Writes a file of the tree from standard input; the placeholders @T@ (a tab at the start of a line), @D64@ and
-# @D40@ and @NAME@ (the repository name) are replaced.
+# Replaces the placeholders of standard input: @T@ (a tab at the start of a line), @D64@ and @D40@, @NAME@ (the
+# repository name), and @CURL@ and @WGET@ (the download commands: this file is a shell script that rule (b) reads,
+# so a planted download written out would count as a download of this file).
+expand() {
+  sed -e 's/^@T@/\t/' -e "s/@D64@/${d64}/g" -e "s/@D40@/${d40}/g" -e "s/@NAME@/${repo_name}/g" \
+    -e 's/@CURL@/curl/g' -e 's/@WGET@/wget/g'
+}
+
+# Writes a file of the tree from standard input, placeholders replaced.
 put() {
   local path="${tree}/$1"
   mkdir -p "$(dirname "${path}")"
-  cat >"${path}"
-  sed -i -e 's/^@T@/\t/' -e "s/@D64@/${d64}/g" -e "s/@D40@/${d40}/g" -e "s/@NAME@/${repo_name}/g" "${path}"
+  expand >"${path}"
 }
 
 # Writes a Bats file of the tree with the given file tags (the tag lines are assembled, because Bats reads a tag
@@ -231,7 +237,7 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
-      security-events: write
+      pull-requests: read
     steps:
       - uses: actions/checkout@@D40@ # v7.0.1
       - run: |
@@ -292,10 +298,10 @@ replace() {
   printf '%s\n' "${content/"${old}"/"${new}"}" >"${path}"
 }
 
-# Appends text to a file of the tree; @T@ at the start of a line becomes a tab.
+# Appends text to a file of the tree, placeholders replaced.
 append() {
   mkdir -p "$(dirname "${tree}/$1")"
-  printf '%s\n' "$2" | sed 's/^@T@/\t/' >>"${tree}/$1"
+  printf '%s\n' "$2" | expand >>"${tree}/$1"
 }
 
 # --- the valid tree and the command line ---------------------------------------------------------------------
@@ -381,7 +387,7 @@ EOF
 }
 
 @test "(a) a job-level permissions block without contents: read is refused" {
-  replace .github/workflows/quality.yml $'      contents: read\n      security-events: write' '      security-events: write'
+  replace .github/workflows/quality.yml $'      contents: read\n      pull-requests: read' '      pull-requests: read'
   check
   assert_violation a 'job lint has a permissions block without contents: read'
 }
@@ -399,6 +405,152 @@ EOF
   replace .github/workflows/quality.yml 'permissions: write-all' $'permissions:\n  contents: read # never write here'
   check
   assert_success
+}
+
+# A workflow that a push starts, with one job and the given job-level permissions block (two lines).
+put_push_workflow() {
+  local file="$1" job="$2" scope="$3"
+  put ".github/workflows/${file}" <<EOF
+name: Push
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: ${file}
+  cancel-in-progress: false
+jobs:
+  ${job}:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      ${scope}
+    steps:
+      - run: echo ${job}
+EOF
+}
+
+@test "(a) a pull-request workflow job with pull-requests: write is refused" {
+  replace .github/workflows/quality.yml '      pull-requests: read' '      pull-requests: write # comment on the pull request'
+  check
+  assert_violation a 'quality.yml: job lint grants pull-requests: write$'
+  # The same scope in an inline mapping and a quoted value.
+  replace .github/workflows/quality.yml $'    permissions:\n      contents: read\n      pull-requests: write # comment on the pull request' \
+    "    permissions: { contents: read, issues: 'write' }"
+  check
+  assert_violation a 'quality.yml: job lint grants issues: write$'
+}
+
+@test "(a) a job outside release and sync with packages: write is refused" {
+  put_push_workflow publish.yml publish 'packages: write'
+  check
+  assert_violation a 'publish.yml: job publish grants packages: write$'
+  # The release job of a workflow that a push starts may write the scope it uses.
+  put_push_workflow publish.yml release 'packages: write'
+  check
+  assert_success
+  assert_output ''
+}
+
+@test "(a) the release and sync jobs of a pull-request workflow may not write" {
+  append .github/workflows/quality.yml '  sync:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - run: echo sync'
+  append docs/repository-settings.md "| \`sync\` | Sync |"
+  check
+  assert_violation a 'quality.yml: job sync grants contents: write$'
+  assert_line '(a) .github/workflows/quality.yml: job sync grants pull-requests: write'
+  # A pull_request_target trigger is a pull request too.
+  put_push_workflow target.yml release 'contents: write'
+  replace .github/workflows/target.yml $'  push:\n    branches: [main]' '  pull_request_target:'
+  check
+  assert_line '(a) .github/workflows/target.yml: job release grants contents: write'
+}
+
+@test "(a) a job-level permissions: write-all is refused, also in the release job" {
+  replace .github/workflows/quality.yml $'    permissions:\n      contents: read\n      pull-requests: read' '    permissions: write-all'
+  check
+  assert_violation a 'quality.yml: job lint grants write-all'
+  replace .github/workflows/quality.yml '    permissions: write-all' $'    permissions:\n      contents: read\n      pull-requests: read'
+  put_push_workflow publish.yml release 'packages: write'
+  replace .github/workflows/publish.yml $'    permissions:\n      contents: read\n      packages: write' '    permissions: write-all'
+  check
+  assert_violation a 'publish.yml: job release grants write-all'
+}
+
+@test "(a) a write permission among the inputs of a step is no scope of the job token" {
+  append .github/workflows/quality.yml '      - uses: actions/create-github-app-token@@D40@ # v3.3.0
+        with:
+          permission-contents: write
+          permission-pull-requests: write'
+  check
+  assert_success
+  assert_output ''
+}
+
+@test "(a) security-events: write in the code-scanning jobs is accepted" {
+  # In any other job the scope is refused.
+  replace .github/workflows/quality.yml '      pull-requests: read' '      security-events: write'
+  check
+  assert_violation a 'quality.yml: job lint grants security-events: write$'
+  replace .github/workflows/quality.yml '      security-events: write' '      pull-requests: read'
+  local job
+  for job in codeql clippy-sarif-upload; do
+    append .github/workflows/quality.yml "  ${job}:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write # upload of the results
+    steps:
+      - run: echo ${job}"
+    append docs/repository-settings.md "| \`${job}\` | ${job} |"
+  done
+  put_push_workflow scheduled.yml code-scanning 'security-events: write'
+  check
+  assert_success
+  assert_output ''
+}
+
+@test "(a) a job timeout above 45 minutes is refused" {
+  replace .github/workflows/quality.yml '    timeout-minutes: 10' '    timeout-minutes: 46'
+  check
+  assert_violation a 'quality.yml: job fmt has timeout-minutes 46, above the limit of 45 of NFR39'
+}
+
+@test "(a) a job timeout that is not an integer literal is refused" {
+  replace .github/workflows/quality.yml '    timeout-minutes: 10' "    timeout-minutes: \${{ fromJSON('360') }}"
+  check
+  assert_violation a 'quality.yml: job fmt has timeout-minutes .*, which is not an integer literal \(limit 45 of NFR39\)'
+}
+
+@test "(a) the clean-clone job above 75 minutes is refused" {
+  put_push_workflow scheduled.yml clean-bootstrap-ci 'actions: read'
+  replace .github/workflows/scheduled.yml '    timeout-minutes: 15' '    timeout-minutes: 76'
+  check
+  assert_violation a 'scheduled.yml: job clean-bootstrap-ci has timeout-minutes 76, above the limit of 75 of NFR39'
+}
+
+@test "(a) timeouts of exactly 45 and 75 are accepted" {
+  replace .github/workflows/quality.yml '    timeout-minutes: 10' '    timeout-minutes: 45 # the limit'
+  put_push_workflow scheduled.yml clean-bootstrap-ci 'actions: read'
+  replace .github/workflows/scheduled.yml '    timeout-minutes: 15' '    timeout-minutes: 75'
+  check
+  assert_success
+  assert_output ''
+  # The limit of 75 belongs to clean-bootstrap-ci of scheduled.yml alone.
+  replace .github/workflows/quality.yml '  fmt:' '  clean-bootstrap-ci:'
+  replace docs/repository-settings.md "| \`fmt\` |" "| \`clean-bootstrap-ci\` |"
+  replace .github/workflows/quality.yml '    timeout-minutes: 45 # the limit' '    timeout-minutes: 75'
+  check
+  assert_violation a 'quality.yml: job clean-bootstrap-ci has timeout-minutes 75, above the limit of 45 of NFR39'
 }
 
 # --- rule (b) ------------------------------------------------------------------------------------------------
@@ -566,7 +718,7 @@ EOF
 @test "(b) a file downloaded by URL without a checksum is refused" {
   put scripts/fetch.sh <<'EOF'
 #!/usr/bin/env bash
-curl --fail --location --output /tmp/tool.tar.gz https://example.org/tool.tar.gz
+@CURL@ --fail --location --output /tmp/tool.tar.gz https://example.org/tool.tar.gz
 EOF
   check
   assert_violation b 'scripts/fetch.sh.*downloaded by URL without a checksum'
@@ -575,14 +727,14 @@ EOF
 @test "(b) a download without a checksum in a script outside scripts/ is refused" {
   put tests/Load/fetch.sh <<'EOF'
 #!/usr/bin/env bash
-curl --fail --location --output /tmp/tool.tar.gz https://example.org/tool.tar.gz
+@CURL@ --fail --location --output /tmp/tool.tar.gz https://example.org/tool.tar.gz
 EOF
   put .githooks/pre-push <<'EOF'
 #!/usr/bin/env bash
-wget https://example.org/hook.tar.gz
+@WGET@ https://example.org/hook.tar.gz
 EOF
   put tests/CLI/bats/helper.bash <<'EOF'
-curl --fail --location --output /tmp/x https://example.org/x
+@CURL@ --fail --location --output /tmp/x https://example.org/x
 EOF
   check
   assert_violation b 'tests/Load/fetch.sh: a file is downloaded by URL without a checksum'
@@ -593,7 +745,7 @@ EOF
 @test "(b) a download in a fixture of the Bats tests is not read" {
   put tests/CLI/bats/fixtures/fetch.sh <<'EOF'
 #!/usr/bin/env bash
-curl --fail --location --output /tmp/tool.tar.gz https://example.org/tool.tar.gz
+@CURL@ --fail --location --output /tmp/tool.tar.gz https://example.org/tool.tar.gz
 EOF
   check
   assert_success
@@ -603,10 +755,10 @@ EOF
 @test "(b) a request to the loopback interface is a probe, not a download" {
   put tests/CLI/bats/probe.bash <<'EOF'
 probe() {
-  curl --noproxy '*' --silent --output /dev/null --max-time 10 "http://127.0.0.1:${APP_PORT}/ping"
-  curl --silent --fail http://localhost:8081/health
-  wget -q -O /dev/null http://[::1]:8081/ping
-  curl -fsS http://localhost:8080/health || exit 1
+  @CURL@ --noproxy '*' --silent --output /dev/null --max-time 10 "http://127.0.0.1:${APP_PORT}/ping"
+  @CURL@ --silent --fail http://localhost:8081/health
+  @WGET@ -q -O /dev/null http://[::1]:8081/ping
+  @CURL@ -fsS http://localhost:8080/health || exit 1
 }
 EOF
   check
@@ -617,7 +769,7 @@ EOF
 @test "(b) a download from a host that only starts with localhost is refused" {
   put tests/Load/fetch.sh <<'EOF'
 #!/usr/bin/env bash
-curl --fail --output /tmp/x http://localhost.example.org/x
+@CURL@ --fail --output /tmp/x http://localhost.example.org/x
 EOF
   check
   assert_violation b 'tests/Load/fetch.sh: a file is downloaded by URL without a checksum'
@@ -626,11 +778,11 @@ EOF
 @test "(b) a remote host behind a loopback user name is refused" {
   put scripts/fetch.sh <<'EOF'
 #!/usr/bin/env bash
-curl --fail --output /tmp/x http://localhost@remote.example.org/x
+@CURL@ --fail --output /tmp/x http://localhost@remote.example.org/x
 EOF
   put scripts/fetch-port.sh <<'EOF'
 #!/usr/bin/env bash
-curl --fail --output /tmp/x http://127.0.0.1:80@remote.example.org/x
+@CURL@ --fail --output /tmp/x http://127.0.0.1:80@remote.example.org/x
 EOF
   check
   assert_violation b 'scripts/fetch.sh: a file is downloaded by URL without a checksum'
@@ -640,11 +792,11 @@ EOF
 @test "(b) a download through a loopback proxy from an address in a variable is refused" {
   put scripts/fetch.sh <<'EOF'
 #!/usr/bin/env bash
-curl --proxy http://127.0.0.1:3128 --fail --location --output tool.tgz "${TOOL_URL}"
+@CURL@ --proxy http://127.0.0.1:3128 --fail --location --output tool.tgz "${TOOL_URL}"
 EOF
   put scripts/fetch-comment.sh <<'EOF'
 #!/usr/bin/env bash
-curl -fsSL -o tool.tgz "$TOOL_URL" # like http://localhost:1/
+@CURL@ -fsSL -o tool.tgz "$TOOL_URL" # like http://localhost:1/
 EOF
   check
   assert_violation b 'scripts/fetch.sh: a file is downloaded by URL without a checksum'
@@ -654,12 +806,12 @@ EOF
 @test "(b) a download through a loopback proxy on a continued line or without a download option is refused" {
   put scripts/fetch-continued.sh <<'EOF'
 #!/usr/bin/env bash
-curl --proxy http://127.0.0.1:3128 \
+@CURL@ --proxy http://127.0.0.1:3128 \
   -fsSL -o tool.tgz https://example.org/tool.tgz
 EOF
   put scripts/fetch-piped.sh <<'EOF'
 #!/usr/bin/env bash
-curl --proxy http://127.0.0.1:3128 "${TOOL_URL}" | tar -xz
+@CURL@ --proxy http://127.0.0.1:3128 "${TOOL_URL}" | tar -xz
 EOF
   check
   assert_violation b 'scripts/fetch-continued.sh: a file is downloaded by URL without a checksum'
@@ -669,23 +821,23 @@ EOF
 @test "(b) a probe and a download on one line are refused" {
   put scripts/fetch-and.sh <<'EOF'
 #!/usr/bin/env bash
-curl -fsS http://localhost:8080/health && curl -fsSLO example.org/tool.tgz
+@CURL@ -fsS http://localhost:8080/health && @CURL@ -fsSLO example.org/tool.tgz
 EOF
   put scripts/fetch-wget.sh <<'EOF'
 #!/usr/bin/env bash
-curl -fsS http://localhost:8080/health; wget -O tool.tgz example.org/tool.tgz
+@CURL@ -fsS http://localhost:8080/health; @WGET@ -O tool.tgz example.org/tool.tgz
 EOF
   put scripts/fetch-two.sh <<'EOF'
 #!/usr/bin/env bash
-curl -fsSLo tool.tgz http://localhost:1/ example.org/tool.tgz
+@CURL@ -fsSLo tool.tgz http://localhost:1/ example.org/tool.tgz
 EOF
   put scripts/fetch-backtick.sh <<'EOF'
 #!/usr/bin/env bash
-curl -fsS http://localhost:8080/health; curl -fsSLO `cat url.txt`
+@CURL@ -fsS http://localhost:8080/health; @CURL@ -fsSLO `cat url.txt`
 EOF
   put scripts/fetch-connect.sh <<'EOF'
 #!/usr/bin/env bash
-curl --connect-to localhost:80:example.org:80 -fsSLO http://localhost/tool.tgz
+@CURL@ --connect-to localhost:80:example.org:80 -fsSLO http://localhost/tool.tgz
 EOF
   check
   assert_violation b 'scripts/fetch-and.sh: a file is downloaded by URL without a checksum'
@@ -698,63 +850,63 @@ EOF
 @test "(b) a loopback URL beside a remote address without a scheme or a name override or proxy option is refused" {
   put scripts/fetch-resolve.sh <<'EOF'
 #!/usr/bin/env bash
-curl --resolve localhost:80:93.184.216.34 -fsSLO http://localhost/tool.tgz
+@CURL@ --resolve localhost:80:93.184.216.34 -fsSLO http://localhost/tool.tgz
 EOF
   put scripts/fetch-ipv4.sh <<'EOF'
 #!/usr/bin/env bash
-curl -fsSLO http://localhost:1/ 93.184.216.34/tool
+@CURL@ -fsSLO http://localhost:1/ 93.184.216.34/tool
 EOF
   put scripts/fetch-ipv4-bare.sh <<'EOF'
 #!/usr/bin/env bash
-curl -fsSL http://localhost:1/ 93.184.216.34 >tool
+@CURL@ -fsSL http://localhost:1/ 93.184.216.34 >tool
 EOF
   put scripts/fetch-word.sh <<'EOF'
 #!/usr/bin/env bash
-curl -fsSLO http://localhost/x intranet/tool
+@CURL@ -fsSLO http://localhost/x intranet/tool
 EOF
   put scripts/fetch-socks.sh <<'EOF'
 #!/usr/bin/env bash
-curl -x socks5h://127.0.0.1:9050 -fsSLO tool
+@CURL@ -x socks5h://127.0.0.1:9050 -fsSLO tool
 EOF
   put scripts/fetch-resolve6.sh <<'EOF'
 #!/usr/bin/env bash
-curl --resolve localhost:80:[2001:db8::1] -fsSLO http://localhost/tool
+@CURL@ --resolve localhost:80:[2001:db8::1] -fsSLO http://localhost/tool
 EOF
   put scripts/fetch-connect-word.sh <<'EOF'
 #!/usr/bin/env bash
-curl --connect-to localhost:80:intranet:80 -fsSLO http://localhost/tool
+@CURL@ --connect-to localhost:80:intranet:80 -fsSLO http://localhost/tool
 EOF
   put scripts/fetch-preproxy.sh <<'EOF'
 #!/usr/bin/env bash
-curl --preproxy socks5://127.0.0.1:1080 -fsSLO http://localhost/tool
+@CURL@ --preproxy socks5://127.0.0.1:1080 -fsSLO http://localhost/tool
 EOF
   put scripts/fetch-socks-option.sh <<'EOF'
 #!/usr/bin/env bash
-curl --socks5-hostname 127.0.0.1:9050 -fsSLO http://localhost/tool
+@CURL@ --socks5-hostname 127.0.0.1:9050 -fsSLO http://localhost/tool
 EOF
   put scripts/fetch-proxy-cluster.sh <<'EOF'
 #!/usr/bin/env bash
-curl -fsSLOx http://127.0.0.1:3128 http://localhost/tool
+@CURL@ -fsSLOx http://127.0.0.1:3128 http://localhost/tool
 EOF
   put scripts/fetch-proxy-variable.sh <<'EOF'
 #!/usr/bin/env bash
-https_proxy=http://127.0.0.1:3128 curl -fsSLO http://localhost/tool
+https_proxy=http://127.0.0.1:3128 @CURL@ -fsSLO http://localhost/tool
 EOF
   put scripts/fetch-url-option.sh <<'EOF'
 #!/usr/bin/env bash
-curl -fsSLO --url=intranet/tool http://localhost/
+@CURL@ -fsSLO --url=intranet/tool http://localhost/
 EOF
   put scripts/fetch-url-word.sh <<'EOF'
 #!/usr/bin/env bash
-curl -fsSLO --url intranet http://localhost/
+@CURL@ -fsSLO --url intranet http://localhost/
 EOF
   put scripts/fetch-ipv6-bare.sh <<'EOF'
 #!/usr/bin/env bash
-curl -fsSLO http://localhost/x '[2001:db8::1]/tool'
+@CURL@ -fsSLO http://localhost/x '[2001:db8::1]/tool'
 EOF
   put scripts/fetch-input-file.sh <<'EOF'
 #!/usr/bin/env bash
-wget -q --input-file=lists/tools http://localhost/
+@WGET@ -q --input-file=lists/tools http://localhost/
 EOF
   check
   assert_failure
@@ -768,8 +920,8 @@ EOF
 @test "(b) a probe in a command substitution is a probe, a download in one is not" {
   put tests/CLI/bats/probe.bash <<'EOF'
 probe() {
-  status=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/ping)
-  body="$(wget -q -O - http://[::1]:8081/ping)"
+  status=$(@CURL@ -s -o /dev/null -w '%{http_code}' http://localhost:8080/ping)
+  body="$(@WGET@ -q -O - http://[::1]:8081/ping)"
 }
 EOF
   check
@@ -777,7 +929,7 @@ EOF
   assert_output ''
   put scripts/fetch-substitution.sh <<'EOF'
 #!/usr/bin/env bash
-out=$(curl -fsSLo tool http://localhost:1/ "$TOOL_URL")
+out=$(@CURL@ -fsSLo tool http://localhost:1/ "$TOOL_URL")
 EOF
   check
   assert_violation b 'scripts/fetch-substitution.sh: a file is downloaded by URL without a checksum'
@@ -786,11 +938,100 @@ EOF
 @test "(b) a downloaded file with a checksum passes" {
   put scripts/fetch.sh <<'EOF'
 #!/usr/bin/env bash
-curl --fail --location --output /tmp/tool.tar.gz https://example.org/tool.tar.gz
+@CURL@ --fail --location --output /tmp/tool.tar.gz https://example.org/tool.tar.gz
 echo "expected  /tmp/tool.tar.gz" | sha256sum --check -
 EOF
   check
   assert_success
+}
+
+@test "(b) a download in the Dockerfile without a checksum is refused although its images carry digests" {
+  append Dockerfile 'RUN @CURL@ --fail --location --output /tmp/tool.tar.gz https://example.org/tool.tar.gz'
+  check
+  assert_violation b 'Dockerfile: a file is downloaded by URL without a checksum'
+  append Dockerfile 'RUN echo "@D64@  /tmp/tool.tar.gz" | sha256sum --check -'
+  check
+  assert_success
+  assert_output ''
+}
+
+@test "(b) a download in make/tool-versions.mk beside its SHA-256 pins is refused" {
+  append make/tool-versions.mk $'fetch-tool:\n@T@@CURL@ --fail --location --output /tmp/tool.tar.gz https://example.org/tool.tar.gz'
+  check
+  assert_violation b 'make/tool-versions.mk: a file is downloaded by URL without a checksum'
+}
+
+@test "(b) ADD of a URL without --checksum is refused and with --checksum=sha256:<64 hex> passes" {
+  append Dockerfile 'ADD https://example.org/tool.tar.gz /tmp/tool.tar.gz'
+  check
+  assert_violation b 'Dockerfile:12: ADD downloads https://example.org/tool.tar.gz without --checksum=$'
+  replace Dockerfile 'ADD https://' 'ADD --checksum=sha256:abc https://'
+  check
+  assert_violation b 'Dockerfile:12: ADD downloads https://example.org/tool.tar.gz with --checksum=sha256:abc, which is not a sha256, sha384 or sha512 digest'
+  replace Dockerfile 'ADD --checksum=sha256:abc https://' "ADD --checksum=sha256:${d64} https://"
+  check
+  assert_success
+  assert_output ''
+  # An instruction in lower case, continued on the next line, in the JSON form.
+  append Dockerfile $'add --chown=1000:1000 \\\n  ["https://example.org/other.tar.gz", "/tmp/other.tar.gz"]'
+  check
+  assert_violation b 'Dockerfile:13: ADD downloads https://example.org/other.tar.gz without --checksum=$'
+}
+
+@test "(b) a second download without a checksum in a script that verifies the first is refused" {
+  put scripts/fetch.sh <<'EOF'
+#!/usr/bin/env bash
+@CURL@ --fail --location --output /tmp/tool.tar.gz https://example.org/tool.tar.gz
+echo "expected  /tmp/tool.tar.gz" | sha256sum --check -
+@WGET@ --output-document /tmp/other.tar.gz https://example.org/other.tar.gz
+EOF
+  check
+  assert_violation b 'scripts/fetch.sh: a file is downloaded by URL without a checksum'
+}
+
+@test "(b) each call of a function that runs a checksum command verifies one download, its body none" {
+  put scripts/fetch.sh <<'EOF'
+#!/usr/bin/env bash
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | cut -d ' ' -f 1
+  else
+    shasum -a 256 "$1" | cut -d ' ' -f 1
+  fi
+}
+@CURL@ --fail --location --output /tmp/tool.tar.gz https://example.org/tool.tar.gz
+[ "$(sha256_of /tmp/tool.tar.gz)" = "${TOOL_SHA256}" ] || exit 1
+EOF
+  check
+  assert_success
+  assert_output ''
+  append scripts/fetch.sh '@CURL@ --fail --location --output /tmp/other.tar.gz https://example.org/other.tar.gz'
+  check
+  assert_violation b 'scripts/fetch.sh: a file is downloaded by URL without a checksum'
+  # A second call verifies the second download.
+  append scripts/fetch.sh "test \"\$(sha256_of /tmp/other.tar.gz)\" = \"\${OTHER_SHA256}\""
+  check
+  assert_success
+}
+
+@test "(b) a comment that mentions a checksum does not excuse a download" {
+  put scripts/fetch.sh <<'EOF'
+#!/usr/bin/env bash
+# Download the archive; sha256sum --check verifies its checksum.
+@CURL@ --fail --location --output /tmp/tool.tar.gz https://example.org/tool.tar.gz # then sha256sum --check
+EOF
+  check
+  assert_violation b 'scripts/fetch.sh: a file is downloaded by URL without a checksum'
+}
+
+@test "(b) a message or a lookup that names a checksum command does not excuse a download" {
+  put scripts/fetch.sh <<'EOF'
+#!/usr/bin/env bash
+command -v sha256sum >/dev/null || echo "install sha256sum to verify the checksum"
+@CURL@ --fail --location --output /tmp/tool.tar.gz https://example.org/tool.tar.gz
+EOF
+  check
+  assert_violation b 'scripts/fetch.sh: a file is downloaded by URL without a checksum'
 }
 
 # --- rule (c) ------------------------------------------------------------------------------------------------
